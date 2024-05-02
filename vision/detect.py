@@ -7,7 +7,6 @@ import time
 import threading
 
 
-# fix ast
 class Detect(object):
     """docstring for Detect"""
     def __init__(self, camera):
@@ -127,7 +126,7 @@ class Detect(object):
                 } for elp, i in zip(elps, range(len(elps)))
             ]
                                    
-        elif kwargs["method_value"] == 2: # polgon
+        elif kwargs["method_value"] == 2: # polygon
             # thr
             thr_img = binary_thr(mask_img, kwargs["m_poly_type"], kwargs["m_poly_inv"], kwargs["m_poly_blur"], kwargs["m_poly_thr"], kwargs["m_poly_mean_sub"])
 

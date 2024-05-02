@@ -81,7 +81,7 @@ class default_widget(object):
             "color_picker": widgets.ColorPicker(concise=False, description='Color picker', value='blue', disabled=False, style={'text_width': '0'}),
             "color_hsv": widgets.Text(value='Hue = 119, Saturation = 255, Value = 255', placeholder='', description='', disabled=True, layout={'width': '99%'}),            
 
-            "source_value": widgets.Dropdown(value=0, options=[('Intel RealSense D405', 0), ('Image file', 1)], description='Source', continuous_update=continuous_update, layout={'display': '99%'}),
+            "source_value": widgets.Dropdown(value=0, options=[('Intel RealSense', 0), ('Image file', 1)], description='Source', continuous_update=continuous_update, layout={'display': '99%'}),
             "s_file_value": widgets.Text(value='', placeholder='Path to the file (*.jpg, *.jpeg, *.png, *.tiff, ...).Ex: test.jpg', description='File path', disabled=False, layout={'width': '99%'}),            
             "s_apply": widgets.Button( description='Capture', disabled=False, button_style="", tooltip='Capture'),
             "s_save_path": widgets.Text(value='', placeholder='*.pkl', description='Save as', disabled=False, layout={'width': '99%'}),            
