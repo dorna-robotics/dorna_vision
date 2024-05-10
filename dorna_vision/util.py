@@ -137,11 +137,7 @@ def find_aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marke
     prms =  cv.aruco.DetectorParameters()
     prms.cornerRefinementMethod = getattr(cv.aruco, refine)
     
-    # detector
-    #detector = cv.aruco.ArucoDetector(dictionary, prms)
-
     # Detect ArUco markers in the image
-    #aruco_corner, aruco_id, aruco_reject = detector.detectMarkers(img_gray, dictionary, parameters=prms)
     aruco_corner, aruco_id, aruco_reject = cv.aruco.detectMarkers(img_gray, dictionary, parameters=prms)
 
 
