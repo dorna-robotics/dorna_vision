@@ -32,7 +32,7 @@ refine method
 """
 class Aruco(object):
     """docstring for aruco"""
-    def __init__(self, dictionary = "DICT_6X6_250", refine="CORNER_REFINE_NONE", subpix=False, marker_length=10, marker_size=100):
+    def __init__(self, dictionary = "DICT_6X6_250", refine="CORNER_REFINE_APRILTAG", subpix=False, marker_length=10, marker_size=100):
         super(Aruco, self).__init__()
         self.dictionary = cv.aruco.getPredefinedDictionary(getattr(cv.aruco, dictionary))
         self.refine = refine
@@ -71,7 +71,7 @@ class Aruco(object):
         # Estimate pose
         rvecs, tvecs, _ = cv.aruco.estimatePoseSingleMarkers(aruco_corner, markerLength=self.marker_length, cameraMatrix=camera_matrix, distCoeffs=dist_coeffs)
 
-        return rvecs, tvecs, img_gray
+        return rvecs, tvecs, aruco_corner, aruco_id, img_gray
 
 
 class Charuco(object):
@@ -79,6 +79,7 @@ class Charuco(object):
     def __init__(self, sqr_x=8, sqr_y=8, sqr_length=12, marker_length=8, dictionary="DICT_6X6_250", refine="CORNER_REFINE_APRILTAG", subpix=False):
         super(Charuco, self).__init__()
         self.aruco = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length)
+        self.subpix = subpix
         self.board = cv.aruco.CharucoBoard((sqr_x, sqr_y), sqr_length, marker_length, self.aruco.dictionary)
 
     """
@@ -109,11 +110,12 @@ class Charuco(object):
 
             if response:
                 # refine
-                charuco_corner = cv.cornerSubPix(img_gray,
-                    charuco_corner,
-                    (11,11),
-                    (-1,-1),
-                    (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 1, 0.001))
+                if self.subpix:
+                    charuco_corner = cv.cornerSubPix(img_gray,
+                        charuco_corner,
+                        (11,11),
+                        (-1,-1),
+                        (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 1, 0.001))
 
                 cv.aruco.drawDetectedCornersCharuco(img, charuco_corner, charuco_id, cornerColor=(0, 255, 0))
 
@@ -129,6 +131,7 @@ class Charuco(object):
         response, charuco_corner, charuco_id, img_gray = self.corner(img)
 
         if response:
+
             # estimate pose
             retval, rvec, tvec = cv.aruco.estimatePoseCharucoBoard(charuco_corner, charuco_id, self.board, camera_matrix, dist_coeffs, rvec, tvec)    
 
@@ -159,7 +162,14 @@ class Charuco(object):
 
 def main_charuco_create():
     test = Charuco(8, 8, 12, 8)
-    test.create()
+    #test.create()
+    
+    img = cv.imread("board.png")
+    response, corner, ids, img_gray = test.corner(img)
+    print(ids)
+    cv.imshow("charuco", img)
+    cv.waitKey(0)
+    
 
 
 def main_aruco_create():
@@ -168,5 +178,5 @@ def main_aruco_create():
 
 
 if __name__ == '__main__':
-    #main_charuco_create()
-    main_aruco_create()
+    main_charuco_create()
+    #main_aruco_create()

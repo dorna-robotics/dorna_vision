@@ -2,6 +2,7 @@ import cv2 as cv
 import numpy as np
 from camera import Aruco
 import colorsys
+from board import Aruco
 
 # rgb_img -> binary
 def binary_thr(bgr_img, type=0, inv=True, blur=3, thr_val=127, mean_sub=2):    
@@ -124,52 +125,16 @@ refine method
     [("CORNER_REFINE_NONE", 0), ("CORNER_REFINE_SUBPIX", 1), ("CORNER_REFINE_CONTOUR", 2), ("CORNER_REFINE_APRILTAG", 3)]
 
 """
-def find_aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_NONE", subpix=False):
+def find_aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False):
     retval = []
 
-    # bgr to gray
-    img_gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-
-    # dictionary
-    dictionary = cv.aruco.getPredefinedDictionary(getattr(cv.aruco, dictionary))
-    
-    # prms and refine
-    prms =  cv.aruco.DetectorParameters()
-    prms.cornerRefinementMethod = getattr(cv.aruco, refine)
-    
-    # Detect ArUco markers in the image
-    aruco_corner, aruco_id, aruco_reject = cv.aruco.detectMarkers(img_gray, dictionary, parameters=prms)
-
+    # pose
+    board = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length)
+    rvecs, tvecs, aruco_corner, aruco_id, img_gray = board.pose(img, camera_matrix, dist_coeffs)
 
     # empty
     if aruco_id is None:
         return retval
-
-    # corner subpix
-    if subpix:
-        [cv.cornerSubPix(img_gray, corner, winSize=(11, 11), zeroZone=(-1, -1), criteria=(cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 1, 0.001)) for corner in aruco_corner]
-    
-    # Estimate pose
-    rvecs, tvecs, _ = cv.aruco.estimatePoseSingleMarkers(aruco_corner, markerLength=marker_length, cameraMatrix=camera_matrix, distCoeffs=dist_coeffs)
-
-    return [[id, corner, rvec, tvec] for id, corner, rvec, tvec in zip(aruco_id, aruco_corner, rvecs, tvecs)]
-
-
-def find_aruco_2(img, camera_matrix, dist_coeffs, marker_length=10, subpix=False):
-    retval = []
-    aruco = Aruco()
-    aruco_corner, aruco_id, aruco_reject, img_gray = aruco.detect(img)
-
-    # empty
-    if aruco_id is None:
-        return retval
-
-    # corner subpix
-    if subpix:
-        [cv.cornerSubPix(img_gray, corner, winSize=(11, 11), zeroZone=(-1, -1), criteria=(cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 1, 0.001)) for corner in aruco_corner]
-    
-    # Estimate pose
-    rvecs, tvecs, _ = cv.aruco.estimatePoseSingleMarkers(aruco_corner, markerLength=marker_length, cameraMatrix=camera_matrix, distCoeffs=dist_coeffs)
 
     return [[id, corner, rvec, tvec] for id, corner, rvec, tvec in zip(aruco_id, aruco_corner, rvecs, tvecs)]
 
