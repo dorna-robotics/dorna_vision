@@ -4,6 +4,7 @@ from dorna2 import Dorna, Kinematic
 import cv2
 import numpy as np
 import itertools
+import pickle
 """
 T_cam_2_j4 = np.matrix([[-4.93641500e-01, -8.67863349e-01,  5.59578205e-02,  6.44697848e+01],
                         [ 8.66291643e-01, -4.85045214e-01,  1.19456808e-01, -1.33825844e+02],
@@ -11,13 +12,11 @@ T_cam_2_j4 = np.matrix([[-4.93641500e-01, -8.67863349e-01,  5.59578205e-02,  6.4
                         [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]])
 """
 def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board):
-    data = {
-        
-    }
     # init window
     cv2.namedWindow('color', cv2.WINDOW_NORMAL)
 
     # initialization
+    joints = []
     R_target_2_cam_list = []
     t_target_2_cam_list = []
     R_j4_2_base_list = []
@@ -38,6 +37,7 @@ def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board)
 
         # current joint and pose
         joint = robot.get_all_joint()
+        joints.append(joint)
         T_j4_2_base = kinematic.Ti_r_world(i=5, joint=joint[0:6])
         R_j4_2_base_list.append(T_j4_2_base[:3, :3])
         t_j4_2_base_list.append(T_j4_2_base[:3, 3])
@@ -66,6 +66,18 @@ def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board)
     T_cam_2_j4[:3, 3] = np.ravel(t_cam_2_j4)
 
 
+    # save data
+    data = {
+        "joints":joints,
+        "R_target_2_cam_list": R_target_2_cam_list,
+        "t_target_2_cam_list": t_target_2_cam_list,
+        "R_j4_2_base_list":R_j4_2_base_list,
+        "t_j4_2_base_list":t_j4_2_base_list,       
+    }
+
+    with open("data.pkl", 'wb') as f:
+        pickle.dump(data, f)
+    
     return T_cam_2_j4
 
 
