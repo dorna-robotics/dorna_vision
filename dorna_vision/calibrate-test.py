@@ -6,10 +6,6 @@ import random
 from scipy.optimize import minimize
 
 
-
-
-
-
 def Euler_matrix(abg,v):
 	cv0 = np.cos(abg[0])
 	sv0 = np.sin(abg[0])
@@ -24,7 +20,11 @@ def Euler_matrix(abg,v):
 		[0,0,0,1]])
 
 
-def calibrate_eye_in_hand(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic):
+def calibrate_eye_in_hand(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, force_z_to_zero):
+
+	#set  force_z_to_zero = 0 if you don't want it to force z to be zero
+	#set  force_z_to_zero = 1 if you want it to do this 
+
 	R_j4_2_base_list = []
 	t_j4_2_base_list = []
 
@@ -60,7 +60,7 @@ def calibrate_eye_in_hand(joints, R_target_2_cam_list, t_target_2_cam_list, kine
 			v.append([g[0,3],g[1,3],g[2,3]])
 		v = np.array(v)
 		centroid = np.mean(v, axis=0)
-		squared_distances = np.sum((v - centroid)**2, axis=1)
+		squared_distances = np.sum((v - centroid)**2, axis=1) + ((np.array([g[2] for g in v]))**2 ) * force_z_to_zero
 		
 		return np.sqrt(np.mean(squared_distances))
 
@@ -69,20 +69,18 @@ def calibrate_eye_in_hand(joints, R_target_2_cam_list, t_target_2_cam_list, kine
 
 	#T_cam_2_j4[:3, 3] = f.x
 	T_cam_2_j4 = Euler_matrix([f.x[3],f.x[4],f.x[5]],[f.x[0],f.x[1],f.x[2]])
-
+	
 	return T_cam_2_j4
-
-"""test
+"""test points in the resulted joints
 	for test_index in range(len(joints)):
 		R_test = np.eye(4)
 		R_test[:3, :3] =  data_R[test_index]
 		R_test[:3, 3] = np.ravel(data["t_target_2_cam_list"][test_index])
-
-		
 		g = (np.matmul(np.matmul(kinematic.Ti_r_world(i=5, joint=joints[test_index]),np.matrix(T_cam_2_j4)), np.matrix(R_test)) )
-
 		print([g[0,3],g[1,3],g[2,3]])
 """
+	
+
 
 if __name__ == '__main__':
 
@@ -91,6 +89,6 @@ if __name__ == '__main__':
 
 	kinematic = Kinematic(model = "dorna_ta")
 
-	T_cam_2_flange = calibrate_eye_in_hand(data["joints"], data["R_target_2_cam_list"], data["t_target_2_cam_list"], kinematic)
+	T_cam_2_flange = calibrate_eye_in_hand(data["joints"], data["R_target_2_cam_list"], data["t_target_2_cam_list"], kinematic, 0)
 
 	print(T_cam_2_flange)
