@@ -81,12 +81,16 @@ class Charuco(object):
         self.aruco = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length)
         self.subpix = subpix
         self.board = cv.aruco.CharucoBoard((sqr_x, sqr_y), sqr_length, marker_length, self.aruco.dictionary)
+        self.sqr_x = sqr_x
+        self.sqr_y = sqr_y
+
 
     """
     save charuco board, and save the result in a file
     """
     def create(self, board_path="board.png", width=1000, height=1000, margin=0):
         cv.imwrite(board_path, self.board.generateImage((width,height), margin, margin))
+
 
     """
     detect charuco chess board corners
@@ -141,7 +145,7 @@ class Charuco(object):
         return rvec, tvec, charuco_id, img_gray 
         
 
-    def chess_corner(self, img, ptrn):
+    def chess_corner(self, img):
         # termination criteria
         criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 1, 0.001)
 
@@ -149,28 +153,31 @@ class Charuco(object):
         gray_img = cv.cvtColor(img,cv.COLOR_BGR2GRAY)
 
         # Find the chess board corners
-        ret, corners = cv.findChessboardCorners(gray_img, ptrn,None)
-        img = cv.drawChessboardCorners(img, ptrn, corners,ret)
+        ret, corners = cv.findChessboardCorners(gray_img, (self.sqr_y-1, self.sqr_x-1), None)
+        color_img = cv.drawChessboardCorners(img, (self.sqr_y-1, self.sqr_x-1), corners, ret)
 
         # If found, add object points, image points (after refining them)
         corners2 = []
         if ret == True:
-           corners2 = cv.cornerSubPix(gray_img,corners,(11,11),(-1,-1),criteria)
+            corners2 = cv.cornerSubPix(gray_img, corners,(11,11),(-1,-1),criteria)
 
         return ret , corners2
 
 
-def main_charuco_create():
+def main_chess_corenr():
     test = Charuco(8, 8, 12, 8)
-    #test.create()
-    
+
     img = cv.imread("board.png")
-    response, corner, ids, img_gray = test.corner(img)
-    print(ids)
+    response, corners = test.chess_corner(img)
+    print(corners)
     cv.imshow("charuco", img)
     cv.waitKey(0)
-    
 
+
+def main_charuco_create():
+    test = Charuco(8, 8, 12, 8)
+    test.create("board.png")
+    
 
 def main_aruco_create():
     arc = Aruco()
@@ -180,3 +187,4 @@ def main_aruco_create():
 if __name__ == '__main__':
     main_charuco_create()
     #main_aruco_create()
+    #main_chess_corenr()
