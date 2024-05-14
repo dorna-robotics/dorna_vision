@@ -103,7 +103,7 @@ def calibrate_eye_in_hand(joints, R_target_2_cam_list, t_target_2_cam_list, kine
 
 if __name__ == '__main__':
 
-	with open('data_1.pkl', 'rb') as f:
+	with open('data.pkl', 'rb') as f:
 		data = pickle.load(f)
 
 	kinematic = Kinematic(model = "dorna_ta")
