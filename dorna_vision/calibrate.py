@@ -1,5 +1,6 @@
 from camera import Camera
 from board import Charuco
+from minimizer import minimizer
 from dorna2 import Dorna, Kinematic
 import cv2
 import numpy as np
@@ -69,6 +70,14 @@ def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board)
     T_cam_2_j4[:3, :3] = R_cam_2_j4
     T_cam_2_j4[:3, 3] = np.ravel(t_cam_2_j4)
     """
+    T_cam_2_j4 = minimizer( joints = joints, 
+                            R_target_2_cam_list = R_target_2_cam_list, 
+                            t_target_2_cam_list = t_target_2_cam_list, 
+                            kinematic = kinematic, 
+                            force_z = None, 
+                            use_rotation = False)
+
+
 
     # save data
     data = {
