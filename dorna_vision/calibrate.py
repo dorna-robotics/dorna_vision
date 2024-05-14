@@ -47,13 +47,7 @@ def minimizer(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, force
         cv2.Rodrigues(r, rotation_matrix)
         data_R.append(np.array(rotation_matrix))
 
-    #R_cam_2_j4, t_cam_2_j4 = cv2.calibrateHandEye(R_j4_2_base_list, t_j4_2_base_list, data_R, data_t 
-    #   , method =  cv2.CALIB_ROBOT_WORLD_HAND_EYE_LI)
-
     T_cam_2_j4 = np.eye(4)
-    #T_cam_2_j4[:3, :3] = R_cam_2_j4
-    #T_cam_2_j4[:3, 3] = np.ravel(t_cam_2_j4)
-
 
     def likelihood(p):
         T = Euler_matrix([p[3],p[4],p[5]],[p[0],p[1],p[2]])
@@ -89,8 +83,8 @@ def minimizer(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, force
         return np.sqrt(squared_distances)
 
 
-    f = minimize(likelihood, [0,0,0,0,0,0])#np.transpose(t_cam_2_j4).tolist()[0])
-    #T_cam_2_j4[:3, 3] = f.x
+    f = minimize(likelihood, [0,0,0,0,0,0])
+
     T_cam_2_j4 = Euler_matrix([f.x[3],f.x[4],f.x[5]],[f.x[0],f.x[1],f.x[2]])
 
     return T_cam_2_j4
