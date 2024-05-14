@@ -13,8 +13,6 @@ T_cam_2_j4 = np.matrix([[-4.93641500e-01, -8.67863349e-01,  5.59578205e-02,  6.4
                         [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]])
 """
 def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board):
-    xyz_old = np.array([0,0,0])
-    t_target_2_cam_old = np.matrix([[0], [0], [0]])
     # init window
     cv2.namedWindow('color', cv2.WINDOW_NORMAL)
 
@@ -32,17 +30,17 @@ def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board)
 
     for joint in all_joints:
         # move to the joint
-        #robot.jmove(rel=0, vel=50, accel=800, jerk=1000, j0=joint[0], j1=joint[1], j2=joint[2], j3=joint[3], j4=joint[4], j5=joint[5])
-        #robot.sleep(1)
+        robot.jmove(rel=0, vel=50, accel=800, jerk=1000, j0=joint[0], j1=joint[1], j2=joint[2], j3=joint[3], j4=joint[4], j5=joint[5])
+        robot.sleep(1)
 
         # capture image
-        for i in range(1):
-            depth_frame, _, _, _, _, color_img, depth_int, _, _= camera.get_all()
-            time.sleep(0.01)
+        _, _, _, _, _, color_img, depth_int, _, _= camera.get_all()
 
-        # current joint and pose
+        # joint
         joint = robot.get_all_joint()
         joints.append(joint)
+        
+        # pose
         T_j4_2_base = kinematic.Ti_r_world(i=5, joint=joint[0:6])
         R_j4_2_base_list.append(T_j4_2_base[:3, :3])
         t_j4_2_base_list.append(T_j4_2_base[:3, 3])
@@ -51,24 +49,6 @@ def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board)
         R_target_2_cam, t_target_2_cam, charuco_id, img_gray = charuco_board.pose(color_img, camera.camera_matrix(depth_int), camera.dist_coeffs(depth_int))   
         R_target_2_cam_list.append(R_target_2_cam)
         t_target_2_cam_list.append(t_target_2_cam)
-        #print(camera.xyz(self, pxl, depth_frame, depth_int))
-
-        ### find center
-        # Define 3D points in world coordinate system
-        center_point = np.array([0, 0, 0], dtype=np.float32)
-        img_point, _ = cv2.projectPoints(center_point, R_target_2_cam, t_target_2_cam, camera.camera_matrix(depth_int), camera.dist_coeffs(depth_int))
-        x = int(img_point[0][0][0])
-        y = int(img_point[0][0][1])
-        cv2.circle(color_img, (x, y), 10, (0, 120, 0), 2)
-        xyz, _ = camera.xyz((x, y), depth_frame, depth_int, wnd = (5,5))
-        #print("compare: ",np.linalg.norm(xyz-t_target_2_cam.flatten()))
-        #print("board: ", np.linalg.norm(t_target_2_cam_old.flatten()-t_target_2_cam.flatten()))
-        print("xyz: ", xyz)
-        print("###")
-        xyz_old = np.copy(xyz)
-        t_target_2_cam_old = np.copy(t_target_2_cam)
-        ###
-        #camera.xyz(pxl, depth_frame, depth_int)
 
         # show axis
         cv2.imshow("color",color_img)
@@ -80,6 +60,7 @@ def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board)
             break
 
 
+    """
     # run calibration    
     R_cam_2_j4, t_cam_2_j4 = cv2.calibrateHandEye(R_j4_2_base_list, t_j4_2_base_list, R_target_2_cam_list, t_target_2_cam_list)
     
@@ -87,7 +68,7 @@ def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board)
     T_cam_2_j4 = np.eye(4)
     T_cam_2_j4[:3, :3] = R_cam_2_j4
     T_cam_2_j4[:3, 3] = np.ravel(t_cam_2_j4)
-
+    """
 
     # save data
     data = {
@@ -98,21 +79,21 @@ def eye_in_hand_dorna_ta_embeded_camera(robot, kinematic, camera, charuco_board)
         "t_j4_2_base_list":t_j4_2_base_list,       
     }
 
-    """
+    
     with open("data.pkl", 'wb') as f:
         pickle.dump(data, f)
-    """
-    return T_cam_2_j4
+    
+    return True
 
 
 def main_eye_in_hand_dorna_ta_embeded_camera():
     # parameters
     robot_ip = "192.168.254.54" 
     model = "dorna_ta"
-    sqr_x=8
-    sqr_y=8
-    sqr_length=12
-    marker_length=8
+    sqr_x=4
+    sqr_y=4
+    sqr_length=24
+    marker_length=16
     dictionary="DICT_6X6_250"
     refine="CORNER_REFINE_APRILTAG"
     subpix=False
@@ -139,8 +120,6 @@ def main_eye_in_hand_dorna_ta_embeded_camera():
     # close the connections
     camera.close()
     robot.close()
-
-    print("### T_cam_2_j4 ###\n", T_cam_2_j4)
 
 
 if __name__ == '__main__':

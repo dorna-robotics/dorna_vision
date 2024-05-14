@@ -69,6 +69,7 @@ def calibrate_eye_in_hand(joints, R_target_2_cam_list, t_target_2_cam_list, kine
 
 	#T_cam_2_j4[:3, 3] = f.x
 	T_cam_2_j4 = Euler_matrix([f.x[3],f.x[4],f.x[5]],[f.x[0],f.x[1],f.x[2]])
+
 	
 	return T_cam_2_j4
 """test points in the resulted joints
