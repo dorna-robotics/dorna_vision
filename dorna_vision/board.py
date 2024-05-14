@@ -175,7 +175,7 @@ def main_chess_corenr():
 
 
 def main_charuco_create():
-    test = Charuco(4, 4, 24, 16)
+    test = Charuco(8, 8, 12, 8)
     test.create("board.png")
     
 

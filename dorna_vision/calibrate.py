@@ -90,10 +90,10 @@ def main_eye_in_hand_dorna_ta_embeded_camera():
     # parameters
     robot_ip = "192.168.254.54" 
     model = "dorna_ta"
-    sqr_x=4
-    sqr_y=4
-    sqr_length=24
-    marker_length=16
+    sqr_x=8
+    sqr_y=8
+    sqr_length=12
+    marker_length=8
     dictionary="DICT_6X6_250"
     refine="CORNER_REFINE_APRILTAG"
     subpix=False
