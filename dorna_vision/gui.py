@@ -42,8 +42,8 @@ class default_widget(object):
             "m_elp_min_line_length": widgets.IntSlider(value=10, min=1, max=1000, step=1, description='Min line length', continuous_update=continuous_update, layout={'width': '99%'}),
             "m_elp_sigma": widgets.IntSlider(value=1, min=0, max=20, step=0.1, description='Blur', continuous_update=continuous_update, layout={'width': '99%'}),
             "m_elp_gradient_threshold_value": widgets.IntSlider(value=20, min=1, max=100, step=1, description='Gradient', continuous_update=continuous_update, layout={'width': '99%'}),
-            "m_elp_axes": widgets.IntRangeSlider(value=[20, 100], min=1, max=1000, step=1, description='Axes', continuous_update=continuous_update, layout={'width': '99%'}),
-            "m_elp_ratio": widgets.FloatRangeSlider(value=[0, 1], min=0, max=1, step=0.01, description='Ratio', continuous_update=continuous_update, layout={'width': '99%'}),
+            "m_elp_axes": widgets.IntRangeSlider(value=[20, 100], min=1, max=1000, step=1, description='Axes range', continuous_update=continuous_update, layout={'width': '99%'}),
+            "m_elp_ratio": widgets.FloatRangeSlider(value=[0, 1], min=0, max=1, step=0.01, description='Axes ratio', continuous_update=continuous_update, layout={'width': '99%'}),
 
             
             "m_circle_inv": widgets.Checkbox(value=True, description='Inverse', continuous_update=continuous_update),
@@ -90,7 +90,7 @@ class default_widget(object):
             "out_prm": widgets.Textarea(value='', placeholder='', description='Configuration', disabled=True, layout={'width': '99%'}),
             "out_return": widgets.Textarea(value='', placeholder='', description='Return value', disabled=True, layout={'width': '99%'}),
             
-            "close": widgets.Button( description='Terminate the app', disabled=False, button_style="danger", tooltip='Terminate the app', icon='cross'),
+            "close": widgets.Button( description='Terminate the app', disabled=False, button_style="danger", tooltip='Terminate the app'),
 
         }
 
@@ -159,7 +159,7 @@ class App(object):
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('color_')]]+[widgets.HTML("<hr>")]+[color_picker_box]),
         ]
 
-        for i, title in enumerate(['Region of intrest', 'Intensity', 'Color mask']):
+        for i, title in enumerate(['Region of interest', 'Intensity', 'Color mask']):
             acc_adjust_img.set_title(i, title)    
 
         """source vbox"""
@@ -223,7 +223,7 @@ class App(object):
         self.poi_value = poly_select(self.widget_in["poi_value"])
 
         # Initialize poi selector
-        self.poi_selector = PolygonSelector(self.plt["poi"]["ax"], onselect=self.poi_value.onselect, useblit=True, lineprops=dict(color='orange', linestyle='--'))
+        self.poi_selector = PolygonSelector(self.plt["poi"]["ax"], onselect=self.poi_value.onselect, useblit=True, props=dict(color='orange', linestyle='--'))
         poi_box = widgets.VBox([self.widget_in["poi_value"], poi_plot])
 
         """result"""
@@ -250,7 +250,7 @@ class App(object):
         self.roi_value = poly_select(self.widget_in["roi_value"])
 
         # Initialize PolygonSelector
-        self.roi_selector = PolygonSelector(self.plt["out"]["ax"], onselect=self.roi_value.onselect, useblit=True, lineprops=dict(color='blue', linestyle='--'))
+        self.roi_selector = PolygonSelector(self.plt["out"]["ax"], onselect=self.roi_value.onselect, useblit=True, props=dict(color='blue', linestyle='--'))
 
         # interactive for source
         interactive(self.hide_show_source, source_value=self.widget_tr["source_value"])
@@ -352,7 +352,7 @@ class App(object):
         ax.add_patch(ellipse)
 
         # Draw the minimum bounding box around the ellipse in magenta
-        min_bounding_box = plt.Rectangle((-width, -height), 2 * width, 2 * height, linewidth=1, edgecolor='#FF00FF', facecolor='none', label='Rotated Bounding Box')
+        min_bounding_box = plt.Rectangle((-width, -height), 2 * width, 2 * height, linewidth=1, edgecolor='#FF00FF', facecolor='none', label='Oriented Bounding Box')
         ax.add_patch(min_bounding_box)
 
         # Draw major and minor axes

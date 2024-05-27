@@ -1,5 +1,5 @@
+notebook
 ipywidgets
-opencv-python
 numpy
 matplotlib
 ipython

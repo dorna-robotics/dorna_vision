@@ -32,7 +32,6 @@ setuptools.setup(
         "Operating System :: OS Independent",
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
-    install_requires=requirements,  # Include the requirements here
     license="MIT",
     include_package_data=True,
     zip_safe=False,
