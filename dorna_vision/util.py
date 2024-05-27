@@ -1,8 +1,7 @@
 import cv2 as cv
 import numpy as np
-from camera import Aruco
 import colorsys
-from board import Aruco
+from dorna_vision.board import Aruco
 
 # rgb_img -> binary
 def binary_thr(bgr_img, type=0, inv=True, blur=3, thr_val=127, mean_sub=2):    
@@ -246,7 +245,7 @@ def intensity(img, alpha, beta):
 pose
 """
 def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
-    valid = False
+    valid = 0
     # rotation matrix
     _cos = np.cos(np.radians(rot))
     _sin = np.sin(np.radians(rot))
@@ -274,16 +273,17 @@ def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
         X = X/np.linalg.norm(X)
         
         # Z
-        Z = np.cross(xyzs[1] - xyzs[0], xyzs[2] - xyzs[0]) 
+        #Z = np.cross(xyzs[1] - xyzs[0], xyzs[2] - xyzs[0])
+        Z = np.cross(xyzs[2] - xyzs[0], xyzs[1] - xyzs[0])
         Z = Z / np.linalg.norm(Z)
 
-        if Z[2] >= 0: #  z is always negative
+        if Z[2] <= 0: #  z is always positive
             Z = -Z
     
         # Y
         Y = np.cross(Z,X)
 
-        valid = True
+        valid = 1
     except Exception as e:
         X = np.zeros(3)
         Y = np.zeros(3)

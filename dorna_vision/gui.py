@@ -8,9 +8,9 @@ import ast
 from camera import Camera
 import pickle as pkl
 
-from draw import *
-from util import *
-from detect import *
+from dorna_vision.draw import *
+from dorna_vision.util import *
+from dorna_vision.detect import *
 
 class default_widget(object):
     """docstring for ClassName"""
@@ -18,7 +18,7 @@ class default_widget(object):
         super(default_widget, self).__init__()
         continuous_update = False
         self.widget_input = {
-            "poi_value": widgets.Text(value='[]', placeholder='[]', description='POI', disabled=True, layout={'width': '99%'}),
+            "poi_value": widgets.Text(value="[]", placeholder='[]', description='POI', disabled=True, layout={'width': '99%'}),
 
             "color_enb": widgets.Checkbox(value=False, description='Apply the color mask', continuous_update=continuous_update),
             "color_h": widgets.IntRangeSlider(value=[60, 120], min=0, max=179, step=1, description='Hue', continuous_update=continuous_update, layout={'width': '99%'}),
@@ -84,9 +84,8 @@ class default_widget(object):
             "source_value": widgets.Dropdown(value=0, options=[('Intel RealSense', 0), ('Image file', 1)], description='Source', continuous_update=continuous_update, layout={'display': '99%'}),
             "s_file_value": widgets.Text(value='', placeholder='Path to the file (*.jpg, *.jpeg, *.png, *.tiff, ...).Ex: test.jpg', description='File path', disabled=False, layout={'width': '99%'}),            
             "s_apply": widgets.Button( description='Capture', disabled=False, button_style="", tooltip='Capture'),
-            "s_save_path": widgets.Text(value='', placeholder='*.pkl', description='Save as', disabled=False, layout={'width': '99%'}),            
+            "s_save_path": widgets.Text(value='', placeholder='*.jpg', description='Save image as', disabled=False, layout={'width': '99%'}),            
             "s_save": widgets.Button( description='Save', disabled=False, button_style="", tooltip='Save as'),
-
             
             "out_prm": widgets.Textarea(value='', placeholder='', description='Configuration', disabled=True, layout={'width': '99%'}),
             "out_return": widgets.Textarea(value='', placeholder='', description='Return value', disabled=True, layout={'width': '99%'}),
@@ -227,7 +226,6 @@ class App(object):
         self.poi_selector = PolygonSelector(self.plt["poi"]["ax"], onselect=self.poi_value.onselect, useblit=True, lineprops=dict(color='orange', linestyle='--'))
         poi_box = widgets.VBox([self.widget_in["poi_value"], poi_plot])
 
-
         """result"""
         result_vbox = widgets.VBox([self.widget_tr[k] for k in [key for key in self.widget_tr.keys() if key.startswith('out_')]])
 
@@ -293,17 +291,13 @@ class App(object):
         self.widget_tr["color_hsv"].value = f"Hue = {h}, Saturation = {s}, Value = {v}"
 
     
-    def save_as_source(self):
+    def save_as_source(self, b):
         file_path = self.widget_tr["s_save_path"].value
         
-        # Your variable to save
-        data_to_save = self.d.camera_data
+        # opencv
+        cv.imwrite(file_path, self.d.camera_data["color_img"])
 
-        # Save the variable to a file
-        with open(file_path, 'wb') as file:
-            pkl.dump(data_to_save, file)
-
-            
+        
     def open_pkl(self, file_path):
         with open(file_path, 'rb') as file:
             loaded_data = pkl.load(file)
@@ -345,7 +339,7 @@ class App(object):
     def poi_plt(self):
         # create
         fig, ax = plt.subplots(frameon=False)
-        fig.suptitle("Point of interest")
+        fig.suptitle("Select 3 points of interest")
         fig.canvas.header_visible = False
         fig.tight_layout()
         
@@ -388,49 +382,57 @@ class App(object):
 
 
     def _detect_pattern(self, **kwargs):
-        # adjust kwargs
-        kwargs["roi_value"] = ast.literal_eval(kwargs["roi_value"])
-        kwargs["poi_value"] = ast.literal_eval(kwargs["poi_value"])
-        
-        # run pattern detection
-        timestamp, retval, adjust_img, thr_img = self.d._pattern(self.d.camera, self.d.camera_data, **kwargs)
+        try:
+            # adjust kwargs
+            kwargs["roi_value"] = ast.literal_eval(kwargs["roi_value"])
+            kwargs["poi_value"] = ast.literal_eval(kwargs["poi_value"])
+
+            # run pattern detection
+            timestamp, retval, adjust_img, thr_img, _ = self.d._pattern(self.d.camera, self.d.camera_data, **kwargs)
 
 
-        """hide and show inputs"""
-        show_key = [[key for key in self.widget_in.keys() if key.startswith(term)] for term in ["m_elp", "m_circle", "m_poly", "m_cnt", "m_aruco"]][kwargs["method_value"]]
-        hide_key = [key for key in self.widget_in.keys() if key.startswith('m_') and key not in show_key] 
-        for k in show_key:
-            if self.widget_in[k].layout.display != "flex":
-                self.widget_in[k].layout.display = "flex"
-        for k in hide_key:
-            if self.widget_in[k].layout.display != "none":
-                self.widget_in[k].layout.display = "none"
+            """hide and show inputs"""
+            show_key = [[key for key in self.widget_in.keys() if key.startswith(term)] for term in ["m_elp", "m_circle", "m_poly", "m_cnt", "m_aruco"]][kwargs["method_value"]]
+            hide_key = [key for key in self.widget_in.keys() if key.startswith('m_') and key not in show_key] 
+            for k in show_key:
+                if self.widget_in[k].layout.display != "flex":
+                    self.widget_in[k].layout.display = "flex"
+            for k in hide_key:
+                if self.widget_in[k].layout.display != "none":
+                    self.widget_in[k].layout.display = "none"
 
-        # display thr
-        if kwargs["method_value"] in [0, 4]: # ellipse, aruco      
-            # img
-            self.plt["method"]["img_plt"].set_visible(False)
-            self.plt["method"]["ax"].axis('off')
+            # display thr
+            if kwargs["method_value"] in [0, 4]: # ellipse, aruco      
+                # img
+                self.plt["method"]["img_plt"].set_visible(False)
+                self.plt["method"]["ax"].axis('off')
 
-                                   
-        elif kwargs["method_value"] in [1, 2, 3]: # polgon and contour
-            # img
-            self.plt["method"]["img_plt"].set_visible(True)
-            self.plt["method"]["ax"].axis('on')
-            self.plt["method"]["img_plt"].set_data(thr_img)
 
-            
-        # Update the existing plot
-        self.plt["out"]["img_plt"].set_data(cv.cvtColor(adjust_img, cv.COLOR_BGR2RGB))
-                
-        # Redraw the plot
-        self.plt["out"]["fig"].canvas.draw_idle()
-        self.plt["method"]["fig"].canvas.draw_idle()
-        
-        # type retval
-        self.widget_tr["out_return"].value = json.dumps(retval)
-        self.retval = retval
-        
-        # parameters
-        self.widget_tr["out_prm"].value = json.dumps(kwargs)
-        self.config = kwargs
+            elif kwargs["method_value"] in [1, 2, 3]: # polygon and contour
+                # img
+                self.plt["method"]["img_plt"].set_visible(True)
+                self.plt["method"]["ax"].axis('on')
+                self.plt["method"]["img_plt"].set_data(thr_img)
+
+
+            # Update the existing plot
+            self.plt["out"]["img_plt"].set_data(cv.cvtColor(adjust_img, cv.COLOR_BGR2RGB))
+
+            # Redraw the plot
+            self.plt["out"]["fig"].canvas.draw_idle()
+            self.plt["method"]["fig"].canvas.draw_idle()
+
+            # type retval
+            json_str = json.dumps(retval)
+            converted_retval = json.loads(json_str, parse_int=lambda x: int(x), parse_float=lambda x: float(x), parse_constant=lambda x: x, object_hook=lambda d: {k: 1 if v is True else 0 if v is False else v for k, v in d.items()}) 
+            self.widget_tr["out_return"].value = json.dumps(converted_retval)
+            self.retval = retval
+
+            # parameters
+            json_str = json.dumps(kwargs)
+            converted_kwargs = json.loads(json_str, parse_int=lambda x: int(x), parse_float=lambda x: float(x), parse_constant=lambda x: x, object_hook=lambda d: {k: 1 if v is True else 0 if v is False else v for k, v in d.items()}) 
+            self.widget_tr["out_prm"].value = json.dumps(converted_kwargs)
+            self.config = kwargs
+        except Exception as ex:
+            print(ex)
+            pass

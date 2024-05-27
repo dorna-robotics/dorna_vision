@@ -54,7 +54,7 @@ class Aruco(object):
         # prms and refine
         prms =  cv.aruco.DetectorParameters()
         prms.cornerRefinementMethod = getattr(cv.aruco, self.refine)
-
+                
         # Detect ArUco markers in the image
         aruco_corner, aruco_id, aruco_reject = cv.aruco.detectMarkers(img_gray, self.dictionary, parameters=prms)
 
@@ -69,7 +69,9 @@ class Aruco(object):
         aruco_corner, aruco_id, aruco_reject, img_gray = self.corner(img)
         
         # Estimate pose
-        rvecs, tvecs, _ = cv.aruco.estimatePoseSingleMarkers(aruco_corner, markerLength=self.marker_length, cameraMatrix=camera_matrix, distCoeffs=dist_coeffs)
+        prm = cv.aruco.EstimateParameters()
+        prm.pattern = cv.aruco.ARUCO_CW_TOP_LEFT_CORNER
+        rvecs, tvecs, _ = cv.aruco.estimatePoseSingleMarkers(aruco_corner, markerLength=self.marker_length, cameraMatrix=camera_matrix, distCoeffs=dist_coeffs, estimateParameters=prm)
 
         return rvecs, tvecs, aruco_corner, aruco_id, img_gray
 
@@ -113,7 +115,7 @@ class Charuco(object):
                 board=self.board)
 
             if response:
-                # refine
+                # subpix
                 if self.subpix:
                     charuco_corner = cv.cornerSubPix(img_gray,
                         charuco_corner,
@@ -142,7 +144,7 @@ class Charuco(object):
             # draw axis
             cv.drawFrameAxes(img, camera_matrix, dist_coeffs, rvec, tvec, self.board.getChessboardSize()[0]*self.board.getSquareLength(), 1)
 
-        return rvec, tvec, charuco_id, img_gray 
+        return rvec, tvec, charuco_corner, charuco_id, img_gray 
         
 
     def chess_corner(self, img):
@@ -162,6 +164,16 @@ class Charuco(object):
             corners2 = cv.cornerSubPix(gray_img, corners,(11,11),(-1,-1),criteria)
 
         return ret , corners2
+
+
+def main_charuco_corenr():
+    test = Charuco(8, 8, 12, 8)
+
+    img = cv.imread("board.png")
+    response, charuco_corner, charuco_id, _ = test.corner(img)
+    print(response, "\n", charuco_corner,"\n", charuco_id )
+    cv.imshow("charuco", img)
+    cv.waitKey(0)
 
 
 def main_chess_corenr():
@@ -188,3 +200,4 @@ if __name__ == '__main__':
     main_charuco_create()
     #main_aruco_create()
     #main_chess_corenr()
+    main_charuco_corenr()

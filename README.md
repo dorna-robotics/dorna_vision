@@ -26,7 +26,7 @@ Start by running a Jupyter Notebook instance and create a new `Python 3` file.
 Add the following three lines of code to your Jupyter Notebook to start the  Vision application:
 ```python
 %matplotlib widget
-from vision import App
+from dorna_vision import App
 App().detect_pattern()
 ```
 There are multiple tabs available to design and tune your vision parameters
