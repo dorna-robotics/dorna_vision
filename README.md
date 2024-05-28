@@ -50,7 +50,7 @@ This tab consists of several pattern detection algorithms that you can apply to 
 ### 6D pose
 The 6D pose of an object in a 3D space refers to its position and orientation with respect to a known coordinate system (camera frame here). It is defined by six parameters:
 - **Position:** The position of the object is still defined by the 3D coordinates `[x, y, z]` of its center in space.
-- **Orientation** (axis-angle representation): The orientation is defined by a vector `r = [a, b, c]`, which means that you have to rotate an angle `theta = norm(r)` (radian) around the axis described by unit vector `r/theta = [a/norm(r), b/norm(r), c/norm(r)]`.  
+- **Orientation:** (axis-angle representation): The orientation is defined by a vector `r = [a, b, c]`, which means that you have to rotate an angle `theta = norm(r)` (radian) around the axis described by unit vector `r/theta = [a/norm(r), b/norm(r), c/norm(r)]`.  
 To run this method, specify 3 points with respects to the oriented bounding box of the detected item. The camera use these 3 points to find a plane passing these 3 points in 3D space, and return the center of the plane, and its orientation with respect to the camera.
 
 > 🚨 **Notice:** Make sure that all the 3 points selected on the object have valid `[x, y, z]`, otherwise the 6D pose is not valid and accurate.
