@@ -25,6 +25,9 @@ class Detect(object):
         # thread list
         self.thread_list = []
 
+        self.adjust_img = np.zeros((10, 10))
+
+
     # terminate the detect
     def close(self):
         while self.thread_list:
@@ -50,6 +53,10 @@ class Detect(object):
         return self.camera_data
 
 
+    def img(self):
+        return self.adjust_img
+
+
     def pattern(self, config=None, save_path=None):
         if type(config) == dict:
             pass
@@ -68,6 +75,7 @@ class Detect(object):
 
         # run pattern detection
         timestamp, retval, adjust_img, thr_img, bgr_img = self._pattern(self.camera, camera_data, **kwargs)
+        self.adjust_img = adjust_img
 
         # save the plots
         if save_path:
