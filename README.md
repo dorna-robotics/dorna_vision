@@ -55,28 +55,36 @@ This tab consists of several pattern detection algorithms that you can apply to 
 
 #### 6D pose
 The 6D pose of an object in a three-dimensional space refers to its position and orientation with respect to the camera coordinate (frame) system. It is defined by six parameters:
-- Position: The position of the object is still defined by the 3D coordinates `(x, y, z)` of its center in space.
-- Orientation (Axis-Angle Representation)
-The orientation is defined by:
-  - A rotation axis, represented by a unit vector \(\mathbf{u} = (u_x, u_y, u_z)\).
-  - An angle of rotation, \(\theta\), which specifies how much the object is rotated around the axis \(\mathbf{u}\).
+- Position: The position of the object is still defined by the 3D coordinates `[x, y, z]` of its center in space.
+- Orientation (modified axis-angle representation): The orientation is defined by a vector `r = [a, b, c]`, which means that you have to rotate an angle `theta = norm(r)` (radian) around the axis described by unit vector `r/theta`.  
+To run this method, specify 3 points with respects to the detected object oriented bounding box. The camera use these 3 points to find a plane passing these 3 points in 3D space, and return the center of the plane, and its orientation with respect to the camera.
 
-In this section select 3 points with respect to the Oriented bounding box around the detected object.  
+> 🚨 **Notice:** Make sure that all the 3 points selected on the object have valid `[x, y, z]`, otherwise the 6D pose is not accurate.
+
 > 🚨 **Notice:** This method only works when the image source comes from the 3D camera.
 
 > 🚨 **Notice:** This method does not work with Aruco detection method, as the Aruco already provides the object 6D pose.
 
+#### Result
+- Return Value: List of all the items detected in the image. Each element in the list is a dictionary, consists of the following keys:
+  - `"id": int`: ID of the item detected, starting from `0`.
+  - `"timestamp": float`: Representing the timestamp that the camera captured the image.
+  - `"obb": [(pxl_x, pxl_y), (w,h), rot]`: Representing the oriented bounding box around the detected object. `(pxl_x, pxl_y)` is the center pixel of the `obb`, `(w,h)` is the width and height of the bounding box (when it is not rotated), and `rot` is the angle of the rotation.
+  - `"pose": [valid, rvec, tvec]`: Representing the 6D pose of the object detected. `valid` is 1 of the 3 points selected in the 6D pose section form a valid plane, otherwise 0. `rvec`, represents the orientation vector, and `tvec` represents the position vector
+
+For example, this is a sample return value
+```python
+[{"id": 8, "timestamp": 1716844763.0551214, "obb": [[78, 586], [0, 0], 0], "pose": [1, [0.2939886259984075, 0.002876835873020688, -0.19520854119772166], [-13.236917033395125, -46.815401495552216, 95.23421774762359]]}]
+```
+#### Configuration
+Is a dictionary, representing all the parameters associated to this specific detection instance. Use this configuration later to run the detection directly in your code without running the detection app GUI.
+Here is a sample detection configuration
+```python
+{"poi_value": [], "color_enb": 0, "color_h": [60, 120], "color_s": [85, 170], "color_v": [85, 170], "color_inv": 0, "roi_enb": 0, "roi_value": [], "roi_inv": 0, "intensity_enb": 0, "intensity_alpha": 2.0, "intensity_beta": 50, "method_value": 4, "m_elp_pf_mode": 0, "m_elp_nfa_validation": 1, "m_elp_min_path_length": 50, "m_elp_min_line_length": 10, "m_elp_sigma": 1, "m_elp_gradient_threshold_value": 20, "m_elp_axes": [20, 100], "m_elp_ratio": [0.0, 1.0], "m_circle_inv": 1, "m_circle_type": 0, "m_circle_thr": 127, "m_circle_blur": 3, "m_circle_mean_sub": 0, "m_circle_radius": [1, 30], "m_poly_inv": 1, "m_poly_type": 0, "m_poly_thr": 127, "m_poly_blur": 3, "m_poly_mean_sub": 0, "m_poly_value": 3, "m_poly_area": [100, 100000], "m_poly_perimeter": [10, 100000], "m_cnt_inv": 1, "m_cnt_type": 0, "m_cnt_thr": 127, "m_cnt_blur": 3, "m_cnt_mean_sub": 0, "m_cnt_area": [100, 100000], "m_cnt_perimeter": [10, 100000], "m_aruco_dictionary": "DICT_6X6_250", "m_aruco_marker_length": 10, "m_aruco_refine": "CORNER_REFINE_NONE", "m_aruco_subpix": 0}
+```
+## Pattern detection API
 
 
-The 6D pose of an object can also be represented using the axis-angle representation for orientation. This method involves specifying a rotation axis and an angle of rotation around that axis. Here’s how it works:
-
-#### Position
-The position of the object is still defined by the 3D coordinates (x, y, z) of its center in space.
-
-#### Orientation (Axis-Angle Representation)
-The orientation is defined by:
-- A rotation axis, represented by a unit vector \(\mathbf{u} = (u_x, u_y, u_z)\).
-- An angle of rotation, \(\theta\), which specifies how much the object is rotated around the axis \(\mathbf{u}\).
 
 
 

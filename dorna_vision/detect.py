@@ -81,7 +81,7 @@ class Detect(object):
 
 
     """
-    obb: pxl, (w,h), rot, xyz
+    obb: pxl, (w,h), rot
     pose: valid, rvec, tvec
     """
     def _pattern(self, camera, camera_data, **kwargs):
