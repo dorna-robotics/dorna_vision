@@ -2,7 +2,7 @@
 Notice that the program has been tested only on Python 3.7+.
 
 ### 1- Install the camera module
-Follow the instruction given (here)[https://github.com/dorna-robotics/camera?tab=readme-ov-file#installation] to fully install the camera module first.
+Follow the instruction given [here](https://github.com/dorna-robotics/camera?tab=readme-ov-file#installation) to fully install the camera module first.
 ### 2- Build the library
 Use `git clone` to download the `dorna_vision` repository, or simply download the [zip file](https://github.com/dorna-robotics/dorna_vision/archive/master.zip), and unzip the file.  
 ```bash
