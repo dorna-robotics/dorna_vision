@@ -49,8 +49,8 @@ def minimizer(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, groun
             v.append([g[0,0],g[1,0],g[2,0]])
 
 
-        centroid = np.mean(v, axis=0)
-        #centroid = np.array([318.0629740304022, 2.639179509009324, 0.7208291750498006])
+        #centroid = np.mean(v, axis=0)
+        centroid = np.array([343.557786, 23.676558, 0.607504])
         #centroid = np.array([p[3], p[4], p[5]])
 
         
@@ -74,7 +74,8 @@ def minimizer(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, groun
 def dorna_ta_eye_in_hand_embeded_camera(robot, kinematic, camera, charuco_board, joint_list, ground_truth, joint_calibration, file_path):
     # search_id
     search_id = np.floor(((charuco_board.sqr_x-1)*(charuco_board.sqr_y-1)-1)/2)
-    
+
+    print("search_id: ", search_id) 
     # init window
     cv2.namedWindow('color', cv2.WINDOW_NORMAL)
 
@@ -173,7 +174,7 @@ def main_dorna_ta_eye_in_hand_embeded_camera():
     # joint_list
     #initial_joint = np.array([0, 25, -90, 0, -25, 0])
     initial_joint = np.array([0, 28, -100, 0, -17, 0])
-    deviations = np.array(list(itertools.product([-5, 5], [-5, 5], [-5, 5], [-5, 5], [-5, 5],[0])))
+    deviations = np.array(list(itertools.product([-10, 10], [-10, 10], [-10, 10], [-10, 10], [-10, 10],[0])))
     joint_list = [(initial_joint +  joint).tolist() for joint in deviations]
 
 
