@@ -36,29 +36,35 @@ def minimizer(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, groun
 
     for r in R_target_2_cam_list:
         rotation_matrix = np.zeros(shape=(3,3))
-        cv2.Rodrigues(r, rotation_matrix)
+        #cv2.Rodrigues(r, rotation_matrix)
         data_R.append(np.array(rotation_matrix))
 
     #T_cam_2_j4 = np.eye(4)
 
     def likelihood(p):
-        T_cam_2_j4 = Euler_matrix([p[3],p[4],p[5]],[p[0],p[1],p[2]])
+
+
+        T_cam_2_j4 = Euler_matrix([p[3],p[4],p[5]],[p[0],p[1],p[2]]) #[1.57079632679, 0, 0] , [p[0],p[1],p[2]])#
         v =[]
         for test_index in range(len(joints)):
             g = np.matmul(np.matmul(kinematic.Ti_r_world(i=5, joint=joints[test_index]),np.matrix(T_cam_2_j4)), np.vstack((t_target_2_cam_list[test_index], np.array([[1]]))))
             v.append([g[0,0],g[1,0],g[2,0]])
 
 
-        #centroid = np.mean(v, axis=0)
-        centroid = np.array([343.557786, 23.676558, 0.607504])
-        #centroid = np.array([p[3], p[4], p[5]])
+        centroid = np.mean(v, axis=0)
+        #centroid2 = np.array([343.557786, 23.676558, 0.607504])
 
-        
-        print(sum(np.std(np.array(v), axis=0)))
-        return sum([np.linalg.norm(g-centroid) for g in v])
 
+
+        a = np.array([np.linalg.norm(g - centroid) for g in v])
+        l = np.mean(a)
+        print("Centroid position: ",np.mean(v,axis=0))
+        print("Mean error: ", l , " Max error: ", np.max(a))
+
+        return l
 
     f = minimize(likelihood, [0,0,0,0,0,0])
+
 
     T_cam_2_j4 = Euler_matrix([f.x[3],f.x[4],f.x[5]],[f.x[0],f.x[1],f.x[2]])
     """
@@ -67,8 +73,9 @@ def minimizer(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, groun
                             [ 0, 0,  1,  f.x[2]],
                             [ 0,  0,  0,  1]])
     """
-    print("final error: ", f.fun)
     return T_cam_2_j4
+
+
 
 
 def dorna_ta_eye_in_hand_embeded_camera(robot, kinematic, camera, charuco_board, joint_list, ground_truth, joint_calibration, file_path):
