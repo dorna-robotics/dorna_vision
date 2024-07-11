@@ -1,5 +1,5 @@
-from camera import Camera
-from board import Charuco
+#from camera import Camera
+#from board import Charuco
 from dorna2 import Dorna, Kinematic
 #import cv2
 import numpy as np
@@ -22,7 +22,7 @@ def Euler_matrix(abg,xyz):
         [-sv1       , sv2*cv1               , cv2*cv1               , xyz[2]  ],
         [0,0,0,1]])
 
-def likelihood(p, kinematic, data):
+def likelihood(p, kinematic, data, use_aruco, use_ground_truth):
     total_error = 0
     
     T_cam_2_j4 = Euler_matrix([p[3],p[4],p[5]],[p[0],p[1],p[2]])
@@ -31,9 +31,14 @@ def likelihood(p, kinematic, data):
     for point_set in data:
         v =[]
         for idx in range(len(point_set)):
+            gt = []
+            if use_aruco:
+                gt = point_set[idx]["aruco_t_target_2_cam"]
+            else:
+                gt = point_set[idx]["t_target_2_cam"]
+
             g = np.matmul(np.matmul(kinematic.Ti_r_world(i=5, joint=point_set[idx]["joint"]), np.matrix(T_cam_2_j4)), 
-                np.vstack((np.reshape(point_set[idx]["aruco_t_target_2_cam"],#t_target_2_cam 
-                (3,1) ), np.array([[1]]))))
+                np.vstack((np.reshape(gt, (3,1) ), np.array([[1]]))))
             v.append([g[0,0],g[1,0],g[2,0]])
             num_data = num_data + 1
         
@@ -43,7 +48,11 @@ def likelihood(p, kinematic, data):
         if len(point_set[0]["t_target_2_base"])==0:
             centroid = np.mean(v, axis=0)
         else:
-            centroid = np.mean(v, axis=0)# point_set[0]["t_target_2_base"]
+            if(use_ground_truth):
+                centroid =  point_set[0]["t_target_2_base"]
+            else:
+                centroid = np.mean(v, axis=0)
+
 
         
         #centroid2 = np.array([343.557786, 23.676558, 0.607504])
@@ -57,11 +66,9 @@ def likelihood(p, kinematic, data):
 
     return total_error
 
-def minimizer(data , kinematic):
+def minimizer(data, kinematic, use_aruco, use_ground_truth):
 
-
-    args = (kinematic, data)
-    f = minimize(likelihood, x0=[0,0,0,0,0,0], args = args)
+    f = minimize(likelihood, x0=[0,0,0,0,0,0], args = (kinematic, data,use_aruco, use_ground_truth))
 
     T_cam_2_j4 = Euler_matrix([f.x[3],f.x[4],f.x[5]],[f.x[0],f.x[1],f.x[2]])
 
@@ -180,8 +187,8 @@ def main_dorna_ta_eye_in_hand_embeded_camera():
 
 
     # camera
-    camera = Camera()
-    camera.connect()
+    #camera = Camera()
+    #camera.connect()
 
     # board
     #charuco_board = Charuco(sqr_x, sqr_y, sqr_length, marker_length, dictionary, refine, subpix)
@@ -204,10 +211,10 @@ def main_dorna_ta_eye_in_hand_embeded_camera():
     with open('test_data2.txt', 'r') as file:
         data = json.load(file)
 
-    T_cam_2_j4 = minimizer( data, kinematic)
+    T_cam_2_j4 = minimizer( data, kinematic , use_aruco = True, use_ground_truth= True)
 
     # close the connections
-    camera.close()
+    #camera.close()
     robot.close()
 
     #print(T_cam_2_j4)
