@@ -64,13 +64,16 @@ class Aruco(object):
 
         return aruco_corner, aruco_id, aruco_reject, img_gray
 
-    def pose(self, img, camera_matrix, dist_coeffs):
+    def pose(self, img, camera_matrix, dist_coeffs, coordinate="cw"):
         # corner detection
         aruco_corner, aruco_id, aruco_reject, img_gray = self.corner(img)
         
         # Estimate pose
         prm = cv.aruco.EstimateParameters()
-        prm.pattern = cv.aruco.ARUCO_CW_TOP_LEFT_CORNER
+        if coordinate == "cw":
+            prm.pattern = cv.aruco.ARUCO_CW_TOP_LEFT_CORNER
+        else:
+            prm.pattern = cv.aruco.ARUCO_CCW_CENTER
         rvecs, tvecs, _ = cv.aruco.estimatePoseSingleMarkers(aruco_corner, markerLength=self.marker_length, cameraMatrix=camera_matrix, distCoeffs=dist_coeffs, estimateParameters=prm)
 
         return rvecs, tvecs, aruco_corner, aruco_id, img_gray

@@ -42,9 +42,9 @@ def minimizer(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, groun
     #T_cam_2_j4 = np.eye(4)
 
     def likelihood(p):
-        T_cam_2_j4 = np.matrix([[0, -1, 0, p[0]],
-                                [1, 0, 0, p[1]],
-                                [0, 0, 1, p[2]],
+        T_cam_2_j4 = np.matrix([[p[0], p[1], p[2], p[3]],
+                                [p[4], p[5], p[6], p[7]],
+                                [p[8], p[9], p[10], p[11]],
                                 [0, 0, 0, 1]])
         v =[]
         for test_index in range(len(joints)):
@@ -56,14 +56,17 @@ def minimizer(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, groun
 
         
         #print(max(np.std(np.array(v), axis=0)))
-        return sum([np.linalg.norm(g-centroid) for g in v])
+        result = [np.linalg.norm(g-centroid) for g in v]
+        #print(sum(result)/ len(result))
+        print(max(result))
+        return np.linalg.norm(result)
 
 
-    f = minimize(likelihood, [0,0,0])
+    f = minimize(likelihood, [0, 0,0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
-    T_cam_2_j4 = np.matrix([[0, -1, 0, f.x[0]],
-                            [1, 0, 0, f.x[1]],
-                            [0, 0, 1, f.x[2]],
+    T_cam_2_j4 = np.matrix([[f.x[0], f.x[1], f.x[2], f.x[3]],
+                            [f.x[4], f.x[5], f.x[6], f.x[7]],
+                            [f.x[8], f.x[9], f.x[10], f.x[11]],
                             [0, 0, 0, 1]])
     print("final error: ", f.fun)
     return T_cam_2_j4
@@ -178,14 +181,14 @@ def main_dorna_ta_eye_in_hand_embeded_camera():
 
     # camera
     camera = Camera()
-    camera.connect()
+    #camera.connect()
 
     # board
     charuco_board = Charuco(sqr_x, sqr_y, sqr_length, marker_length, dictionary, refine, subpix)
     
     # Robot
     robot = Dorna()
-    robot.connect(robot_ip)
+    #robot.connect(robot_ip)
 
     # kinematics
     kinematic = Kinematic(model)
@@ -206,8 +209,8 @@ def main_dorna_ta_eye_in_hand_embeded_camera():
                             joint_calibration=joint_calibration)
 
     # close the connections
-    camera.close()
-    robot.close()
+    #camera.close()
+    #robot.close()
 
     formatted_matrix = np.array2string(T_cam_2_j4, separator=', ')
 

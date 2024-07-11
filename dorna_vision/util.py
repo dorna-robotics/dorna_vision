@@ -124,12 +124,12 @@ refine method
     [("CORNER_REFINE_NONE", 0), ("CORNER_REFINE_SUBPIX", 1), ("CORNER_REFINE_CONTOUR", 2), ("CORNER_REFINE_APRILTAG", 3)]
 
 """
-def find_aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False):
+def find_aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False, coordinate="cw"):
     retval = []
 
     # pose
     board = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length)
-    rvecs, tvecs, aruco_corner, aruco_id, img_gray = board.pose(img, camera_matrix, dist_coeffs)
+    rvecs, tvecs, aruco_corner, aruco_id, img_gray = board.pose(img, camera_matrix, dist_coeffs, coordinate)
 
     # empty
     if aruco_id is None:
