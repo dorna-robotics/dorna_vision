@@ -1,11 +1,13 @@
 from camera import Camera
 from board import Charuco
 from dorna2 import Dorna, Kinematic
-import cv2
+#import cv2
 import numpy as np
 import itertools
 from scipy.optimize import minimize
 import pickle
+import json
+
 
 def Euler_matrix(abg,xyz):
     cv0 = np.cos(abg[0])
@@ -20,63 +22,55 @@ def Euler_matrix(abg,xyz):
         [-sv1       , sv2*cv1               , cv2*cv1               , xyz[2]  ],
         [0,0,0,1]])
 
+def likelihood(p, kinematic, data):
+    total_error = 0
+    
+    T_cam_2_j4 = Euler_matrix([p[3],p[4],p[5]],[p[0],p[1],p[2]])
+    num_data = 0
 
-def minimizer(joints, R_target_2_cam_list, t_target_2_cam_list, kinematic, ground_truth, use_rotation = False, joint_calibration=False):
-
-    R_j4_2_base_list = []
-    t_j4_2_base_list = []
-
-    for j in joints:
-        T_j4_2_base = kinematic.Ti_r_world(i=5, joint=j)
-        R_j4_2_base_list.append(np.array(T_j4_2_base[:3, :3])) 
-        t_j4_2_base_list.append(np.array(T_j4_2_base[:3, 3]) )
-
-    data_t = [np.array(d) for d in t_target_2_cam_list]
-    data_R = []
-
-    for r in R_target_2_cam_list:
-        rotation_matrix = np.zeros(shape=(3,3))
-        #cv2.Rodrigues(r, rotation_matrix)
-        data_R.append(np.array(rotation_matrix))
-
-    #T_cam_2_j4 = np.eye(4)
-
-    def likelihood(p):
-
-
-        T_cam_2_j4 = Euler_matrix([p[3],p[4],p[5]],[p[0],p[1],p[2]]) #[1.57079632679, 0, 0] , [p[0],p[1],p[2]])#
+    for point_set in data:
         v =[]
-        for test_index in range(len(joints)):
-            g = np.matmul(np.matmul(kinematic.Ti_r_world(i=5, joint=joints[test_index]),np.matrix(T_cam_2_j4)), np.vstack((t_target_2_cam_list[test_index], np.array([[1]]))))
+        for idx in range(len(point_set)):
+            g = np.matmul(np.matmul(kinematic.Ti_r_world(i=5, joint=point_set[idx]["joint"]), np.matrix(T_cam_2_j4)), 
+                np.vstack((np.reshape(point_set[idx]["aruco_t_target_2_cam"],#t_target_2_cam 
+                (3,1) ), np.array([[1]]))))
             v.append([g[0,0],g[1,0],g[2,0]])
+            num_data = num_data + 1
+        
 
+        centroid = None
 
-        centroid = np.mean(v, axis=0)
+        if len(point_set[0]["t_target_2_base"])==0:
+            centroid = np.mean(v, axis=0)
+        else:
+            centroid = np.mean(v, axis=0)# point_set[0]["t_target_2_base"]
+
+        
         #centroid2 = np.array([343.557786, 23.676558, 0.607504])
 
 
 
-        a = np.array([np.linalg.norm(g - centroid) for g in v])
-        l = np.mean(a)
-        print("Centroid position: ",np.mean(v,axis=0))
-        print("Mean error: ", l , " Max error: ", np.max(a))
+        a = np.array([np.linalg.norm(np.array(g) - np.array(centroid)) for g in v])
+        total_error = total_error + sum(a)
 
-        return l
+    print("Error in mm: : ", total_error/num_data)
 
-    f = minimize(likelihood, [0,0,0,0,0,0])
+    return total_error
 
+def minimizer(data , kinematic):
+
+
+    args = (kinematic, data)
+    f = minimize(likelihood, x0=[0,0,0,0,0,0], args = args)
 
     T_cam_2_j4 = Euler_matrix([f.x[3],f.x[4],f.x[5]],[f.x[0],f.x[1],f.x[2]])
-    """
-    T_cam_2_j4 = np.matrix([[-1,  0,  0,  f.x[0]],
-                            [0, -1,  0,  f.x[1]],
-                            [ 0, 0,  1,  f.x[2]],
-                            [ 0,  0,  0,  1]])
-    """
+
+    print(T_cam_2_j4)
+
     return T_cam_2_j4
 
 
-
+"""
 
 def dorna_ta_eye_in_hand_embeded_camera(robot, kinematic, camera, charuco_board, joint_list, ground_truth, joint_calibration, file_path):
     # search_id
@@ -162,7 +156,7 @@ def dorna_ta_eye_in_hand_embeded_camera(robot, kinematic, camera, charuco_board,
             pickle.dump(data, f)
     return T_cam_2_j4
 
-
+"""
 def main_dorna_ta_eye_in_hand_embeded_camera():
     # parameters
     robot_ip = "192.168.254.30" 
@@ -190,7 +184,7 @@ def main_dorna_ta_eye_in_hand_embeded_camera():
     camera.connect()
 
     # board
-    charuco_board = Charuco(sqr_x, sqr_y, sqr_length, marker_length, dictionary, refine, subpix)
+    #charuco_board = Charuco(sqr_x, sqr_y, sqr_length, marker_length, dictionary, refine, subpix)
     
     # Robot
     robot = Dorna()
@@ -203,22 +197,21 @@ def main_dorna_ta_eye_in_hand_embeded_camera():
     #T_cam_2_j4 = dorna_ta_eye_in_hand_embeded_camera(robot, kinematic, camera, charuco_board, joint_list, ground_truth, joint_calibration, file_path)
     
     # cam to robot transformation matrix
-    with open(file_path, 'rb') as file:
+    #with open(file_path, 'rb') as file:
         # Load the data from the file
-        data = pickle.load(file)
-    T_cam_2_j4 = minimizer( joints = data["joints"], 
-                            R_target_2_cam_list = data["R_target_2_cam_list"], 
-                            t_target_2_cam_list = data["t_target_2_cam_list"], 
-                            kinematic = kinematic, 
-                            ground_truth = ground_truth, 
-                            use_rotation = False,
-                            joint_calibration=joint_calibration)
+    #    data = pickle.load(file)
+    
+    with open('test_data2.txt', 'r') as file:
+        data = json.load(file)
+
+    T_cam_2_j4 = minimizer( data, kinematic)
 
     # close the connections
     camera.close()
     robot.close()
 
-    print(T_cam_2_j4)
+    #print(T_cam_2_j4)
+
 
 
 if __name__ == '__main__':
