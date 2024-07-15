@@ -5,7 +5,7 @@ from dorna_vision.draw import *
 import os
 import time
 import threading
-
+import numpy as np
 
 class Detect(object):
     """docstring for Detect"""
@@ -125,16 +125,23 @@ class Detect(object):
             # draw elps
             draw_ellipse(adjust_img, elps, axis=False)
             
+            # corners
+            corners = [get_obb_corners(elp[0], [2*elp[1][0], 2*elp[1][1]], elp[2]) for elp in elps]
+
             # return
             retval = [
                 {"id": i,
                 "timestamp": camera_data["timestamp"],
-                "obb": [elp[0], [2*elp[1][0], 2*elp[1][1]], elp[2], [0, 0, 0]],
-                "pose": [0, [0, 0, 0], [0, 0, 0]],
+                "center": elp[0],
+                "corners": corners[i],
+                "xyz": [0, 0, 0],
+                "rvec": [0, 0, 0],
+                "tvec": [0, 0, 0],
+                "obb": {"wh": [2*elp[1][0], 2*elp[1][1]], "rot": elp[2]},
                 } for elp, i in zip(elps, range(len(elps)))
             ]
             for ret in retval:
-                draw_obb(adjust_img, ret["id"], *ret["obb"])
+                draw_obb(adjust_img, ret["id"], ret["center"], ret["corners"])
 
         elif kwargs["method_value"] == 2: # polygon
             # thr
@@ -146,18 +153,25 @@ class Detect(object):
             # draw contours
             draw_cnt(adjust_img, draws, axis=False)
 
+            # corners
+            corners = [get_obb_corners(draw[0], draw[1], draw[2]) for draw in draws]
+
             # return
             retval = [
                 {"id": i,
                 "timestamp": camera_data["timestamp"],
-                "obb": draw[0:3]+[[0, 0, 0]],
-                "pose": [0, [0, 0, 0], [0, 0, 0]],
+                "center": draw[0],
+                "corners": corners[i],
+                "xyz": [0, 0, 0],
+                "rvec": [0, 0, 0],
+                "tvec": [0, 0, 0],
+                "obb": {"wh": draw[1], "rot": draw[2]}
                 } for draw, i in zip(draws, range(len(draws)))
             ]
             for ret in retval:
-                draw_obb(adjust_img, ret["id"], *ret["obb"])
+                draw_obb(adjust_img, ret["id"], ret["center"], ret["corners"])
         
-        elif kwargs["method_value"] == 3:
+        elif kwargs["method_value"] == 3: # contour
             # thr
             thr_img = binary_thr(mask_img, kwargs["m_cnt_type"], kwargs["m_cnt_inv"], kwargs["m_cnt_blur"], kwargs["m_cnt_thr"], kwargs["m_cnt_mean_sub"])
 
@@ -167,33 +181,61 @@ class Detect(object):
             # draw contours
             out_img = draw_cnt(adjust_img, draws, axis=False)
 
-            # return
-            retval = [
-                {"id":i,
-                "timestamp": camera_data["timestamp"],
-                "obb": draw[0:3]+[[0, 0, 0]],
-                "pose": [0, [0, 0, 0], [0, 0, 0]],
-                } for draw, i in zip(draws, range(len(draws)))
-            ]
-            for ret in retval:
-                draw_obb(adjust_img, ret["id"], *ret["obb"])
-        
-        elif kwargs["method_value"] == 4: # aruco
-            # pose: [id, corner, rvec, tvec]
-            aruco_data = find_aruco(mask_img, camera.camera_matrix(camera_data["depth_int"]), camera.dist_coeffs(camera_data["depth_int"]), kwargs["m_aruco_dictionary"], kwargs["m_aruco_marker_length"], kwargs["m_aruco_refine"], kwargs["m_aruco_subpix"])
-            
-            # draw
-            draw_aruco(adjust_img, aruco_data, camera.camera_matrix(camera_data["depth_int"]), camera.dist_coeffs(camera_data["depth_int"]))
+            # corners
+            corners = [get_obb_corners(draw[0], draw[1], draw[2]) for draw in draws]
 
             # return
             retval = [
-                {"id":int(draw[0]),
-                "timestamp": camera_data["timestamp"],
-                "obb": [[int((draw[1][0][0][1]+draw[1][0][2][1])/2), int((draw[1][0][0][0]+draw[1][0][2][0])/2)], [0, 0], 0],
-                "pose": [1, draw[2][0].tolist(), draw[3][0].tolist()],
-                } for draw in aruco_data
+                {"id":i,
+                "center": draw[0],
+                "corners": corners[i],
+                "xyz": [0, 0, 0],
+                "rvec": [0, 0, 0],
+                "tvec": [0, 0, 0],
+                "obb": {"wh": draw[1], "rot": draw[2]}
+                } for draw, i in zip(draws, range(len(draws)))
             ]
+            for ret in retval:
+                draw_obb(adjust_img, ret["id"], ret["center"], ret["corners"])
         
+        elif kwargs["method_value"] == 4: # aruco
+            retval = []
+
+            # pose: [id, corner, rvec, tvec]
+            aruco_data = find_aruco(mask_img, camera.camera_matrix(camera_data["depth_int"]), camera.dist_coeffs(camera_data["depth_int"]), kwargs["m_aruco_dictionary"], kwargs["m_aruco_marker_length"], kwargs["m_aruco_refine"], kwargs["m_aruco_subpix"])
+
+            for i in range(len(aruco_data)):
+                _id = int(aruco_data[i][0][0])
+                _timestamp = camera_data["timestamp"]
+
+                # corner and center
+                _corners = aruco_data[i][1].reshape((4,2))
+                _center = [int(sum([c[0] for c in _corners])/4), int(sum([c[1] for c in _corners])/4)]
+                _corners = [[int(c[0]), int(c[1])] for c in _corners]
+                
+                # rvec, tvec
+                _rvec = aruco_data[i][2][0].tolist()
+                _rvec = [r*180/np.pi for r in _rvec]
+                _tvec = aruco_data[i][3][0].tolist()
+                
+                retval.append({
+                    "id":i,
+                    "center": _center,
+                    "corners": _corners,
+                    "xyz": [0, 0, 0],
+                    "rvec": _rvec,
+                    "tvec": _tvec
+                    })
+
+            # draw
+            draw_aruco(adjust_img, aruco_data, camera.camera_matrix(camera_data["depth_int"]), camera.dist_coeffs(camera_data["depth_int"]))
+
+        # xyz:
+        if camera_data["depth_frame"] is not None:
+            for i in range(len(retval)):
+                # xyz
+                retval[i]["xyz"] = camera.xyz(retval[i]["center"], camera_data["depth_frame"], camera_data["depth_int"])[0].tolist()
+
         # pose
         if kwargs["method_value"] in [0, 1, 2, 3]:
             # tmp pixels from poi
@@ -203,28 +245,25 @@ class Detect(object):
                 for i in range(len(retval)):
 
                     # axis
-                    center = retval[i]["obb"][0]
-                    dim = retval[i]["obb"][1] # (w, h)
-                    rot = retval[i]["obb"][2]
-
-                    # xyz
-                    retval[i]["obb"][3] = camera.xyz(center, camera_data["depth_frame"], camera_data["depth_int"])[0].tolist()
+                    center = retval[i]["center"]
+                    dim = retval[i]["obb"]["wh"] # (w, h)
+                    rot = retval[i]["obb"]["rot"]
+                    del retval[i]["obb"]
                     
                     # pose from tmp
                     valid, center_3d, X, Y, Z, pxl_map = pose_3_point(camera_data["depth_frame"], camera_data["depth_int"], tmp_pxls, center, dim, rot, camera)
-                    retval[i]["pose"][0] = valid
 
                     if valid: # add pose
                         draw_3d_axis(adjust_img, center_3d, X, Y, Z, camera.camera_matrix(camera_data["depth_int"]), camera.dist_coeffs(camera_data["depth_int"]))
                         
-                        retval[i]["pose"][2] = center_3d.tolist()
+                        retval[i]["tvec"] = center_3d.tolist()
                         rodrigues, _= cv.Rodrigues(np.matrix([[X[0], Y[0], Z[0]],
                                                 [X[1], Y[1], Z[1]],
                                                 [X[2], Y[2], Z[2]]])) 
-                        retval[i]["pose"][1] = [rodrigues[0, 0], rodrigues[1,0], rodrigues[2,0]]
+                        retval[i]["rvec"] = [rodrigues[i, 0]*180/np.pi for i in range(3)]
                     
 
-                    # draw template do
+                    # draw template
                     for pxl in pxl_map:
                         draw_point(adjust_img, pxl)
 

@@ -84,6 +84,7 @@ class default_widget(object):
             "source_value": widgets.Dropdown(value=0, options=[('Intel RealSense', 0), ('Image file', 1)], description='Source', continuous_update=continuous_update, layout={'display': '99%'}),
             "s_file_value": widgets.Text(value='', placeholder='Path to the file (*.jpg, *.jpeg, *.png, *.tiff, ...).Ex: test.jpg', description='File path', disabled=False, layout={'width': '99%'}),            
             "s_apply": widgets.Button( description='Capture', disabled=False, button_style="", tooltip='Capture'),
+            "s_update": widgets.Button( description='', disabled=False, button_style="", tooltip='Update source list', icon='refresh', layout={'width': '50px'}),
             "s_save_path": widgets.Text(value='', placeholder='*.jpg', description='Save image as', disabled=False, layout={'width': '99%'}),            
             "s_save": widgets.Button( description='Save', disabled=False, button_style="", tooltip='Save as'),
             
@@ -125,7 +126,7 @@ class App(object):
         if camera_connect:
             self.d.update_camera_data()
         else:
-            self.d.camera_data = {"depth_frame": None, "ir_frame": None, "color_frame": None, "depth_img": None, "ir_img": None, "color_img": np.zeros((10, 10)), "depth_int": None, "frames": None, "timestamp": 0}
+            self.d.camera_data = {"depth_frame": None, "ir_frame": None, "color_frame": None, "depth_img": None, "ir_img": None, "color_img": np.zeros((10, 10, 3), dtype=np.uint8), "depth_int": None, "frames": None, "timestamp": 0}
     
         """out plot"""
         # close everything first
@@ -164,7 +165,7 @@ class App(object):
 
         """source vbox"""
         source_vbox = widgets.VBox([
-            widgets.HBox([self.widget_tr[k] for k in [key for key in ["source_value","s_file_value", "s_apply"]]]),
+            widgets.HBox([self.widget_tr[k] for k in [key for key in ["source_value", "s_file_value", "s_apply"]]]),
             widgets.VBox([widgets.HTML("<hr>")]),
             widgets.HBox([self.widget_tr[k] for k in [key for key in ["s_save_path","s_save"]]]),
             widgets.VBox([widgets.HTML("<hr>")]),
@@ -261,6 +262,9 @@ class App(object):
         # capture
         self.widget_tr["s_apply"].on_click(self.capture_camera_data)
 
+        # capture
+        self.widget_tr["s_update"].on_click(self.update_source_list)
+
         # save
         self.widget_tr["s_save"].on_click(self.save_as_source)
 
@@ -328,7 +332,17 @@ class App(object):
         kwargs = {k:self.widget_in[k].value for k in self.widget_in.keys()}
         self._detect_pattern(**kwargs)     
 
-
+    def update_source_list(self, b):
+        all_device = self.d.camera.all_device()
+        
+        i = 0
+        options = []
+        for device in all_device:
+            options.append((device["name"] +" (S/N: "+device["serial_number"], ")", i))
+            i += 1
+        options.append(('Image file', i))
+        self.widget_tr["source_value"].options = options
+        
     def hide_show_source(self, **kwargs):
         if kwargs["source_value"] == 1:
             self.widget_tr["s_file_value"].layout.display = "flex"

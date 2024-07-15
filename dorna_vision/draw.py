@@ -106,7 +106,7 @@ def draw_point(img, pxl, radius=1, color=(153,255,255), thickness=3):
 
 
 # draw oriented bounding box
-def draw_obb(img, id, center, wh, rot, xyz, color= (255,0,255), thickness=2):
+def _draw_obb(img, id, center, wh, rot, xyz, color= (255,0,255), thickness=2):
     # Create the rotated rectangle
     rect = (center, wh, rot)
 
@@ -118,5 +118,17 @@ def draw_obb(img, id, center, wh, rot, xyz, color= (255,0,255), thickness=2):
     cv.polylines(img, [box], isClosed=True, color=color, thickness=thickness)
 
     # put label
+    # Draw the center coordinates on the image
+    cv.putText(img, f"id={id}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, cv.LINE_AA)
+
+# draw oriented bounding box
+def draw_obb(img, id, center, corners, color= (255,0,255), thickness=2):
+    top_left, top_right, bottom_right, bottom_left = corners
+
+    cv.line(img, top_left, top_right, color, thickness)
+    cv.line(img, top_right, bottom_right, color, thickness)
+    cv.line(img, bottom_right, bottom_left, color, thickness)
+    cv.line(img, bottom_left, top_left, color, thickness)
+
     # Draw the center coordinates on the image
     cv.putText(img, f"id={id}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, cv.LINE_AA)

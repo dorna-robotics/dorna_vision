@@ -313,6 +313,35 @@ def hex_to_hsv(hex_color):
     return hsv_adj
 
 
+def get_obb_corners(center, wh, rot):
+    # Center of the ellipse
+    cx, cy = center
+
+    # Half-width and half-height
+    a, b = wh[0] / 2, wh[1] / 2
+
+    # Rotation angle in radians
+    theta = np.radians(rot)
+
+    # Rotation matrix
+    R = np.array([
+        [np.cos(theta), -np.sin(theta)],
+        [np.sin(theta), np.cos(theta)]
+    ])
+
+    # Initial corners relative to the center
+    corners = np.array([
+        [a, b],
+        [a, -b],
+        [-a, -b],
+        [-a, b]
+    ])
+
+    # Rotate and translate corners
+    rotated_corners = np.dot(corners, R.T) + np.array([cx, cy])
+    return [[int(corner[0]), int(corner[1])] for corner in rotated_corners]
+
+
 class poly_select(object):
     """docstring for poly_select"""
     def __init__(self, widget):
