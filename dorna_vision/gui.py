@@ -294,6 +294,12 @@ class App(object):
         v = int(hsv_color[2] * 255)
         self.widget_tr["color_hsv"].value = f"Hue = {h}, Saturation = {s}, Value = {v}"
 
+        # color
+        self.widget_in["color_h"].value = [max(0, h-20), min(179, h+20)]
+        self.widget_in["color_s"].value = [max(0, s-20), min(255, s+20)]
+        self.widget_in["color_v"].value = [max(0, v-20), min(255, v+20)]
+
+
     
     def save_as_source(self, b):
         file_path = self.widget_tr["s_save_path"].value

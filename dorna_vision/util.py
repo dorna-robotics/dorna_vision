@@ -3,10 +3,10 @@ import numpy as np
 import colorsys
 from dorna_vision.board import Aruco
 
-# rgb_img -> binary
+# bgr_img -> binary
 def binary_thr(bgr_img, type=0, inv=True, blur=3, thr_val=127, mean_sub=2):    
     # gray image
-    gray_img = cv.cvtColor(bgr_img, cv.COLOR_RGB2GRAY)    
+    gray_img = cv.cvtColor(bgr_img, cv.COLOR_BGR2GRAY)
 
     # Apply GaussianBlur to further reduce noise
     #blur_img = cv.bilateralFilter(gray_img,90,75,75)
@@ -139,7 +139,7 @@ def find_aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marke
 
 
 #[[center(x,y), (major_axis, minor_axis), rot], ...]    
-def edge_drawing(rgb_img, min_path_length=50, min_line_length = 10, nfa_validation = True, sigma=1, gradient_threshold_value=20, pf_mode = False, axes=(), ratio=(0,1)):
+def edge_drawing(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = True, sigma=1, gradient_threshold_value=20, pf_mode = False, axes=(), ratio=(0,1)):
         retval = [] 
 
         # init
@@ -157,7 +157,7 @@ def edge_drawing(rgb_img, min_path_length=50, min_line_length = 10, nfa_validati
         e_d.setParams(EDParams)
 
         # gray image
-        gray_img = cv.cvtColor(rgb_img, cv.COLOR_RGB2GRAY)
+        gray_img = cv.cvtColor(bgr_img, cv.COLOR_BGR2GRAY)
         
         # detect edges
         edges = e_d.detectEdges(gray_img)
@@ -221,8 +221,8 @@ def roi_mask(img, roi=[], inv=False):
     return masked_img
 
 
-def color_mask(rgb_img, low_hsv, high_hsv, inv=False):
-    hsv_img = cv.cvtColor(rgb_img, cv.COLOR_RGB2HSV)
+def color_mask(bgr_img, low_hsv, high_hsv, inv=False):
+    hsv_img = cv.cvtColor(bgr_img, cv.COLOR_BGR2HSV)
     mask = cv.inRange(hsv_img, low_hsv, high_hsv)
     
     if inv:
@@ -231,10 +231,10 @@ def color_mask(rgb_img, low_hsv, high_hsv, inv=False):
     # Apply the mask to the image
     masked_img = cv.bitwise_and(hsv_img, hsv_img, mask=mask)
     
-    # Convert the final masked image back to RGB
-    rgb_img = cv.cvtColor(masked_img, cv.COLOR_HSV2RGB)
+    # Convert the final masked image back to BGR
+    bgr_img = cv.cvtColor(masked_img, cv.COLOR_HSV2BGR)
     
-    return rgb_img
+    return bgr_img
 
 
 def intensity(img, alpha, beta):
