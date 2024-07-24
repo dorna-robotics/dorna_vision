@@ -368,7 +368,7 @@ class Crop(object):
             self.x, self.y, self.w, self.h = cv.boundingRect(self.cnt)
             
             # Get the center of the bounding box and the angle
-            center = (int(x + w / 2), int(y + h / 2))
+            center = (int(self.x + self.w / 2), int(self.y + self.h / 2))
             angel = 0
 
             # cropped image
