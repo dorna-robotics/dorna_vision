@@ -406,6 +406,6 @@ class Crop(object):
             # Crop the rotated image
             self.cropped_img = rotated[self.y:self.y+self.h, self.x:self.x+self.w]
 
-    def xrop_to_orig(self, pxl):
+    def pxl_to_orig(self, pxl):
         original_x, original_y = np.dot(self.inv_rot, np.array([pxl[0] + self.x, pxl[1] + self.y, 1])).astype(int)
         return [original_x, original_y]
