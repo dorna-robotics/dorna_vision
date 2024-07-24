@@ -352,3 +352,60 @@ class poly_select(object):
     def onselect(self, vert):
         self.vert = [[round(v[0],2), round(v[1],2)]for v in vert]
         self.widget.value = str(self.vert)
+
+
+class Crop(object):
+    """docstring for Crop"""
+    def __init__(self, img, roi, rot=False):
+        super(Crop, self).__init__()
+        self.orig_img = img.copy() # original image
+        self.roi = list(roi) # roi: [[x0, y0], [x1, y1], ...]
+        self.cnt = np.array(roi, dtype=np.int32).reshape((-1, 1, 2))
+
+        # sub image
+        if not rot:
+            # Find the bounding box
+            self.x, self.y, self.w, self.h = cv.boundingRect(self.cnt)
+            
+            # Get the center of the bounding box and the angle
+            center = (int(x + w / 2), int(y + h / 2))
+            angel = 0
+
+            # cropped image
+            self.cropped_img = self.orig_img[self.y:self.y+self.h, self.x:self.x+self.w]
+
+            # rotation matrix
+            self.rot = cv.getRotationMatrix2D(center, angle, 1.0)
+            self.inv_rot = cv.invertAffineTransform(self.rot)
+
+        else:
+
+            # Get the minimum area rectangle enclosing the contour
+            rect = cv.minAreaRect(self.cnt)
+            box = cv.boxPoints(rect)
+            box = np.int0(box)
+            
+            # Get the center of the bounding box and the angle
+            center = (int(rect[0][0]), int(rect[0][1]))
+            angle = rect[2]
+            
+            # Get the rotation matrix
+            self.rot = cv.getRotationMatrix2D(center, angle, 1.0)
+            self.inv_rot = cv.invertAffineTransform(self.rot)
+            
+            # Perform the rotation
+            rotated = cv.warpAffine(self.orig_img, self.rot, (self.orig_img.shape[1], self.orig_img.shape[0]), flags=cv.INTER_LINEAR)
+            
+            # Transform the bounding box coordinates
+            box = np.array([box], dtype=np.float32)
+            box = cv.transform(box, self.rot)[0]
+            
+            # Find the bounding box of the rotated rectangle
+            self.x, self.y, self.w, self.h = cv.boundingRect(np.int0(box))
+            
+            # Crop the rotated image
+            self.cropped_img = rotated[self.y:self.y+self.h, self.x:self.x+self.w]
+
+    def xrop_to_orig(self, pxl):
+        original_x, original_y = np.dot(self.inv_rot, np.array([pxl[0] + self.x, pxl[1] + self.y, 1])).astype(int)
+        return [original_x, original_y]
