@@ -369,7 +369,7 @@ class Crop(object):
             
             # Get the center of the bounding box and the angle
             center = (int(self.x + self.w / 2), int(self.y + self.h / 2))
-            angel = 0
+            angle = 0
 
             # cropped image
             self.cropped_img = self.orig_img[self.y:self.y+self.h, self.x:self.x+self.w]
