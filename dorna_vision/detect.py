@@ -13,7 +13,7 @@ import numpy as np
 
 class Detection(object):
     """docstring for Detect"""
-    def __init__(self, camera=None, frame=[0, 0, 0, 0, 0, 0], robot=None, model_path=None):
+    def __init__(self, camera=None, frame=[0, 0, 0, 0, 0, 0], robot=None, detection_model_path=None):
         super(Detection, self).__init__()
         
         # init camera and robot and calib matrix 
@@ -22,7 +22,7 @@ class Detection(object):
         self.robot = robot
         
         # object_detection
-        self.od = OD(model_path)
+        self.od = OD(detection_model_path)
         
         # ocr
         self.ocr = OCR()
