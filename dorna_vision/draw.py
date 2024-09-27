@@ -53,8 +53,6 @@ def draw_cnt(cnt_img, draws, axis=True, label=False, length=20, color=(0, 255, 0
             # center axes        
             draw_2d_axis(cnt_img, draw[0], draw[2], label, length)
         
-        # draw center mass
-        #cv.circle(cnt_img, draw[3], 1, (255, 255, 0), thickness)
 
 
 def draw_poly(img, vertices, color=(0, 255, 0), thickness=2):
@@ -132,3 +130,11 @@ def draw_obb(img, id, center, corners, color= (255,0,255), thickness=2):
 
     # Draw the center coordinates on the image
     cv.putText(img, f"id={id}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, cv.LINE_AA)
+
+
+def draw_corners(img, cls, center, corners, color= (255,0,255), thickness=2):
+    # Draw the rotated rectangle
+    cv.polylines(img, [corners], isClosed=True, color=color, thickness=thickness)
+
+    # Draw the center coordinates on the image
+    cv.putText(img, f"cls={cls}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, cv.LINE_AA)

@@ -1,43 +1,39 @@
 import json
 import cv2 as cv
+from dorna_vision.visual import *
+from dorna_vision.find import *
+from dorna_vision.ai import *
 from dorna_vision.util import *
 from dorna_vision.draw import *
-import os
-import time
+from dorna_vision.visual import *
+from dorna_vision.pose import *
 import threading
 import numpy as np
 
-class Detect(object):
+
+class Detection(object):
     """docstring for Detect"""
-    def __init__(self, camera):
-        super(Detect, self).__init__()
-        # add the module path
-
-        # Construct the path to the JSON file
-        self.default_path = os.path.join(os.path.dirname(__file__))
-
-        # init camera
+    def __init__(self, camera=None, frame=[0, 0, 0, 0, 0, 0], robot=None, model_path=None):
+        super(Detection, self).__init__()
+        
+        # init camera and robot and calib matrix 
         self.camera = camera
-
-        # pattern config
-        self.config = {"poi_value": [], "color_enb": 0, "color_h": [60, 120], "color_s": [85, 170], "color_v": [85, 170], "color_inv": 0, "roi_enb": 0, "roi_value": [[353.84, 171.66], [324.84, 524.06], [828.9, 564.2], [811.06, 180.58]], "roi_inv": 0, "intensity_enb": 0, "intensity_alpha": 2.0, "intensity_beta": 50, "method_value": 0, "m_elp_pf_mode": 0, "m_elp_nfa_validation": 1, "m_elp_min_path_length": 50, "m_elp_min_line_length": 10, "m_elp_sigma": 1, "m_elp_gradient_threshold_value": 20, "m_elp_axes": [20, 100], "m_elp_ratio": [0.0, 1.0], "m_circle_inv": 1, "m_circle_type": 0, "m_circle_thr": 127, "m_circle_blur": 3, "m_circle_mean_sub": 0, "m_circle_radius": [1, 30], "m_poly_inv": 1, "m_poly_type": 0, "m_poly_thr": 127, "m_poly_blur": 3, "m_poly_mean_sub": 0, "m_poly_value": 3, "m_poly_area": [100, 100000], "m_poly_perimeter": [10, 100000], "m_cnt_inv": 1, "m_cnt_type": 0, "m_cnt_thr": 127, "m_cnt_blur": 3, "m_cnt_mean_sub": 0, "m_cnt_area": [100, 100000], "m_cnt_perimeter": [10, 100000], "m_aruco_dictionary": "DICT_6X6_250", "m_aruco_marker_length": 10, "m_aruco_refine": "CORNER_REFINE_NONE", "m_aruco_subpix": 0}
-
+        self.frame = frame
+        self.robot = robot
+        
+        # object_detection
+        self.od = OD(model_path)
+        
+        # ocr
+        self.ocr = OCR()
+        
         # thread list
         self.thread_list = []
 
-        self.adjust_img = np.zeros((10, 10))
+        self.img = np.zeros((10, 10))
 
 
-    # terminate the detect
-    def close(self):
-        while self.thread_list:
-            # wait for the thread to end
-            self.thread_list[0].join()
-
-            # pop it 
-            self.thread_list.pop(0) 
-
-    def update_camera_data(self):
+    def get_camera_data(self):
         depth_frame, ir_frame, color_frame, depth_img, ir_img, color_img, depth_int, frames, timestamp = self.camera.get_all()
         self.camera_data = {
             "depth_frame": depth_frame,
@@ -54,24 +50,135 @@ class Detect(object):
 
 
     def img(self):
-        return self.adjust_img
+        return self.img
 
 
-    def pattern(self, config=None, save_path=None):
-        if type(config) == dict:
-            pass
-        
-        elif type(config) == str: 
-            # Load JSON data from the file
-            with open(config, 'r') as json_file:
-                config = json.load(json_file)
-        
-        # update config
-        self.config = config
-        kwargs = dict(self.config)
-        
+    def run(self, 
+    img_type="color_img", 
+    intensity={"a":2.0, "b":50},
+    color={"low_hsv":[0, 0, 0], "high_hsv":[255, 255, 255], "inv":0},
+    roi={"roi": [], "inv": 0, "crop": 0},
+    detection={"cmd":"poly", },
+    limit={"size":[], "xyz":[], "inv":0},
+    poi={"poi":[]},
+    output={"shuffle": 1, "save_path": ""}
+    ):               
+        # return
+        retval = []
+
+        # current joint
+        if self.robot:
+            joint = self.robot.get_all_joint()[0:6]
+
         # camera data
-        camera_data = self.update_camera_data()
+        camera_data = self.get_camera_data()
+        img_camera = camera_data[img_type]
+        
+        # intensity
+        img_adjust = intensity(img_camera.copy(), **intensity)
+
+        # color
+        img_adjust = color(img_adjust, **color)
+        self.img = img_adjust
+
+        # roi
+        _roi = ROI(img_adjust.copy(), **roi)
+        img_roi = _roi.img
+
+        # thr
+        self.img_thr = np.zeros(img_roi.shape[:2], dtype=np.uint8)
+
+        # detection
+        if detection["cmd"] == "ellipse":
+            # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
+            result = ellipse(img_roi, **detection)
+            retval = [{"timestamp": camera_data["timestamp"], "cls": 0, "conf": 1, "center": _roi.pxl_to_orig(r[0]), 
+            "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
+
+        if detection["cmd"] in ["poly", "contour"]:
+            # thr
+            img_thr = binary_thr(img_roi, **detection)
+
+            # find contour: [[pxl, corners, cnt], ...]
+            result = contour(img_thr, **detection):
+            retval = [{"timestamp": camera_data["timestamp"], "cls": 0, "conf": 1, "center": _roi.pxl_to_orig(r[0]), 
+            "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
+
+        elif detection["cmd"] == "aruco":
+            # [[pxl, corners, (id, rvec, tvec)], ...]
+            result = aruco(img_roi, **detection)
+            retval = [{"timestamp": camera_data["timestamp"], "cls": r[2][0], "conf": 1, "center": _roi.pxl_to_orig(r[0]),
+            "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [x*180/np.pi for x in r[2][1]], "tvec": r[2][2].tolist()} for r in result]
+
+        elif detection["cmd"] == "ocr":
+            result = self.ocr(img_roi, **detection)
+            retval = [{"timestamp": camera_data["timestamp"], "cls": r[1][0], "conf": r[1][1], "center": _roi.pxl_to_orig([sum([p[0] for p in r[0]])/len(r[0]), sum([p[1] for p in r[0]])/len(r[0])]), 
+            "corners": [_roi.pxl_to_orig(sublist) for sublist in r[0]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result[0]]
+
+        elif detection["cmd"] == "od":
+            result = self.od(img_roi, **detection)
+            retval = [{"timestamp": camera_data["timestamp"], "cls": r.cls, "conf": r.conf, "center": _roi.pxl_to_orig([r.x+r.w/2, r.y+r.h/2]), 
+            "corners": [_roi.pxl_to_orig(pxl) for pxl in [[r.x, r.y], [r.x+r.w, r.y], [r.x+r.w, r.y+r.h], [r.x, r.y+r.h]]],
+            "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
+
+        # size limit
+        if "size" in limit and len(limit["size"])== 2:
+            for r in retval[:]:
+                corners = np.array(r["corners"])
+                sides = np.linalg.norm(np.roll(corners, -1, axis=0) - corners, axis=1)
+                if np.min(sides) < min(limit["size"]) or np.max(sides) > max(limit["size"]):
+                    retval.remove(r)
+
+        # xyz
+        for r in retval:
+            xyz = self.camera.xyz(r["center"], camera_data["depth_frame"], camera_data["depth_int"])[0].tolist()
+            if frame["rel"] == "robot":
+
+
+
+        if "xyz" in limit and len(limit["xyz"])== 3:
+            for r in retval[:]:
+                if any([r["xyz"][i] >= limit["xyz"][i][0] or r["xyz"][i] <= limit["xyz"][i][1] for i in range(3)]):
+                    if limit["inv"]:
+                        retval.remove(r)
+                else:
+                    retval.remove(r)
+
+        # pose from tmp
+        if detection["cmd"] in ["ellipse", "poly", "contour", "ocr", "od"]:
+            # tmp pixels from poi
+            tmp_pxls = np.array(poi["poi"])
+            
+            if len(tmp_pxls) > 2 and camera_data["depth_frame"] is not None:
+                for r in retval:
+
+                    # axis
+                    center = retval[i]["center"]
+                    dim = retval[i]["obb"]["wh"] # (w, h)
+                    rot = retval[i]["obb"]["rot"]
+                    del retval[i]["obb"]
+                    
+                    # pose from tmp
+                    valid, center_3d, X, Y, Z, pxl_map = pose_3_point(camera_data["depth_frame"], camera_data["depth_int"], tmp_pxls, center, dim, rot, camera)
+
+                    if valid: # add pose
+                        draw_3d_axis(adjust_img, center_3d, X, Y, Z, camera.camera_matrix(camera_data["depth_int"]), camera.dist_coeffs(camera_data["depth_int"]))
+                        
+                        retval[i]["tvec"] = center_3d.tolist()
+                        rodrigues, _= cv.Rodrigues(np.matrix([[X[0], Y[0], Z[0]],
+                                                [X[1], Y[1], Z[1]],
+                                                [X[2], Y[2], Z[2]]])) 
+                        retval[i]["rvec"] = [rodrigues[i, 0]*180/np.pi for i in range(3)]
+                    
+
+                    # draw template
+                    for pxl in pxl_map:
+                        draw_point(adjust_img, pxl)
+
+        valid, center_3d, X, Y, Z, pxl_map = pose_3_point(camera_data["depth_frame"], camera_data["depth_int"], tmp_pxls, center, dim, rot, camera)
+
+
+        # return
 
         # run pattern detection
         timestamp, retval, adjust_img, thr_img, bgr_img = self._pattern(self.camera, camera_data, **kwargs)
@@ -89,8 +196,13 @@ class Detect(object):
 
 
     """
-    obb: pxl, (w,h), rot
-    pose: valid, rvec, tvec
+    timestamp
+    cls
+    conf
+    corners
+    xyz
+    rvec
+    tvec
     """
     def _pattern(self, camera, camera_data, **kwargs):
         # init retval
@@ -130,17 +242,17 @@ class Detect(object):
 
             # return
             retval = [
-                {"id": i,
-                "timestamp": camera_data["timestamp"],
-                "center": elp[0],
+                {"timestamp": camera_data["timestamp"],
+                "cls": 0,
+                "conf":1,
                 "corners": corners[i],
                 "xyz": [0, 0, 0],
                 "rvec": [0, 0, 0],
                 "tvec": [0, 0, 0],
-                "obb": {"wh": [2*elp[1][0], 2*elp[1][1]], "rot": elp[2]},
-                } for elp, i in zip(elps, range(len(elps)))
+                } for elp in elps
             ]
             for ret in retval:
+                #??? center is not given
                 draw_obb(adjust_img, ret["id"], ret["center"], ret["corners"])
 
         elif kwargs["method_value"] == 2: # polygon
@@ -158,17 +270,17 @@ class Detect(object):
 
             # return
             retval = [
-                {"id": i,
-                "timestamp": camera_data["timestamp"],
-                "center": draw[0],
+                {"timestamp": camera_data["timestamp"],
+                "cls":0,
+                "conf":1,
                 "corners": corners[i],
                 "xyz": [0, 0, 0],
                 "rvec": [0, 0, 0],
                 "tvec": [0, 0, 0],
-                "obb": {"wh": draw[1], "rot": draw[2]}
-                } for draw, i in zip(draws, range(len(draws)))
+                } for draw in draws
             ]
             for ret in retval:
+                # ??? center is not valid
                 draw_obb(adjust_img, ret["id"], ret["center"], ret["corners"])
         
         elif kwargs["method_value"] == 3: # contour
@@ -186,19 +298,20 @@ class Detect(object):
 
             # return
             retval = [
-                {"id":i,
-                "center": draw[0],
+                {"timestamp": camera_data["timestamp"],
+                "cls": 0,
+                "conf":1,
                 "corners": corners[i],
                 "xyz": [0, 0, 0],
                 "rvec": [0, 0, 0],
                 "tvec": [0, 0, 0],
-                "obb": {"wh": draw[1], "rot": draw[2]}
-                } for draw, i in zip(draws, range(len(draws)))
+                } for draw in draws
             ]
             for ret in retval:
+                # ??? adjust center
                 draw_obb(adjust_img, ret["id"], ret["center"], ret["corners"])
         
-        elif kwargs["method_value"] == 4: # aruco
+        elif kwargs["method_value"] == 4: # aruco #??? echck this the id does not match
             retval = []
 
             # pose: [id, corner, rvec, tvec]
@@ -229,6 +342,50 @@ class Detect(object):
 
             # draw
             draw_aruco(adjust_img, aruco_data, camera.camera_matrix(camera_data["depth_int"]), camera.dist_coeffs(camera_data["depth_int"]))
+
+        if kwargs["run"] == "ocr": # ocr
+            retval = self.ocr.ocr(mask_img, conf=kwargs["conf"])
+        if kwargs["run"] == "od": # object detection
+            # run detection
+            objects = self.od(mask_img, **kwargs)
+            
+            # format the result
+            retval = [
+                        {"timestamp": camera_data["timestamp"],
+                        "cls": obj.cls,
+                        "label": self.od["classes"][obj.cls],
+                        "conf": obj.conf,
+                        "corners": [[obj.rect.x, obj.rect.y], [obj.rect.x+obj.rect.w, obj.rect.y], [obj.rect.x+obj.rect.w, obj.rect.y+obj.rect.h], [obj.rect.x, obj.rect.y+obj.rect.h]],
+                        "xyz": [0, 0, 0],
+                        "rvec": [0, 0, 0],
+                        "tvec": [0, 0, 0],
+                        }
+                    for obj in objects
+            ]
+            
+            # edge drawing
+            results = edge_drawing(mask_img, min_path_length=kwargs["m_elp_min_path_length"], min_line_length=kwargs["m_elp_min_line_length"], nfa_validation=kwargs["m_elp_nfa_validation"], sigma=kwargs["m_elp_sigma"], gradient_threshold_value=kwargs["m_elp_gradient_threshold_value"], pf_mode=kwargs["m_elp_pf_mode"], axes=kwargs["m_elp_axes"], ratio=kwargs["m_elp_ratio"])
+            
+            # draw elps
+            draw_ellipse(adjust_img, elps, axis=False)
+            
+            # corners
+            corners = [get_obb_corners(elp[0], [2*elp[1][0], 2*elp[1][1]], elp[2]) for elp in elps]
+
+            # return
+            retval = [
+                {"timestamp": camera_data["timestamp"],
+                "cls": 0,
+                "conf":1,
+                "corners": corners[i],
+                "xyz": [0, 0, 0],
+                "rvec": [0, 0, 0],
+                "tvec": [0, 0, 0],
+                } for elp in elps
+            ]
+            for ret in retval:
+                #??? center is not given
+                draw_obb(adjust_img, ret["id"], ret["center"], ret["corners"])
 
         # xyz:
         if camera_data["depth_frame"] is not None:
@@ -268,20 +425,3 @@ class Detect(object):
                         draw_point(adjust_img, pxl)
 
         return camera_data["timestamp"], retval, adjust_img, thr_img, bgr_img
-
-
-def main_pattern():
-    from camera import Camera
-
-    camera = Camera()
-    camera.connect()
-
-    d = Detect(camera)
-
-    for i in range(10):
-        retval = d.pattern()
-    camera.close()
-    d.close()
-
-if __name__ == '__main__':
-    main_pattern()
