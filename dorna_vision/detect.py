@@ -13,7 +13,7 @@ import numpy as np
 
 class Detection(object):
     """docstring for Detect"""
-    def __init__(self, camera=None, frame=[0, 0, 0, 0, 0, 0], robot=None, detection_model_path=None):
+    def __init__(self, camera=None, robot=None, frame=[0, 0, 0, 0, 0, 0], detection_model_path=None):
         super(Detection, self).__init__()
         
         # init camera and robot and calib matrix 
@@ -50,25 +50,27 @@ class Detection(object):
 
 
     def img(self):
-        return self.img
+        return self.img.copy()
 
 
     def run(self, 
-    img_type="color_img", 
-    intensity={"a":2.0, "b":50},
-    color={"low_hsv":[0, 0, 0], "high_hsv":[255, 255, 255], "inv":0},
-    roi={"roi": [], "inv": 0, "crop": 0},
-    detection={"cmd":"poly", },
-    limit={"size":[], "xyz":[], "inv":0},
-    poi={"poi":[]},
-    output={"shuffle": 1, "save_path": ""}
-    ):               
+            img_type="color_img", 
+            intensity={"a":1.0, "b":0},
+            color={"low_hsv":[0, 0, 0], "high_hsv":[255, 255, 255], "inv":0},
+            roi={"roi": [], "inv": 0, "crop": 0},
+            detection={"cmd":"poly", },
+            limit={"size":[], "xyz":[], "inv":0},
+            poi={"poi":[]},
+            output={"shuffle": 1, "save_path": ""},
+            **kwargs):               
         # return
         retval = []
 
         # current joint
         if self.robot:
-            joint = self.robot.get_all_joint()[0:6]
+            current_joint = self.robot.get_all_joint()[0:6]
+        else:
+            current_joint = None
 
         # camera data
         camera_data = self.get_camera_data()
