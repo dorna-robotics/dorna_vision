@@ -61,13 +61,13 @@ class poly_select(object):
 class ROI(object):
 
     """docstring for Crop"""
-    def __init__(self, img, roi=[], inv=False, crop=False):
+    def __init__(self, img, corners=[], inv=False, crop=False):
         """
         Parameters
         ----------
         img : numpy array
             Original image
-        roi : list of points
+        corners : list of points
             Region of interest
         inv : bool
             Invert the mask
@@ -78,7 +78,7 @@ class ROI(object):
         ----------
         img : numpy array
             Cropped image
-        roi : list of points
+        corners : list of points
             Region of interest
         masked_img : numpy array
             Masked image
@@ -95,7 +95,7 @@ class ROI(object):
         super(ROI, self).__init__()        
         
         # initialize
-        self.roi = np.array(roi, dtype=np.int32)
+        self.roi = np.array(corners, dtype=np.int32)
         self.x = 0
         self.y = 0
         self.w, self.h, _ = self.img.shape
@@ -107,7 +107,7 @@ class ROI(object):
             mask = np.zeros_like(img[:, :, 0], dtype=np.uint8)
 
             # Create a polygon and fill it with white (1)
-            cv.fillPoly(mask, [roi], 1)
+            cv.fillPoly(mask, [self.roi], 1)
 
             if inv:
                 # Invert the mask

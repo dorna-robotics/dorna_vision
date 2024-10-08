@@ -4,7 +4,8 @@ from ncnn.utils.objects import Detect_Object
 from paddleocr import PaddleOCR
 
 class OD(object):
-    def __init__(self, model_path, target_size=416, num_threads=2, use_gpu=False):
+    def __init__(self, path, target_size=416, num_threads=2, use_gpu=False):
+        self.path = path
         self.target_size = target_size
         self.num_threads = num_threads
         self.use_gpu = use_gpu
@@ -17,7 +18,7 @@ class OD(object):
         self.net.opt.num_threads = self.num_threads
 
         # load the bin and param
-        with open(model_path, 'rb') as file:
+        with open(self.path, 'rb') as file:
             data = pickle.load(file)
         self.net.load_param(data["param"])
         self.net.load_model(data["bin"])

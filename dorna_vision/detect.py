@@ -13,20 +13,35 @@ import numpy as np
 
 class Detection(object):
     """docstring for Detect"""
-    def __init__(self, camera=None, robot=None, frame=[0, 0, 0, 0, 0, 0], detection_model_path=None):
+    def __init__(self,
+            camera=None,
+            robot=None,
+            frame=[0, 0, 0, 0, 0, 0], 
+            kind="color_img", 
+            intensity={"a":1.0, "b":0},
+            color={"low_hsv":[0, 0, 0], "high_hsv":[255, 255, 255], "inv":0},
+            roi={"corners": [], "inv": 0, "crop": 0},
+            detection={"cmd":"poly", },
+            limit = {"length":[], "ratio":[], "xyz":[], "inv":0},
+            plane = [],
+            output={"shuffle": 1, "max_det":1, "save_path": None},
+            **kwargs
+        ):
         super(Detection, self).__init__()
         
-        # init camera and robot and calib matrix 
         self.camera = camera
-        self.frame = frame
         self.robot = robot
-        
-        # object_detection
-        self.od = OD(detection_model_path)
-        
-        # ocr
-        self.ocr = OCR()
-        
+        self.frame = frame
+        self.kind = kind
+        self.intensity = intensity
+        self.color = color
+        self.roi = roi
+        self.detection = detection
+        self.limit = limit
+        self.plane = plane
+        self.output = output
+        self.kwargs = kwargs
+
         # thread list
         self.thread_list = []
 
@@ -53,38 +68,33 @@ class Detection(object):
         return self.img.copy()
 
 
-    def run(self, 
-            img_type="color_img", 
-            intensity={"a":1.0, "b":0},
-            color={"low_hsv":[0, 0, 0], "high_hsv":[255, 255, 255], "inv":0},
-            roi={"roi": [], "inv": 0, "crop": 0},
-            detection={"cmd":"poly", },
-            limit={"size":[], "xyz":[], "inv":0},
-            poi={"poi":[]},
-            output={"shuffle": 1, "save_path": ""},
-            **kwargs):               
+    def run(self, img=None):               
         # return
         retval = []
 
+        # img
+        if img:
+            _img = cv.imread(img)
+        else:
+            camera_data = self.get_camera_data()
+            _img = camera_data[self.kind]
+
         # current joint
         if self.robot:
-            current_joint = self.robot.get_all_joint()[0:6]
+            jonit = self.robot.get_all_joint()[0:6]
         else:
-            current_joint = None
-
-        # camera data
-        camera_data = self.get_camera_data()
-        img_camera = camera_data[img_type]
+            joint = None
         
         # intensity
-        img_adjust = intensity(img_camera.copy(), **intensity)
+        img_adjust = intensity(_img.copy(), **self.intensity)
 
         # color
-        img_adjust = color(img_adjust, **color)
+        img_adjust = color_mask(img_adjust, **self.color)
+        
         self.img = img_adjust
 
         # roi
-        _roi = ROI(img_adjust.copy(), **roi)
+        _roi = ROI(img_adjust.copy(), **self.roi)
         img_roi = _roi.img
 
         # thr
@@ -123,30 +133,43 @@ class Detection(object):
             "corners": [_roi.pxl_to_orig(pxl) for pxl in [[r.x, r.y], [r.x+r.w, r.y], [r.x+r.w, r.y+r.h], [r.x, r.y+r.h]]],
             "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
 
-        # size limit
-        if "size" in limit and len(limit["size"])== 2:
+        # length
+        if "length" in self.limit and len(self.limit["length"])== 2:
             for r in retval[:]:
                 corners = np.array(r["corners"])
                 sides = np.linalg.norm(np.roll(corners, -1, axis=0) - corners, axis=1)
-                if np.min(sides) < min(limit["size"]) or np.max(sides) > max(limit["size"]):
+                if np.min(sides) < min(self.limit["length"]) or np.max(sides) > max(self.limit["length"]):
+                    retval.remove(r)
+
+        # ratio
+        if "ratio" in self.limit and len(self.limit["ratio"])== 2:
+            for r in retval[:]:
+                corners = np.array(r["corners"])
+                sides = np.linalg.norm(np.roll(corners, -1, axis=0) - corners, axis=1)
+                ratio = np.min(sides) / np.max(sides)
+                if ratio < min(self.limit["ratio"]) or ratio > max(self.limit["ratio"]):
                     retval.remove(r)
 
         # xyz
-        for r in retval:
-            xyz = self.camera.xyz(r["center"], camera_data["depth_frame"], camera_data["depth_int"])[0].tolist()
-            if frame["rel"] == "robot":
+        if not img:
+            for r in retval:
+                _xyz = self.camera.xyz(r["center"], camera_data["depth_frame"], camera_data["depth_int"])[0].tolist()
+                if self.robot is not None:
+                    pass # apply fram to the xyz
+                else:
+                    pass # apply frame to the xyz
 
-
-
-        if "xyz" in limit and len(limit["xyz"])== 3:
+        # xyz limit
+        if "xyz" in self.limit and len(self.limit["xyz"])== 3 and len(self.limit["xyz"][0]) == 2 and len(self.limit["xyz"][1]) == 2 and len(self.limit["xyz"][2]) == 2:
             for r in retval[:]:
-                if any([r["xyz"][i] >= limit["xyz"][i][0] or r["xyz"][i] <= limit["xyz"][i][1] for i in range(3)]):
-                    if limit["inv"]:
+                if all([self.limit["xyz"][i][0] <= r["xyz"][i] <= self.limit["xyz"][i][1] for i in range(3)]):
+                    if self.limit["inv"]:
                         retval.remove(r)
                 else:
-                    retval.remove(r)
+                    if not self.limit["inv"]:    
+                        retval.remove(r)
 
-        # pose from tmp
+        # plane
         if detection["cmd"] in ["ellipse", "poly", "contour", "ocr", "od"]:
             # tmp pixels from poi
             tmp_pxls = np.array(poi["poi"])
