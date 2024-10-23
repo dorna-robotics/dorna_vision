@@ -157,13 +157,13 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
             minor_axis = int(elp[0][2]+elp[0][4])
 
             # center 
-            pxl = (int(elp[0][0]), int(elp[0][1]))
+            center = (int(elp[0][0]), int(elp[0][1]))
 
             # rotation
             rot = round(elp[0][5]%360, 2)
 
             # rect
-            rect = (pxl, (major_axis, minor_axis), rot)
+            rect = (center, (major_axis, minor_axis), rot)
 
             # Get the 4 corners of the bounding box using boxPoints
             box = np.int0(cv.boxPoints(rect))
@@ -172,7 +172,7 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
             corners = [[point[0], point[1]] for point in box]
 
             # add to return
-            retval.append([pxl, corners, rect])
+            retval.append([center, corners, rect])
             
         return retval
 

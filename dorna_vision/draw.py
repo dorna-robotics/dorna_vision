@@ -78,27 +78,6 @@ def draw_circle(img, circles, color=(255, 0, 255), thickness=2):
         cv.circle(img, (circle[0], circle[1]), circle[2], color, thickness)
 
 
-"""
-draw 3d_axis
-"""
-def draw_3d_axis(img, center, X, Y, Z, camera_matrix, dist_coeffs, length=10, thickness=2):
-    #Perform projection
-    p_list = np.array([center, center+ X*length, center+Y*length,center+Z*length])
-
-    res_list, _ =  cv.projectPoints(p_list, np.zeros((3, 1)), np.zeros((3, 1)), camera_matrix, dist_coeffs)
-
-    try:    
-        pc = (int(res_list[0][0][0]), int(res_list[0][0][1]))
-        px = (int(res_list[1][0][0]), int(res_list[1][0][1]))
-        py = (int(res_list[2][0][0]), int(res_list[2][0][1]))
-        pz = (int(res_list[3][0][0]), int(res_list[3][0][1]))
-        # draw
-        cv.line(img, pz, pc, (255, 0, 0), thickness=thickness)
-        cv.line(img, px, pc, (0, 0, 255), thickness=thickness)
-        cv.line(img, py, pc, (0, 255, 0), thickness=thickness)
-    except:
-        pass
-
 def draw_point(img, pxl, radius=1, color=(153,255,255), thickness=3):
     cv.circle(img, (int(pxl[0]), int(pxl[1])), radius, color, thickness)
 
@@ -132,9 +111,31 @@ def draw_obb(img, id, center, corners, color= (255,0,255), thickness=2):
     cv.putText(img, f"id={id}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, cv.LINE_AA)
 
 
-def draw_corners(img, cls, center, corners, color= (255,0,255), thickness=2):
+def draw_corners(img, cls, corners, color= (0,255,0)):
     # Draw the rotated rectangle
-    cv.polylines(img, [corners], isClosed=True, color=color, thickness=thickness)
+    cv.polylines(img, [corners], isClosed=True, color=color, thickness=1)
 
     # Draw the center coordinates on the image
-    cv.putText(img, f"cls={cls}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, cv.LINE_AA)
+    cv.putText(img, f"cls={cls}", corners[0], cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2, cv.LINE_AA)
+
+
+"""
+draw 3d_axis
+"""
+def draw_3d_axis(img, center, X, Y, Z, camera_matrix, dist_coeffs, length=10, thickness=2):
+    #Perform projection
+    p_list = np.array([center, center+ X*length, center+Y*length,center+Z*length])
+
+    res_list, _ =  cv.projectPoints(p_list, np.zeros((3, 1)), np.zeros((3, 1)), camera_matrix, dist_coeffs)
+
+    try:    
+        pc = (int(res_list[0][0][0]), int(res_list[0][0][1]))
+        px = (int(res_list[1][0][0]), int(res_list[1][0][1]))
+        py = (int(res_list[2][0][0]), int(res_list[2][0][1]))
+        pz = (int(res_list[3][0][0]), int(res_list[3][0][1]))
+        # draw
+        cv.line(img, pz, pc, (255, 0, 0), thickness=thickness)
+        cv.line(img, px, pc, (0, 0, 255), thickness=thickness)
+        cv.line(img, py, pc, (0, 255, 0), thickness=thickness)
+    except:
+        pass

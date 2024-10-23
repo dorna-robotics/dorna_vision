@@ -9,7 +9,8 @@ from dorna_vision.visual import *
 from dorna_vision.pose import *
 import threading
 import numpy as np
-
+import random
+from dorna2 import Kinematic
 
 class Detection(object):
     """docstring for Detect"""
@@ -22,7 +23,7 @@ class Detection(object):
             color={"low_hsv":[0, 0, 0], "high_hsv":[255, 255, 255], "inv":0},
             roi={"corners": [], "inv": 0, "crop": 0},
             detection={"cmd":"poly", },
-            limit = {"length":[], "ratio":[], "xyz":[], "inv":0},
+            limit = {"area":[], "ratio":[], "xyz":[], "inv":0},
             plane = [],
             output={"shuffle": 1, "max_det":1, "save_path": None},
             **kwargs
@@ -45,8 +46,17 @@ class Detection(object):
         # thread list
         self.thread_list = []
 
+        # img
         self.img = np.zeros((10, 10))
 
+        # kinematic
+        self.kinematic = Kinematic()
+
+        # object detection
+        if self.detection["cmd"] == "od":
+            self.od = OD(self.detection["path"])
+        elif self.detection["cmd"] == "ocr":
+            self.ocr = OCR()
 
     def get_camera_data(self):
         depth_frame, ir_frame, color_frame, depth_img, ir_img, color_img, depth_int, frames, timestamp = self.camera.get_all()
@@ -72,6 +82,15 @@ class Detection(object):
         # return
         retval = []
 
+        # frame
+        frame_mat_inv = np.linalg.inv(self.robot.kinematic.xyzabc_to_mat(np.array(self.frame)))
+        if self.robot:
+            jonit = self.robot.get_all_joint()[0:6]
+            T_camholder_to_base = self.robot.kinematic.Ti_r_world(i=5, joint=jonit[0:6])
+            T_cam_to_camholder = np.matrix(self.robot.config["T_camera_j4"])
+            T_cam_to_base = np.matmul(T_camholder_to_base, T_cam_to_camholder)
+            frame_mat_inv = np.matmul(frame_mat_inv, T_cam_to_base)
+
         # img
         if img:
             _img = cv.imread(img)
@@ -79,20 +98,12 @@ class Detection(object):
             camera_data = self.get_camera_data()
             _img = camera_data[self.kind]
 
-        # current joint
-        if self.robot:
-            jonit = self.robot.get_all_joint()[0:6]
-        else:
-            joint = None
-        
         # intensity
         img_adjust = intensity(_img.copy(), **self.intensity)
 
         # color
         img_adjust = color_mask(img_adjust, **self.color)
         
-        self.img = img_adjust
-
         # roi
         _roi = ROI(img_adjust.copy(), **self.roi)
         img_roi = _roi.img
@@ -101,44 +112,48 @@ class Detection(object):
         self.img_thr = np.zeros(img_roi.shape[:2], dtype=np.uint8)
 
         # detection
-        if detection["cmd"] == "ellipse":
+        if self.detection["cmd"] == "ellipse":
             # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
-            result = ellipse(img_roi, **detection)
+            result = ellipse(img_roi, **self.detection)
             retval = [{"timestamp": camera_data["timestamp"], "cls": 0, "conf": 1, "center": _roi.pxl_to_orig(r[0]), 
             "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
 
-        if detection["cmd"] in ["poly", "contour"]:
+        if self.detection["cmd"] in ["poly", "contour"]:
             # thr
-            img_thr = binary_thr(img_roi, **detection)
+            self.img_thr = binary_thr(img_roi, **self.detection)
 
             # find contour: [[pxl, corners, cnt], ...]
-            result = contour(img_thr, **detection):
+            result = contour(self.img_thr, **self.detection):
             retval = [{"timestamp": camera_data["timestamp"], "cls": 0, "conf": 1, "center": _roi.pxl_to_orig(r[0]), 
             "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
 
-        elif detection["cmd"] == "aruco":
+        elif self.detection["cmd"] == "aruco":
             # [[pxl, corners, (id, rvec, tvec)], ...]
-            result = aruco(img_roi, **detection)
+            result = aruco(img_roi, **self.detection)
             retval = [{"timestamp": camera_data["timestamp"], "cls": r[2][0], "conf": 1, "center": _roi.pxl_to_orig(r[0]),
             "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [x*180/np.pi for x in r[2][1]], "tvec": r[2][2].tolist()} for r in result]
 
-        elif detection["cmd"] == "ocr":
-            result = self.ocr(img_roi, **detection)
+        elif self.detection["cmd"] == "ocr":
+            result = self.ocr(img_roi, **self.detection)
             retval = [{"timestamp": camera_data["timestamp"], "cls": r[1][0], "conf": r[1][1], "center": _roi.pxl_to_orig([sum([p[0] for p in r[0]])/len(r[0]), sum([p[1] for p in r[0]])/len(r[0])]), 
             "corners": [_roi.pxl_to_orig(sublist) for sublist in r[0]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result[0]]
 
-        elif detection["cmd"] == "od":
-            result = self.od(img_roi, **detection)
+        elif self.detection["cmd"] == "od":
+            result = self.od(img_roi, **self.detection)
             retval = [{"timestamp": camera_data["timestamp"], "cls": r.cls, "conf": r.conf, "center": _roi.pxl_to_orig([r.x+r.w/2, r.y+r.h/2]), 
             "corners": [_roi.pxl_to_orig(pxl) for pxl in [[r.x, r.y], [r.x+r.w, r.y], [r.x+r.w, r.y+r.h], [r.x, r.y+r.h]]],
             "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
 
-        # length
-        if "length" in self.limit and len(self.limit["length"])== 2:
+        # area
+        if "area" in self.limit and len(self.limit["area"])== 2:
             for r in retval[:]:
                 corners = np.array(r["corners"])
-                sides = np.linalg.norm(np.roll(corners, -1, axis=0) - corners, axis=1)
-                if np.min(sides) < min(self.limit["length"]) or np.max(sides) > max(self.limit["length"]):
+                # Get x and y coordinates
+                x = corners[:, 0]
+                y = corners[:, 1]                
+                # Calculate area using the Shoelace formula
+                area = 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+                if area < min(self.limit["area"]) or area > max(self.limit["area"]):
                     retval.remove(r)
 
         # ratio
@@ -150,15 +165,18 @@ class Detection(object):
                 if ratio < min(self.limit["ratio"]) or ratio > max(self.limit["ratio"]):
                     retval.remove(r)
 
-        # xyz
+        # xyz only if the data comes from camera
         if not img:
             for r in retval:
-                _xyz = self.camera.xyz(r["center"], camera_data["depth_frame"], camera_data["depth_int"])[0].tolist()
-                if self.robot is not None:
-                    pass # apply fram to the xyz
-                else:
-                    pass # apply frame to the xyz
-
+                # xyz_target_2_cam
+                xyz_target_to_cam, _ = self.camera.xyz(r["center"], camera_data["depth_frame"], camera_data["depth_int"])[0].tolist()
+                T_target_to_cam = self.kinematic.xyzabc_to_mat(np.concatenate((np.array(xyz_target_to_cam), np.array([0, 0, 0]))))
+                
+                # apply frame
+                T_target_to_frame = np.matmul(frame_mat_inv, T_target_to_cam)
+                xyz_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
+                r["xyz"] = xyz_target_to_frame[0:3]
+                
         # xyz limit
         if "xyz" in self.limit and len(self.limit["xyz"])== 3 and len(self.limit["xyz"][0]) == 2 and len(self.limit["xyz"][1]) == 2 and len(self.limit["xyz"][2]) == 2:
             for r in retval[:]:
@@ -170,53 +188,65 @@ class Detection(object):
                         retval.remove(r)
 
         # plane
-        if detection["cmd"] in ["ellipse", "poly", "contour", "ocr", "od"]:
+        if self.detection["cmd"] in ["ellipse", "poly", "contour", "ocr", "od"] and len(self.plane) > 2 and camera_data["depth_frame"] is not None:
             # tmp pixels from poi
-            tmp_pxls = np.array(poi["poi"])
+            tmp_pxls = np.array(self.plane)
             
-            if len(tmp_pxls) > 2 and camera_data["depth_frame"] is not None:
-                for r in retval:
+            for r in retval:
+                # Compute the rotated rectangle from the points
+                center, dim, rot = cv.minAreaRect(np.array(r["corners"], dtype=np.float32))
+                
+                # pose from tmp
+                valid, center_3d, X, Y, Z, pxl_map = pose_3_point(camera_data["depth_frame"], camera_data["depth_int"], tmp_pxls, center, dim, rot, self.camera)
 
-                    # axis
-                    center = retval[i]["center"]
-                    dim = retval[i]["obb"]["wh"] # (w, h)
-                    rot = retval[i]["obb"]["rot"]
-                    del retval[i]["obb"]
-                    
-                    # pose from tmp
-                    valid, center_3d, X, Y, Z, pxl_map = pose_3_point(camera_data["depth_frame"], camera_data["depth_int"], tmp_pxls, center, dim, rot, camera)
+                if valid: # add pose                    
+                    tvec_target_to_cam = center_3d.tolist()
+                    rodrigues, _= cv.Rodrigues(np.matrix([[X[0], Y[0], Z[0]],
+                                            [X[1], Y[1], Z[1]],
+                                            [X[2], Y[2], Z[2]]])) 
+                    rvec_target_to_cam = [rodrigues[i, 0]*180/np.pi for i in range(3)]
 
-                    if valid: # add pose
-                        draw_3d_axis(adjust_img, center_3d, X, Y, Z, camera.camera_matrix(camera_data["depth_int"]), camera.dist_coeffs(camera_data["depth_int"]))
-                        
-                        retval[i]["tvec"] = center_3d.tolist()
-                        rodrigues, _= cv.Rodrigues(np.matrix([[X[0], Y[0], Z[0]],
-                                                [X[1], Y[1], Z[1]],
-                                                [X[2], Y[2], Z[2]]])) 
-                        retval[i]["rvec"] = [rodrigues[i, 0]*180/np.pi for i in range(3)]
+                    # xyz_target_2_cam
+                    T_target_to_cam = self.kinematic.xyzabc_to_mat(np.array([tvec_target_to_cam, rvec_target_to_cam]))
                     
+                    # apply frame
+                    T_target_to_frame = np.matmul(frame_mat_inv, T_target_to_cam)
+                    xyzabc_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
+                    r["tvec"] = xyzabc_target_to_frame[0:3]
+                    r["rvec"] = xyzabc_target_to_frame[3:6]
 
                     # draw template
                     for pxl in pxl_map:
-                        draw_point(adjust_img, pxl)
+                        draw_point(img_adjust, pxl)
 
-        valid, center_3d, X, Y, Z, pxl_map = pose_3_point(camera_data["depth_frame"], camera_data["depth_int"], tmp_pxls, center, dim, rot, camera)
+                    # draw axes
+                    draw_3d_axis(img_adjust, center_3d, X, Y, Z, self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]))                
 
+        # draw corners
+        if self.detection["cmd"] in ["ellipse", "poly", "contour", "ocr", "od"]: # corners and axes
+            for r in retval:
+                draw_corners(img_adjust, r["cls"], r["corners"])
+        
+        # shuffle
+        if self.output["shuffle"]:
+            random.shuffle(retval)
+        
+        # max_det
+        if self.output["max_det"] > 0:
+            retval = retval[0:self.output["max_det"]]
 
-        # return
-
-        # run pattern detection
-        timestamp, retval, adjust_img, thr_img, bgr_img = self._pattern(self.camera, camera_data, **kwargs)
-        self.adjust_img = adjust_img
-
-        # save the plots
-        if save_path:
+        # save
+        if self.output["save_path"]:
             # Create a thread to perform the file write operation
-            thread = threading.Thread(target=cv.imwrite, args=(save_path, adjust_img))
+            thread = threading.Thread(target=cv.imwrite, args=(self.output["save_path"], img_adjust))
             thread.start()
 
             self.thread_list.append(thread)
 
+        # img
+        self.img = img_adjust
+
+        # return
         return retval
 
 

@@ -4,7 +4,7 @@ from ncnn.utils.objects import Detect_Object
 from paddleocr import PaddleOCR
 
 class OD(object):
-    def __init__(self, path, target_size=416, num_threads=2, use_gpu=False):
+    def __init__(self, path, target_size=416, num_threads=2, use_gpu=False, **kwargs):
         self.path = path
         self.target_size = target_size
         self.num_threads = num_threads
@@ -22,14 +22,14 @@ class OD(object):
             data = pickle.load(file)
         self.net.load_param(data["param"])
         self.net.load_model(data["bin"])
-        self.class_names = data["classes"]
+        #self.class_names = data["classes"]
 
     
     def __del__(self):
         self.net = None
 
     # [[obj], ...]
-    def __call__(self, img, conf=0.5, max_det=None, cls=[]):
+    def __call__(self, img, conf=0.5, max_det=None, cls=[], **kwargs):
         img_h = img.shape[0]
         img_w = img.shape[1]
 
@@ -75,23 +75,22 @@ class OD(object):
 
             objects.append(obj)
 
-        # top elements
-        if max_det:
-            # Sort the list by 'prob' in descending order
-            sorted_objects = sorted(objects, key=lambda x: x.prob, reverse=True)
-            
-            # Select the top `max_det` elements
-            objects = sorted_objects[:max_det]
+        # Sort the list by 'prob' in descending order
+        objects = sorted(objects, key=lambda x: x.prob, reverse=True)
 
+        # top elements
+        if max_det:            
+            # Select the top `max_det` elements
+            objects = objects[:max_det]
         
         return objects
 
 
 class OCR(PaddleOCR):
-    def __init__(self, lang='en', use_angle_cls=True):
+    def __init__(self, lang='en', use_angle_cls=True, **kwargs):
         self.net = PaddleOCR(lang=lang, use_angle_cls=use_angle_cls)
     
-    def ocr(self, img, conf=0.5, cls=True):
+    def ocr(self, img, conf=0.5, cls=True, **kwargs):
         return self.net.ocr(img, drop_score=conf, cls=cls)
     
     def __del__(self):
