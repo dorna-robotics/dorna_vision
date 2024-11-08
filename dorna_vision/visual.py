@@ -7,7 +7,7 @@ def color_mask(bgr_img, low_hsv=[0, 0, 0], high_hsv=[255, 255, 255], inv=False):
         return bgr_img
     
     hsv_img = cv.cvtColor(bgr_img, cv.COLOR_BGR2HSV)
-    mask = cv.inRange(hsv_img, low_hsv, high_hsv)
+    mask = cv.inRange(hsv_img, np.array(low_hsv), np.array(high_hsv))
     
     if inv:
         mask = cv.bitwise_not(mask)
@@ -98,7 +98,7 @@ class ROI(object):
         self.roi = np.array(corners, dtype=np.int32)
         self.x = 0
         self.y = 0
-        self.w, self.h, _ = self.img.shape
+        self.h, self.w = img.shape[0:2]
         
         if len(self.roi) < 3:
             self.img = img 

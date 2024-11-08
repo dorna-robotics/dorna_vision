@@ -1,3 +1,5 @@
+import numpy as np
+
 def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
     valid = 0
     # rotation matrix

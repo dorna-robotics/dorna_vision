@@ -1,3 +1,4 @@
+import os
 import pickle
 import ncnn
 from ncnn.utils.objects import Detect_Object
@@ -20,24 +21,37 @@ class OD(object):
         # load the bin and param
         with open(self.path, 'rb') as file:
             data = pickle.load(file)
-        self.net.load_param(data["param"])
-        self.net.load_model(data["bin"])
-        #self.class_names = data["classes"]
+
+        # Save them temporarily as .param and .bin files for model loading
+        with open('temp.param', 'w', encoding='utf-8') as f:
+            f.write(data['param'])
+
+        with open('temp.bin', 'wb') as f:
+            f.write(data['bin'])
+
+        # load the model    
+        self.net.load_param("temp.param")
+        self.net.load_model("temp.bin")
+        self.cls = data["cls"]
+
+        # remove the temporary files
+        os.remove('temp.param')
+        os.remove('temp.bin')
 
     
     def __del__(self):
         self.net = None
 
     # [[obj], ...]
-    def __call__(self, img, conf=0.5, max_det=None, cls=[], **kwargs):
+    def __call__(self, img, conf=0.5, cls=[], max_det=None, **kwargs):
         img_h = img.shape[0]
         img_w = img.shape[1]
 
         mat_in = ncnn.Mat.from_pixels_resize(
             img,
             ncnn.Mat.PixelType.PIXEL_BGR2RGB,
-            img.shape[1],
-            img.shape[0],
+            img_w,
+            img_h,
             self.target_size,
             self.target_size,
         )
@@ -47,7 +61,7 @@ class OD(object):
         ex.input("data", mat_in)
 
         _, mat_out = ex.extract("output")
-
+        print(mat_out)
         objects = []
 
         # method 1, use ncnn.Mat.row to get the result, no memory copy
@@ -60,11 +74,9 @@ class OD(object):
             # conf
             if obj.prob < conf:
                 continue
-            else:
-                obj.conf = conf
 
             # cls
-            obj.cls = values[0]-1
+            obj.cls = self.cls[int(values[0]-1)]
             if cls and obj.cls not in cls:
                 continue
             
@@ -85,13 +97,28 @@ class OD(object):
         
         return objects
 
-
 class OCR(PaddleOCR):
     def __init__(self, lang='en', use_angle_cls=True, **kwargs):
-        self.net = PaddleOCR(lang=lang, use_angle_cls=use_angle_cls)
+        self.net = PaddleOCR(lang=lang, use_angle_cls=use_angle_cls, precision='fp16',
+            det_model_dir="model\ocr\en_PP-OCRv3_det_infer",
+            rec_model_dir="model\ocr\en_PP-OCRv4_rec_infer",
+            rec_char_dict_path="model\ocr\en_dict.txt",
+            vis_font_path="model\ocr\simfang.ttf",
+            e2e_char_dict_path="model\ocr\ic15_dict.txt",
+            cls_model_dir="model\ocr\ch_ppocr_mobile_v2.0_cls_infer",
+            show_log=False)
+        
     
     def ocr(self, img, conf=0.5, cls=True, **kwargs):
-        return self.net.ocr(img, drop_score=conf, cls=cls)
+        retval = []
+        _retval = self.net.ocr(img, cls=cls)[0]
+        if _retval is not None:
+            for r in _retval:
+                if r[1][1] < conf:
+                    continue
+                retval.append(r)
+        return retval
     
+
     def __del__(self):
         self.net = None

@@ -3,13 +3,8 @@ import numpy as np
 from matplotlib.patches import Ellipse
 
 
-def draw_aruco(img, aruco_data, camera_matrix, dist_coeffs, length=20, thickness=2):
-    # unpack
-    ids = np.array([a[0] for a in aruco_data])
-    corners = [a[1] for a in aruco_data]
-    rvecs = [a[2] for a in aruco_data]
-    tvecs = [a[3] for a in aruco_data]
-    
+def draw_aruco(img, ids, corners, rvecs, tvecs, camera_matrix, dist_coeffs, length=20, thickness=2):
+    print("cornres: ", corners)
     # draw
     if len(ids):
         cv.aruco.drawDetectedMarkers(img, corners, ids)
@@ -56,7 +51,7 @@ def draw_cnt(cnt_img, draws, axis=True, label=False, length=20, color=(0, 255, 0
 
 
 def draw_poly(img, vertices, color=(0, 255, 0), thickness=2):
-    cv.polylines(poly_img, [np.array(vertices, np.int32)], isClosed=True, color=color, thickness=thickness)
+    cv.polylines(img, [np.array(vertices, np.int32)], isClosed=True, color=color, thickness=thickness)
 
     
 def draw_ellipse(img, elps, axis=True, label=False, color=(0, 255, 0), length=20, thickness=2):
@@ -111,12 +106,13 @@ def draw_obb(img, id, center, corners, color= (255,0,255), thickness=2):
     cv.putText(img, f"id={id}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, cv.LINE_AA)
 
 
-def draw_corners(img, cls, corners, color= (0,255,0)):
+def draw_corners(img, cls, conf, corners, color= (0,255,0)):
     # Draw the rotated rectangle
-    cv.polylines(img, [corners], isClosed=True, color=color, thickness=1)
+    converted_corners = np.array(corners, dtype=np.int32).reshape((-1, 1, 2))
+    cv.polylines(img, [converted_corners], isClosed=True, color=color, thickness=2)
 
     # Draw the center coordinates on the image
-    cv.putText(img, f"cls={cls}", corners[0], cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2, cv.LINE_AA)
+    cv.putText(img, "cls:"+cls+", conf:"+str(f"{conf:.2g}"), corners[0], cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 1, cv.LINE_AA)
 
 
 """

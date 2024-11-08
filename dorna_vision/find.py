@@ -1,11 +1,11 @@
 import cv2 as cv
 import numpy as np
 import colorsys
-from dorna_vision.board import Aruco
+from board import Aruco
 
 
 # [[pxl, corners, cnt], ...]
-def contour(thr_img, side=None, **kwargs):
+def contour(thr_img, **kwargs):
     retval = []
     
     # find contours 
@@ -14,16 +14,16 @@ def contour(thr_img, side=None, **kwargs):
     # list for storing names of shapes 
     for cnt in cnts:
         # check for poly
-        if side:
+        if "side" in kwargs and kwargs["side"] is not None:
             approx = cv.approxPolyDP(cnt, 0.05 * cv.arcLength(cnt, True), True)
-            if len(approx) != side:
+            if len(approx) != kwargs["side"]:
                 continue
 
         # moments
         M = cv.moments(cnt)
 
         # Avoid division by zero (when area is zero)
-        if M["m00"] != 0:
+        if M["m00"] == 0:
             continue
         
         # Calculate the center coordinates and rot angle
@@ -78,7 +78,8 @@ refine method
 
 """
 # [[pxl, corners, (id, rvec, tvec)], ...]
-def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False, coordinate="cw", **kwargs):
+def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False, coordinate="ccw", **kwargs):
+
     retval = []
 
     # pose
@@ -88,10 +89,10 @@ def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_len
     # empty
     if aruco_id is None:
         return retval
-    
+
     for i in range(len(aruco_id)):
-        if len(aruco_corner[i]) == 4:
-            corners = aruco_corner[i].reshape((4,2))
+        if len(aruco_corner[i][0]) == 4:
+            corners = aruco_corner[i][0].reshape((4,2))
             
             # pxl
             A1 = corners[2][1] - corners[0][1]
@@ -116,7 +117,6 @@ def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_len
             corners = [[int(c[0]), int(c[1])] for c in corners]
 
             retval.append([pxl, corners, [aruco_id[i], aruco_corner[i], rvecs[i], tvecs[i]]])
-
     return retval
 
 
@@ -153,8 +153,8 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
         # format
         for elp in elps:
             # axes
-            major_axis = int(elp[0][2]+elp[0][3])
-            minor_axis = int(elp[0][2]+elp[0][4])
+            major_axis = int(2*(elp[0][2]+elp[0][3]))
+            minor_axis = int(2*(elp[0][2]+elp[0][4]))
 
             # center 
             center = (int(elp[0][0]), int(elp[0][1]))
