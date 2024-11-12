@@ -3,7 +3,7 @@ import numpy as np
 import colorsys
 
 def color_mask(bgr_img, low_hsv=[0, 0, 0], high_hsv=[255, 255, 255], inv=False):
-    if low_hsv == [0, 0, 0] and high_hsv == [255, 255, 255] and not inv:
+    if low_hsv in [[0, 0, 0], []] and high_hsv in [[255, 255, 255], []] and not inv:
         return bgr_img
     
     hsv_img = cv.cvtColor(bgr_img, cv.COLOR_BGR2HSV)

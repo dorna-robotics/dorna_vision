@@ -1,7 +1,5 @@
 import cv2 as cv
 import numpy as np
-from matplotlib.patches import Ellipse
-
 
 def draw_aruco(img, ids, corners, rvecs, tvecs, camera_matrix, dist_coeffs, length=20, thickness=2):
     print("cornres: ", corners)
@@ -112,7 +110,27 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0)):
     cv.polylines(img, [converted_corners], isClosed=True, color=color, thickness=2)
 
     # Draw the center coordinates on the image
-    cv.putText(img, "cls:"+cls+", conf:"+str(f"{conf:.2g}"), corners[0], cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 1, cv.LINE_AA)
+    #cv.putText(img, "cls:"+cls+", conf:"+str(f"{conf:.2g}"), corners[0], cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 1, cv.LINE_AA)
+    # Draw a green rectangle as the background
+    x, y = corners[0]  # Top-left corner of the text
+    text = "cls:" + cls + ", conf:" + str(f"{conf:.2g}")
+    font = cv.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.6
+    thickness = 1
+
+    # Get the size of the text to calculate the background
+    (text_width, text_height), _ = cv.getTextSize(text, font, font_scale, thickness)
+
+    # Define rectangle position and size (background)
+    background_rect = (x, y - text_height - 5, text_width + 10, text_height + 5)
+
+    # Draw the green background rectangle
+    cv.rectangle(img, (background_rect[0], background_rect[1]), 
+                (background_rect[0] + background_rect[2], background_rect[1] + background_rect[3]), 
+                color, -1)  # Green color, filled rectangle
+
+    # Draw the text in white on top of the background
+    cv.putText(img, text, (x + 5, y - 5), font, font_scale, (0, 0, 0), thickness, cv.LINE_AA)  # black text
 
 
 """

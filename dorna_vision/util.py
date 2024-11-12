@@ -1,7 +1,6 @@
 import cv2 as cv
 import numpy as np
 import colorsys
-from dorna_vision.board import Aruco
 
 # bgr_img -> binary
 def binary_thr(bgr_img, type=0, inv=True, blur=3, thr=127, mean_sub=2, **kwargs):    
