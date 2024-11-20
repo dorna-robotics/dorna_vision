@@ -1,4 +1,3 @@
-from dorna_vision import util, draw
 import matplotlib.pyplot as plt
 import cv2
 import numpy as np
@@ -81,7 +80,7 @@ def minimizer(data, kinematic, use_aruco=False, use_ground_truth=True):
     return T_cam_2_j4
 
 
-def dorna_ta_eye_in_hand_camera_kit(robot, kinematic, camera, joint_deviation, aruco_id, aruco_length, aruco_dic, aruco_refine, aruco_subpix, aruco_coordinate):
+def dorna_ta_eye_in_hand_camera_kit(robot, detection, joint_deviation, aruco_id):
     # init
     retval = []
     
@@ -89,77 +88,57 @@ def dorna_ta_eye_in_hand_camera_kit(robot, kinematic, camera, joint_deviation, a
     touching = input("The robot is touching the aruco marker (y or n):")
     touching = touching.lower()
 
+    # touch
+    if touching != "y":
+        return retval
+    
+    print("claibration process start")
+
     # init centroid
-    xyz_target_2_base = []
-    if touching == "y":
-        xyz_target_2_base = robot.get_all_pose()[0:3]
-        
-        #go up
-        robot.set_motor(1)
-        robot.sleep(1)
-        robot.lmove(rel=1, z=140, vel=100, accel=1000, jerk=2000)
-        #robot.jmove(rel=0, j0=-2.9042938990811535, j1=28.845010740367286, j2=-107.9735785170850, j3=0, j4=-12.868713106088478, j5=0, vel=50, accel=800, jerk=1000)
-        robot.jmove(rel=0, j0=-2.9042938990811535, j1=34.475098, j2=-109.973145, j3=0, j4=-16.501465, j5=0, vel=50, accel=800, jerk=1000)
-     
-        robot.sleep(1)
+    xyz_target_2_base = robot.get_all_pose()[0:3]
+    
+    #go up
+    robot.set_motor(1)
+    robot.sleep(1)
+    robot.lmove(rel=1, z=140, vel=100, accel=1000, jerk=2000)
+    robot.jmove(rel=0, j0=-2.9042938990811535, j1=34.475098, j2=-109.973145, j3=0, j4=-16.501465, j5=0, vel=50, accel=800, jerk=1000)
+    
+    robot.sleep(1)
+    
     # initial joint
     initial_joint = np.array(robot.get_all_joint()[0:6])
     target_joint_list = [(initial_joint +  joint).tolist() for joint in joint_deviation]
 
     pxl_target_2_cam_list = []
     # Generate all possible lists of size 5    
-    for joint in target_joint_list:
-        for i in range(1):
-            robot.jmove(rel=0, j0=joint[0], j1=joint[1], j2=joint[2], j3=joint[3], j4=joint[4], j5=joint[5])
-            robot.sleep(1)
-    
-            # capture image
-            depth_frame, _, _, _, _, color_img, depth_int, _, _= camera.get_all()
-    
-            # joint
-            joint = robot.get_all_joint()[0:6]
+    for i in range(len(target_joint_list)):
+        # move and sleep
+        robot.jmove(rel=0, j0=target_joint_list[i][0], j1=target_joint_list[i][1], j2=target_joint_list[i][2], j3=target_joint_list[i][3], j4=target_joint_list[i][4], j5=target_joint_list[i][5])
+        robot.sleep(1)
 
-            # search_id pose: [[id, corner, rvec, tvec] for id, corner, rvec, tvec in zip(aruco_id, aruco_corner, rvecs, tvecs)]
-            aruco_data = util.find_aruco(color_img, camera.camera_matrix(depth_int), camera.dist_coeffs(depth_int), dictionary=aruco_dic, marker_length=aruco_length, refine=aruco_refine, subpix=aruco_subpix, coordinate=aruco_coordinate)
-            
-            # find aruco_id
-            pxl_target_2_cam = []
-            for val in aruco_data:
-                if val[0] == aruco_id: # find center pixel
-                    corner = val[1]
-                    pxl_x = (corner[0][0][0] + corner[0][1][0] + corner[0][2][0] + corner[0][3][0]) / 4
-                    pxl_y = (corner[0][0][1] + corner[0][1][1] + corner[0][2][1] + corner[0][3][1]) / 4
-                    pxl_target_2_cam = [pxl_x, pxl_y]
-                    pxl_target_2_cam_list.append(pxl_target_2_cam)
+        # current joint
+        joint = np.array(robot.get_all_joint()[0:6]).tolist()
+        
+        # run detection
+        results = detection.run()
+        if results:
+            for result in results:
+                if result["cls"] == str(int(aruco_id)):
+                    # append collect data
+                    retval.append({"joint": joint, "t_target_2_cam": result["xyz"], "t_target_2_base": xyz_target_2_base, "aruco_t_target_2_cam": result["tvec"], "aruco_r_target_2_cam": result["rvec"]})
+                    pxl_target_2_cam_list.append(result["center"])
                     break
             
-            # aruco not found
-            if pxl_target_2_cam == []:
-                break
-
-            # target to camera
-            xyz_target_2_cam, _ = camera.xyz(pxl_target_2_cam, depth_frame, depth_int)
-
-            # append collect data
-            retval.append({"joint": joint, "t_target_2_cam": xyz_target_2_cam.tolist(), "t_target_2_base": xyz_target_2_base, "aruco_t_target_2_cam": val[3].tolist()[0], "aruco_r_target_2_cam": cv2.Rodrigues(val[2])[0].tolist()})
-
-            # draw aruco
-            draw.draw_aruco(color_img, aruco_data, camera.camera_matrix(depth_int), camera.dist_coeffs(depth_int))
-
-            # draw center pixel
-            #cv2.circle(color_img, (int(pxl_x), int(pxl_y)), 5, (0, 0, 255), 1)
-
         # draw centers
         for pxl in pxl_target_2_cam_list:
-            cv2.circle(color_img, (int(pxl[0]), int(pxl[1])), 5, (255,0,255), 2)
-
+            cv2.circle(detection.img, (int(pxl[0]), int(pxl[1])), 5, (255,0,255), 2)
 
         # Clear the previous output
         clear_output(wait=True)
-        plt.imshow(cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)) # Display the image
+        plt.imshow(cv2.cvtColor(detection.img, cv2.COLOR_BGR2RGB)) # Display the image
         plt.axis('off')  # Turn off axis
         display(plt.gcf())  # Display the updated plot
         plt.close() # release the memory
-
+        print("round: ", i+1, " / ", len(target_joint_list))
 
     return retval

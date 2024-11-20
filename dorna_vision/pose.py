@@ -33,7 +33,7 @@ def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
         Z = np.cross(xyzs[2] - xyzs[0], xyzs[1] - xyzs[0])
         Z = Z / np.linalg.norm(Z)
 
-        if Z[2] <= 0: #  z is always positive
+        if Z[2] > 0: #  z is always positive
             Z = -Z
     
         # Y

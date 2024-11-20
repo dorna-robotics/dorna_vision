@@ -64,7 +64,7 @@ class Aruco(object):
 
         return aruco_corner, aruco_id, aruco_reject, img_gray
 
-    def pose(self, img, camera_matrix, dist_coeffs, coordinate="cw"):
+    def pose(self, img, camera_matrix, dist_coeffs, coordinate="ccw"):
 
         # corner detection
         aruco_corner, aruco_id, aruco_reject, img_gray = self.corner(img)

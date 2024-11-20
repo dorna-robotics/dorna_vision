@@ -2,7 +2,6 @@ import cv2 as cv
 import numpy as np
 
 def draw_aruco(img, ids, corners, rvecs, tvecs, camera_matrix, dist_coeffs, length=20, thickness=2):
-    print("cornres: ", corners)
     # draw
     if len(ids):
         cv.aruco.drawDetectedMarkers(img, corners, ids)
