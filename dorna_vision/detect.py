@@ -144,9 +144,9 @@ class Detection(object):
             # frame
             self.frame_mat_inv = np.linalg.inv(self.kinematic.xyzabc_to_mat(np.array(self.frame)))
             if self.robot is not None:
-                jonit = camera_data["joint"][0:6]
+                joint = camera_data["joint"][0:6]
                 if self.camera_mount["type"] == "dorna_ta_j4":
-                    T_camholder_to_base = self.robot.kinematic.Ti_r_world(i=5, joint=jonit[0:6])
+                    T_camholder_to_base = self.robot.kinematic.Ti_r_world(i=5, joint=joint[0:6])
                     T_cam_to_camholder = np.matrix(self.camera_mount["T"])
                     T_cam_to_base = np.matmul(T_camholder_to_base, T_cam_to_camholder)
                     self.frame_mat_inv = np.matmul(self.frame_mat_inv, T_cam_to_base)

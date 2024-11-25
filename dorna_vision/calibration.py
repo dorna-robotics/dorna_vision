@@ -55,6 +55,7 @@ def likelihood(p, kinematic, data, use_aruco, use_ground_truth):
 
         a = np.array([np.linalg.norm(np.array(g) - np.array(centroid)) for g in v])
         total_error += np.linalg.norm(a)**2
+    print("centroid: ", centroid)
     return np.sqrt(total_error/num_data)
 
 
