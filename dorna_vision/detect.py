@@ -35,9 +35,7 @@ class Detection(object):
         
         self.camera = camera
         self.robot = robot
-        self.camera_mount = camera_mount
-        if self.robot is not None and self.camera_mount is None:
-            self.camera_mount = self.robot.config["camera_mount"]
+        self.camera_mount = self.init_camera_mount(camera_mount, robot)
         self.frame = frame
         self.feed = feed
         self.intensity = intensity
@@ -70,6 +68,27 @@ class Detection(object):
             self.init_ocr()
 
 
+    def init_camera_mount(self, camera_mount, robot):
+        if robot is None:
+            return {}
+        
+        # type
+        try:
+            _type = list(camera_mount.keys())[0]
+        except:
+            _type = list(self.robot.config["camera_mount"].keys())[0]
+        
+        # result
+        try:
+            result = camera_mount[_type]
+        except:
+            result = self.robot.config["camera_mount"][_type]
+        
+        return {"type":_type, "T":self.robot.kinematic.xyzabc_to_mat(np.array(result[0:6])), "ej":result[6:14]}
+
+            
+
+
     def init_cls(self, path):
         self.cls = CLS(path)
 
@@ -80,6 +99,7 @@ class Detection(object):
 
     def init_ocr(self):
         self.ocr = OCR()
+
 
     def get_camera_data(self, data=None):
         if type(data) == str: # read from file
@@ -96,6 +116,10 @@ class Detection(object):
             depth_frame, ir_frame, color_frame, depth_img, ir_img, color_img, depth_int, frames, timestamp = self.camera.get_all()
             try:
                 joint = self.robot.get_all_joint()
+                if "ej" in self.camera_mount:
+                    for i in range(min(len(self.camera_mount["ej"]), len(joint))):
+                        joint[i] += self.camera_mount["ej"][i]
+
             except:
                 pass
             self.camera_data = {
@@ -123,6 +147,18 @@ class Detection(object):
             T_target_to_frame = np.matmul(self.frame_mat_inv, T_target_to_cam)
             xyz_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
             xyz = xyz_target_to_frame[0:3]
+
+            """
+            # app ej
+            if self.robot is not None:
+                #self.camera_mount["ej"][i]
+                cone_samples=50, cone_degree=5
+                uncertainity_cone = {
+                    "num_samples": cone_samples,
+                    "cone_degree": cone_degree}
+                above_pick_joint = self.kinematic.inv(above_pick_pose, current_joint, False, uncertainity_cone=uncertainity_cone)[0]
+            """
+            
         except:
             xyz = [0, 0, 0]
         return xyz
@@ -145,7 +181,7 @@ class Detection(object):
             self.frame_mat_inv = np.linalg.inv(self.kinematic.xyzabc_to_mat(np.array(self.frame)))
             if self.robot is not None:
                 joint = camera_data["joint"][0:6]
-                if self.camera_mount["type"] == "dorna_ta_j4":
+                if "type" in self.camera_mount and "T" in self.camera_mount and self.camera_mount["type"].startswith("dorna_ta_j4"):
                     T_camholder_to_base = self.robot.kinematic.Ti_r_world(i=5, joint=joint[0:6])
                     T_cam_to_camholder = np.matrix(self.camera_mount["T"])
                     T_cam_to_base = np.matmul(T_camholder_to_base, T_cam_to_camholder)
