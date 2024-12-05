@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
     valid = 0
     # rotation matrix
@@ -33,7 +34,7 @@ def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
         Z = np.cross(xyzs[2] - xyzs[0], xyzs[1] - xyzs[0])
         Z = Z / np.linalg.norm(Z)
 
-        if Z[2] > 0: #  z is always positive
+        if Z[2] <= 0: #  z is always positive
             Z = -Z
     
         # Y
@@ -47,6 +48,7 @@ def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
         center_3d = np.zeros(3)
 
     return valid, center_3d, X, Y , Z, pxls
+
 
 
 def camera_to_dorna_ta(T_target_2_cam, joint, kinematic, T_cam_2_j4, T_robot_2_frame=np.eye(4)):    

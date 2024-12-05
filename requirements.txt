@@ -1,7 +1,0 @@
-notebook
-ipywidgets
-numpy
-matplotlib
-ipython
-setuptools
-scipy

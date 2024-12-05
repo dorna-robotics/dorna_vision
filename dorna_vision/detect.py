@@ -19,7 +19,7 @@ class Detection(object):
     def __init__(self,
             camera=None,
             robot=None,
-            camera_mount=None,
+            camera_mount="dorna_ta_j4_1",
             frame=[0, 0, 0, 0, 0, 0], 
             feed="color_img", 
             intensity={"a":1.0, "b":0},
@@ -35,7 +35,8 @@ class Detection(object):
         
         self.camera = camera
         self.robot = robot
-        self.camera_mount = self.init_camera_mount(camera_mount, robot)
+        self.camera_mount_label = camera_mount
+        self.camera_mount = self.set_camera_mount(camera_mount)
         self.frame = frame
         self.feed = feed
         self.intensity = intensity
@@ -68,23 +69,28 @@ class Detection(object):
             self.init_ocr()
 
 
-    def init_camera_mount(self, camera_mount, robot):
-        if robot is None:
-            return {}
-        
-        # type
-        try:
-            _type = list(camera_mount.keys())[0]
-        except:
-            _type = list(self.robot.config["camera_mount"].keys())[0]
-        
-        # result
-        try:
-            result = camera_mount[_type]
-        except:
-            result = self.robot.config["camera_mount"][_type]
-        
-        return {"type":_type, "T":self.robot.kinematic.xyzabc_to_mat(np.array(result[0:6])), "ej":result[6:14]}
+    def set_camera_mount(self, camera_mount):
+        retval = {"ej": [0, 0, 0, 0, 0, 0, 0, 0]}
+        if self.robot is None:
+            pass
+        elif type(camera_mount) == dict and "type" in camera_mount and "T" in camera_mount and "ej" in camera_mount:
+            retval = {
+                "type": camera_mount["type"],
+                "T": self.robot.kinematic.xyzabc_to_mat(np.array(camera_mount["T"])),
+                "ej": camera_mount["ej"]
+            }
+        elif type(camera_mount) == str:
+            for i in range(len(self.robot.config["camera_mount"])):
+                if self.robot.config["camera_mount"][i]["type"] == camera_mount:
+                    tmp =dict(self.robot.config["camera_mount"][i])
+                    retval = {
+                        "type": tmp["type"],
+                        "T": self.robot.kinematic.xyzabc_to_mat(np.array(tmp["T"])),
+                        "ej": tmp["ej"]
+                    }
+                    break
+
+        return retval
 
             
 
@@ -147,17 +153,6 @@ class Detection(object):
             T_target_to_frame = np.matmul(self.frame_mat_inv, T_target_to_cam)
             xyz_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
             xyz = xyz_target_to_frame[0:3]
-
-            """
-            # app ej
-            if self.robot is not None:
-                #self.camera_mount["ej"][i]
-                cone_samples=50, cone_degree=5
-                uncertainity_cone = {
-                    "num_samples": cone_samples,
-                    "cone_degree": cone_degree}
-                above_pick_joint = self.kinematic.inv(above_pick_pose, current_joint, False, uncertainity_cone=uncertainity_cone)[0]
-            """
             
         except:
             xyz = [0, 0, 0]
@@ -219,19 +214,30 @@ class Detection(object):
                     "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
 
                 elif self.detection["cmd"] == "aruco" and camera_data["depth_int"] is not None:
-                    # [[pxl, corners, (id, rvec, tvec)], ...]
-                    result = aruco(img_roi, self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), **self.detection)
-                    retval = [{"timestamp": camera_data["timestamp"], "cls": str(r[2][0][0]), "conf": 1, "center": _roi.pxl_to_orig(r[0]),
-                    "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [x*180/np.pi for x in r[2][2][0].tolist()], "tvec": r[2][3][0].tolist()} for r in result]
                     try:
-                        draw_aruco(img_adjust, np.array([r[2][0] for r in result]), np.array([[r["corners"] for r in retval]], dtype=np.float32), [r[2][2] for r in result], [r[2][3] for r in result], self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]))
-                    except:
+                        # [[pxl, corners, (id, rvec, tvec)], ...]
+                        result = aruco(img_roi, self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), **self.detection)
+                        _retval = [{"timestamp": camera_data["timestamp"], "cls": str(r[2][0][0]), "conf": 1, "center": _roi.pxl_to_orig(r[0]),
+                        "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [x*180/np.pi for x in r[2][2][0].tolist()], "tvec": r[2][3][0].tolist()} for r in result]
+                        draw_aruco(img_adjust, np.array([r[2][0] for r in result]), np.array([[r["corners"] for r in _retval]], dtype=np.float32), [r[2][2] for r in result], [r[2][3] for r in result], self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]))
+                        retval = _retval
+                        # rvec tvec
+                        # xyz_target_2_cam
+                        for r in retval:
+                            T_target_to_cam = self.kinematic.xyzabc_to_mat(np.array(r["tvec"]+ r["rvec"]))
+
+                            # apply frame
+                            T_target_to_frame = np.matmul(self.frame_mat_inv, T_target_to_cam)
+                            xyzabc_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
+                            r["tvec"] = xyzabc_target_to_frame[0:3]
+                            r["rvec"] = xyzabc_target_to_frame[3:6]
+
+                    except Exception as ex:
                         pass
                 elif self.detection["cmd"] == "ocr":
                     result = self.ocr.ocr(img_roi, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r[1][0], "conf": r[1][1], "center": _roi.pxl_to_orig([(sum([p[0] for p in r[0]])/len(r[0])), sum([p[1] for p in r[0]])/len(r[0])]), 
                     "corners": [_roi.pxl_to_orig(sublist) for sublist in r[0]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
-
                 elif self.detection["cmd"] == "od":
                     result = self.od(img_roi, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r.cls, "conf": r.prob, "center": _roi.pxl_to_orig([r.rect.x+r.rect.w/2, r.rect.y+r.rect.h/2]), 
@@ -329,6 +335,11 @@ class Detection(object):
             # max_det
             if self.output["max_det"] > 0:
                 retval = retval[0:self.output["max_det"]]
+
+            # ej
+            if "ej" in self.camera_mount:
+                for r in retval:
+                    r["ej"] = list(self.camera_mount["ej"])
 
             # save image
             if self.output["save_img"]:

@@ -32,7 +32,7 @@ refine method
 """
 class Aruco(object):
     """docstring for aruco"""
-    def __init__(self, dictionary = "DICT_6X6_250", refine="CORNER_REFINE_APRILTAG", subpix=False, marker_length=10, marker_size=100):
+    def __init__(self, dictionary = "DICT_4X4_100", refine="CORNER_REFINE_APRILTAG", subpix=False, marker_length=20, marker_size=100):
         super(Aruco, self).__init__()
         self.dictionary = cv.aruco.getPredefinedDictionary(getattr(cv.aruco, dictionary))
         self.refine = refine
@@ -84,7 +84,7 @@ class Aruco(object):
 
 class Charuco(object):
     """docstring for charuco"""
-    def __init__(self, sqr_x=8, sqr_y=8, sqr_length=12, marker_length=8, dictionary="DICT_6X6_250", refine="CORNER_REFINE_APRILTAG", subpix=False):
+    def __init__(self, sqr_x=8, sqr_y=8, sqr_length=12, marker_length=8, dictionary="DICT_4X4_100", refine="CORNER_REFINE_APRILTAG", subpix=False):
         super(Charuco, self).__init__()
         self.aruco = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length)
         self.subpix = subpix

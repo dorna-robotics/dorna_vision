@@ -6,27 +6,42 @@ from scipy.optimize import differential_evolution
 """
 helper functions
 """
-def euler_matrix(xyzabc):
-    if len(xyzabc) == 6:
-        cv0 = np.pi/2 - xyzabc[3]
-        sv0 = 1- cv0**2 / 2
-        sv1 = xyzabc[4] 
-        cv1 = 1 - sv1**2 / 2
-        sv2 = xyzabc[5] 
-        cv2 = 1 - sv2**2 / 2
+def euler_matrix(abg,xyz):
+    cv0 = np.cos(abg[0])
+    sv0 = np.sin(abg[0]) 
+    cv1 = np.cos(abg[1]) 
+    sv1 = np.sin(abg[1]) 
+    cv2 = np.cos(abg[2])
+    sv2 = np.sin(abg[2])
+    return np.matrix([
+        [cv1* cv0   , sv2*sv1*cv0 - cv2*sv0 , cv2*sv1*cv0 - sv2*sv0 , xyz[0]  ],
+        [cv1 * sv0  , sv2*sv1*sv0 + cv2*cv0 , cv2*sv1*sv0 + sv2*cv0 , xyz[1]  ],
+        [-sv1       , sv2*cv1               , cv2*cv1               , xyz[2]  ],
+        [0,0,0,1]])
 
-        retval = np.matrix([
-                [cv1* cv0   , sv2*sv1*cv0 - cv2*sv0 , cv2*sv1*cv0 - sv2*sv0 , xyzabc[0]],
-                [cv1 * sv0  , sv2*sv1*sv0 + cv2*cv0 , cv2*sv1*sv0 + sv2*cv0 , xyzabc[1]],
-                [-sv1       , sv2*cv1               , cv2*cv1               , xyzabc[2]],
-                [0,0,0,1]])
-    else:
-        retval = np.matrix([
-                [0 , -1 , 0, xyzabc[0]],
-                [1, 0, 0, xyzabc[1]],
-                [0, 0, 1, xyzabc[2]],
-                [0,0,0,1]])         
-    return retval
+
+# optimizing xyzabc
+def rvec_calibration(p, data, xyz, ej=[0,0,0,0,0,0,0,0]): # no rotation only all the parameters for the euler matrix
+    # init
+    total_error = 0
+    num_data = 0
+
+    for set in data:
+        v =[]
+        for d in set:
+            g = ((d["kin_approx"] @ euler_matrix(p, xyz)) @ np.matrix([[d["gt"][0]], [d["gt"][1]], [d["gt"][2]], [1]])).T
+
+            v.append(g)
+            num_data = num_data + 1
+
+        # compute centroid
+        centroid = np.mean(v, axis=0)
+        
+        # compute distance
+        d = [np.linalg.norm(g - centroid) for g in v]
+        total_error += np.mean(np.square(d))
+    
+    return total_error
 
 
 # p: x, y, z, ej0, ej1, ej2, ej3, ej4, ej5
@@ -49,7 +64,7 @@ def total_error(p, data):
 
 
 class Calibration(object):
-    def __init__(self, robot, detection):
+    def __init__(self, robot=None, detection=None):
         self.robot = robot
         self.detection = detection
         
@@ -61,7 +76,8 @@ class Calibration(object):
         self.error = None
 
 
-    def capture_image(self, marker_length=25, use_aruco=1, thr=0.5):
+    def capture_image(self, marker_length=20, use_aruco=1, thr=0.5):
+        center = None
         # adjust marker length
         self.detection.detection["marker_length"] = marker_length
 
@@ -75,14 +91,15 @@ class Calibration(object):
         
         # run detection
         results = self.detection.run()
-        if results:
+        if results and results[0]["cls"] == "0":
             result = results[0]
+            center = result["center"]
 
             # distance
             error = np.linalg.norm(np.array(result["xyz"])-np.array(result["tvec"]))
 
             # threshold
-            if np.linalg.norm(np.array(result["xyz"])-np.array(result["tvec"])) > thr:
+            if error > thr:
                 text = "[Bad] marker error: " + str(round(error,2)) + "mm"
             else:
                 # target_to_camera
@@ -100,8 +117,10 @@ class Calibration(object):
                 self.data = dict({"joint": joint, "t_target_2_cam": result["xyz"], "aruco_t_target_2_cam": result["tvec"], "aruco_r_target_2_cam": result["rvec"], "cmd": cmd, "gt": gt})
 
 
-        self.img = self.detection.img
+        self.img = self.detection.img.copy()
         cv.putText(self.img, text, (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1.5, color, 4, cv.LINE_AA)
+        if center is not None:
+            cv.circle(self.img, (center[0], center[1]), 5, (255,0,255), 2)
 
 
     def add_data(self):
@@ -139,9 +158,6 @@ class Calibration(object):
                     diff_kin = (self.robot.kinematic.Ti_r_world(i=5, joint=(np.array(result["joint"])+joint_differential[i])) - jac[0])/epsilon
                     jac.append(diff_kin)
 
-                A = np.matmul(_kinematic[:3, :], np.matrix([[-gt[1]], [gt[0]], [gt[2]], [1]])).T
-                B = _kinematic[:3, :3].T
-
                 # H matrix
                 H = []
                 gt_matrix = np.matrix([[0, -1, 0, -gt[1]], [1, 0, 0, gt[0]], [0, 0, 1, gt[2]], [0, 0, 0, 1]])
@@ -149,7 +165,7 @@ class Calibration(object):
                     H.append(np.matmul(jac[i], gt_matrix))
                 
                 # append
-                tmp.append({"gt": gt, "A": A, "B": B, "kinematic": _kinematic, "joint": result["joint"], "target_2_cam": target_2_cam, "jac": jac, "H": H})
+                tmp.append({"gt": gt, "kinematic": _kinematic, "joint": result["joint"], "target_2_cam": target_2_cam, "jac": jac, "H": H})
             
             if len(tmp) > 0:
                 retval.append(tmp)
@@ -157,45 +173,70 @@ class Calibration(object):
         return retval
 
 
-    def calibrate(self, camera_mount_type="doorna_ta_j4_1"):
+    def calibrate(self, camera_mount_type="dorna_ta_j4_1", je_bound=0.5, tvec_bound=5, rvec_bound=0.01):
         # prepared data
         data = self.prepare_data(self.collected_data)
         
-        if camera_mount_type == "doorna_ta_j4_1":
-            # bounds
-            b = 5
+        if camera_mount_type == "dorna_ta_j4_1":
+            for i in range(len(self.robot.config["camera_mount"])):
+                if self.robot.config["camera_mount"][i]["type"] == camera_mount_type:
+                    T = self.robot.config["camera_mount"][i]["T"]
+                    ej = self.robot.config["camera_mount"][i]["ej"]
+                    break
         
-            bounds = [(self.robot.config["camera_mount"][camera_mount_type][0]-b, self.robot.config["camera_mount"][camera_mount_type][0]+b), 
-                    (self.robot.config["camera_mount"][camera_mount_type][1]-b, self.robot.config["camera_mount"][camera_mount_type][1]+b), 
-                    (self.robot.config["camera_mount"][camera_mount_type][2]-b, self.robot.config["camera_mount"][camera_mount_type][2]+b),
-                    (-b, b),
-                    (-b, b),
-                    (-b, b),
-                    (-b, b),
-                    (-b, b),
+            bounds = [(T[0]-tvec_bound, T[0]+tvec_bound), 
+                    (T[1]-tvec_bound, T[1]+tvec_bound), 
+                    (T[2]-tvec_bound, T[2]+tvec_bound),
+                    (ej[0]-je_bound, ej[0]+je_bound),
+                    (ej[1]-je_bound, ej[1]+je_bound),
+                    (ej[2]-je_bound, ej[2]+je_bound),
+                    (ej[3]-je_bound, ej[3]+je_bound),
+                    (ej[4]-je_bound, ej[4]+je_bound),
                     ]
             
+            # additional prepare
+            for set in data:
+                for d in set:
+                    # H matrix
+                    H = []
+                    gt_matrix = np.matrix([[0, -1, 0, -d["gt"][1]], [1, 0, 0, d["gt"][0]], [0, 0, 1, d["gt"][2]], [0, 0, 0, 1]])
+                    for i in range(len(d["jac"])):
+                        H.append(np.matmul(d["jac"][i], gt_matrix))
+                    
+                    d["H"] = H
+
             # return
             result = differential_evolution(total_error, bounds, args=(data, ), maxiter=1000, seed=42)
-            
-            # result and error
-            tmp = [
-                result.x[0],
-                result.x[1],
-                result.x[2],
-                0,
-                0,
-                90,
-                result.x[3],
-                result.x[4],
-                result.x[5],
-                result.x[6],
-                result.x[7],
-                0,
-                0,
-                0
+
+            # rvec calibration
+            xyz = result.x[0:3].tolist()
+            ej = result.x[3:].tolist()
+
+            # prpare adta
+            for set in data:
+                for d in set:
+                    d["kin_approx"] = d["jac"][0]
+                    for i in range(len(ej)):
+                        d["kin_approx"] += ej[i]*d["jac"][i+1]
+
+            bound = [
+                (np.pi/2-rvec_bound ,np.pi/2+rvec_bound),
+                (-rvec_bound ,rvec_bound),
+                (-rvec_bound ,rvec_bound),  
             ]
-            self.result = {camera_mount_type: [round(x, 3) for x in tmp]}
+
+            result= differential_evolution(rvec_calibration, bound, args=(data, xyz, ej,), maxiter=1000, seed=42)
+            
+            # T matrix
+            T = euler_matrix(result.x,xyz)
+            xyzabc = self.robot.kinematic.mat_to_xyzabc(T)
+            T = [round(x,3) for x in xyzabc.tolist()]
+
+            self.result = {
+                "type": camera_mount_type,
+                "T": T,
+                "ej": [round(x,3) for x in ej]+[0, 0, 0]
+            }
             self.error = round(result.fun, 3)
 
             return dict(self.result), self.error
