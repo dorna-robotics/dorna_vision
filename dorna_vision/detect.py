@@ -1,9 +1,9 @@
-from .visual import *
-from .find import *
-from .ai import *
-from .util import *
-from .draw import *
-from .pose import *
+from dorna_vision.visual import *
+from dorna_vision.find import *
+from dorna_vision.ai import *
+from dorna_vision.util import *
+from dorna_vision.draw import *
+from dorna_vision.pose import *
 
 import time
 import cv2 as cv

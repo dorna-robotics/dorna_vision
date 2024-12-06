@@ -4,6 +4,8 @@ import ncnn
 from ncnn.utils.objects import Detect_Object
 from paddleocr import PaddleOCR
 import numpy as np
+import importlib
+import os
 
 class CLS(object):
     def __init__(self, path, target_size=224, num_threads=2, use_gpu=False, **kwargs):
@@ -184,13 +186,16 @@ class OD(object):
 
 class OCR(PaddleOCR):
     def __init__(self, lang='en', use_angle_cls=True, **kwargs):
+        spec = importlib.util.find_spec("dorna_vision")
+        if spec and spec.origin:
+            model_folder = os.path.dirname(spec.origin)  # Store the path
         self.net = PaddleOCR(lang=lang, use_angle_cls=use_angle_cls, precision='fp16',
-            det_model_dir="model\ocr\en_PP-OCRv3_det_infer",
-            rec_model_dir="model\ocr\en_PP-OCRv4_rec_infer",
-            rec_char_dict_path="model\ocr\en_dict.txt",
-            vis_font_path="model\ocr\simfang.ttf",
-            e2e_char_dict_path="model\ocr\ic15_dict.txt",
-            cls_model_dir="model\ocr\ch_ppocr_mobile_v2.0_cls_infer",
+            det_model_dir= os.path.join(model_folder,"model", "ocr", "en_PP-OCRv3_det_infer"),
+            rec_model_dir= os.path.join(model_folder,"model", "ocr", "en_PP-OCRv4_rec_infer"),
+            rec_char_dict_path= os.path.join(model_folder,"model", "ocr", "en_dict.txt"),
+            vis_font_path= os.path.join(model_folder,"model", "ocr", "simfang.ttf"),
+            e2e_char_dict_path=os.path.join(model_folder,"model", "ocr", "ic15_dict.txt"),
+            cls_model_dir=os.path.join(model_folder,"model", "ocr", "ch_ppocr_mobile_v2.0_cls_infer"),
             show_log=False)
         
     

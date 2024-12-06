@@ -1,6 +1,6 @@
 import cv2 as cv
 import numpy as np
-from .board import Aruco
+from dorna_vision.board import Aruco
 
 
 # [[pxl, corners, cnt], ...]

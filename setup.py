@@ -25,6 +25,9 @@ setuptools.setup(
     project_urls={
         'gitHub': 'https://github.com/dorna-robotics/dorna_vision',
     },
+    package_data={
+        'dorna_vision': ['model/ocr/*'],
+    },
     packages=setuptools.find_packages(),
     classifiers=[
         'Intended Audience :: Developers',
