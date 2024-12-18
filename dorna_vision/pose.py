@@ -3,6 +3,11 @@ import numpy as np
 
 def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
     valid = 0
+    X = np.zeros(3)
+    Y = np.zeros(3)
+    Z = np.zeros(3)
+    center_3d = np.zeros(3)
+
     # rotation matrix
     _cos = np.cos(np.radians(rot))
     _sin = np.sin(np.radians(rot))
@@ -48,11 +53,7 @@ def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
 
             valid = 1
         except Exception as e:
-            X = np.zeros(3)
-            Y = np.zeros(3)
-            Z = np.zeros(3)
-            center_3d = np.zeros(3)
-
+            pass
     return valid, center_3d, X, Y , Z, pxls
 
 
