@@ -17,35 +17,41 @@ def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
     tmp_pxl_31 = tmp_pxls[2] - tmp_pxls[0]
 
     # xyz
-    xyzs = [camera.xyz(pxl, depth_frame, depth_int)[0] for pxl in pxls]
-    try:
-        #project center and center + dx and center +dy vectors onto 3d space and onto the plane
-        g1 = (tmp_pxl_21[1] *tmp_pxl_31[0] - tmp_pxl_21[0]* tmp_pxl_31[1])
-        g2 = -(tmp_pxls[0][1]* tmp_pxl_31[0]- tmp_pxls[0][0]* tmp_pxl_31[1])
-        g3 = -(-tmp_pxls[0][1]* tmp_pxl_21[0] + tmp_pxls[0][0]* tmp_pxl_21[1])
-        center_3d = xyzs[0]  + g2*(xyzs[1]-xyzs[0])/ g1  + g3*(xyzs[2]-xyzs[0]) /g1
+    xyzs = []
+    for pxl in pxls:
+        tmp = camera.xyz(pxl, depth_frame, depth_int)[0]
+        if tmp[2] > 0:
+            xyzs.append(tmp)
 
-        # X
-        X = (xyzs[1]-xyzs[0])*(-tmp_pxl_31[1])/g1 + (xyzs[2]-xyzs[0])*(tmp_pxl_21[1])/g1
-        X = X/np.linalg.norm(X)
+    if len(xyzs) > 2:
+        try:
+            #project center and center + dx and center +dy vectors onto 3d space and onto the plane
+            g1 = (tmp_pxl_21[1] *tmp_pxl_31[0] - tmp_pxl_21[0]* tmp_pxl_31[1])
+            g2 = -(tmp_pxls[0][1]* tmp_pxl_31[0]- tmp_pxls[0][0]* tmp_pxl_31[1])
+            g3 = -(-tmp_pxls[0][1]* tmp_pxl_21[0] + tmp_pxls[0][0]* tmp_pxl_21[1])
+            center_3d = xyzs[0]  + g2*(xyzs[1]-xyzs[0])/ g1  + g3*(xyzs[2]-xyzs[0]) /g1
+
+            # X
+            X = (xyzs[1]-xyzs[0])*(-tmp_pxl_31[1])/g1 + (xyzs[2]-xyzs[0])*(tmp_pxl_21[1])/g1
+            X = X/np.linalg.norm(X)
+            
+            # Z
+            #Z = np.cross(xyzs[1] - xyzs[0], xyzs[2] - xyzs[0])
+            Z = np.cross(xyzs[2] - xyzs[0], xyzs[1] - xyzs[0])
+            Z = Z / np.linalg.norm(Z)
+
+            if Z[2] <= 0: #  z is always positive
+                Z = -Z
         
-        # Z
-        #Z = np.cross(xyzs[1] - xyzs[0], xyzs[2] - xyzs[0])
-        Z = np.cross(xyzs[2] - xyzs[0], xyzs[1] - xyzs[0])
-        Z = Z / np.linalg.norm(Z)
+            # Y
+            Y = np.cross(Z,X)
 
-        if Z[2] <= 0: #  z is always positive
-            Z = -Z
-    
-        # Y
-        Y = np.cross(Z,X)
-
-        valid = 1
-    except Exception as e:
-        X = np.zeros(3)
-        Y = np.zeros(3)
-        Z = np.zeros(3)
-        center_3d = np.zeros(3)
+            valid = 1
+        except Exception as e:
+            X = np.zeros(3)
+            Y = np.zeros(3)
+            Z = np.zeros(3)
+            center_3d = np.zeros(3)
 
     return valid, center_3d, X, Y , Z, pxls
 
