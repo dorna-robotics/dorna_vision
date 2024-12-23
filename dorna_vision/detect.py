@@ -276,6 +276,7 @@ class Detection(object):
             if all([camera_data["depth_frame"] is not None, camera_data["depth_int"] is not None]):
                 for r in retval:
                     r["xyz"] = self.pixel_to_xyz(r["center"])
+                    r["cam"] = self.kinematic.mat_to_xyzabc(self.frame_mat_inv).tolist()
 
             # xyz limit
             if "xyz" in self.limit and len(self.limit["xyz"])== 3 and len(self.limit["xyz"][0]) == 2 and len(self.limit["xyz"][1]) == 2 and len(self.limit["xyz"][2]) == 2:
