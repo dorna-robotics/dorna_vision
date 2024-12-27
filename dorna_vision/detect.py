@@ -48,6 +48,9 @@ class Detection(object):
         self.output = output
         self.kwargs = kwargs
 
+        # retval
+        self.retval = {"all":[], "det":[]}
+
         # thread list
         self.thread_list = []
 
@@ -93,7 +96,6 @@ class Detection(object):
         return retval
 
             
-
 
     def init_cls(self, path):
         self.cls = CLS(path)
@@ -161,6 +163,7 @@ class Detection(object):
 
     def run(self, data=None, **kwargs):
         # return
+        self.retval = {"all":[], "det":[]}
         retval = []
         try:
             # assign the new value
@@ -249,6 +252,8 @@ class Detection(object):
                     "corners": [[min(20,width-1), min(20,height-1)], [max(0,width-21), min(20,height-1)], [max(0,width-21), max(0,height-21)], [min(20,width-1), max(0,height-21)]],
                     "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
 
+            # retval
+            self.retval["all"] = list(retval)
 
             # limit
             # area
@@ -287,11 +292,30 @@ class Detection(object):
                         if not self.limit["inv"]:    
                             retval.remove(r)
 
+
+            # draw corners
+            if "cmd" in self.detection and self.detection["cmd"] in ["elp", "poly", "cnt", "ocr", "od", "cls"]: # corners and axes
+                for r in retval:
+                    draw_corners(img_adjust, r["cls"], r["conf"], r["corners"])
+
+            # ej
+            if "ej" in self.camera_mount:
+                for r in retval:
+                    r["ej"] = list(self.camera_mount["ej"])
+
+            # shuffle
+            if self.output["shuffle"]:
+                random.shuffle(retval)
+
+            # max_det
+            retval = retval[0:max(1, self.output["max_det"])]
+
             # plane
             if "cmd" in self.detection and self.detection["cmd"] in ["elp", "poly", "cnt", "ocr", "od"] and len(self.plane) > 2 and camera_data["depth_frame"] is not None:
                 # tmp pixels from poi
                 tmp_pxls = np.array(self.plane)
                 
+                # num_valid
                 for r in retval:
                     # Compute the rotated rectangle from the points
                     center, dim, rot = cv.minAreaRect(np.array(r["corners"], dtype=np.float32))
@@ -323,24 +347,6 @@ class Detection(object):
                         # draw axes
                         draw_3d_axis(img_adjust, center_3d, X, Y, Z, self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]))                
 
-            # draw corners
-            if "cmd" in self.detection and self.detection["cmd"] in ["elp", "poly", "cnt", "ocr", "od", "cls"]: # corners and axes
-                for r in retval:
-                    draw_corners(img_adjust, r["cls"], r["conf"], r["corners"])
-            
-            # shuffle
-            if self.output["shuffle"]:
-                random.shuffle(retval)
-            
-            # max_det
-            if self.output["max_det"] > 0:
-                retval = retval[0:self.output["max_det"]]
-
-            # ej
-            if "ej" in self.camera_mount:
-                for r in retval:
-                    r["ej"] = list(self.camera_mount["ej"])
-
             # save image
             if self.output["save_img"]:
                 # make directory if not exists
@@ -364,7 +370,9 @@ class Detection(object):
             self.img = img_adjust
         except Exception as ex:
             print(ex)    
+        
         # return
+        self.retval["det"]=list(retval)
         return retval
 
 

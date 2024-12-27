@@ -135,7 +135,7 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0)):
 """
 draw 3d_axis
 """
-def draw_3d_axis(img, center, X, Y, Z, camera_matrix, dist_coeffs, length=10, thickness=2):
+def draw_3d_axis(img, center, X, Y, Z, camera_matrix, dist_coeffs, length=10, thickness=2, draw=True):
     #Perform projection
     p_list = np.array([center, center+ X*length, center+Y*length,center+Z*length])
 
@@ -146,9 +146,14 @@ def draw_3d_axis(img, center, X, Y, Z, camera_matrix, dist_coeffs, length=10, th
         px = (int(res_list[1][0][0]), int(res_list[1][0][1]))
         py = (int(res_list[2][0][0]), int(res_list[2][0][1]))
         pz = (int(res_list[3][0][0]), int(res_list[3][0][1]))
-        # draw
-        cv.line(img, pz, pc, (255, 0, 0), thickness=thickness)
-        cv.line(img, px, pc, (0, 0, 255), thickness=thickness)
-        cv.line(img, py, pc, (0, 255, 0), thickness=thickness)
+        if draw:
+            # draw
+            cv.line(img, pz, pc, (255, 0, 0), thickness=thickness)
+            cv.line(img, px, pc, (0, 0, 255), thickness=thickness)
+            cv.line(img, py, pc, (0, 255, 0), thickness=thickness)
+
+        return [pc, px, py, pz]
     except:
         pass
+
+    return None
