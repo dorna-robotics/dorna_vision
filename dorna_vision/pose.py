@@ -98,7 +98,6 @@ def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
             g1 = (tmp_pxl_21[1] *tmp_pxl_31[0] - tmp_pxl_21[0]* tmp_pxl_31[1])
             g2 = -(tmp_pxls[0][1]* tmp_pxl_31[0]- tmp_pxls[0][0]* tmp_pxl_31[1])
             g3 = -(-tmp_pxls[0][1]* tmp_pxl_21[0] + tmp_pxls[0][0]* tmp_pxl_21[1])
-            print("ali1: ", g1, g2, g3)
             center_3d = xyzs[0]  + g2*(xyzs[1]-xyzs[0])/ g1  + g3*(xyzs[2]-xyzs[0]) /g1
 
             # X
@@ -117,7 +116,6 @@ def pose_3_point(depth_frame, depth_int, tmp_pxls, center, dim, rot, camera):
 
             valid = 1
         except Exception as e:
-            print("ali4: ", e)
             pass
     return valid, center_3d, X, Y , Z, pxls
 
