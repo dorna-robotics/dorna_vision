@@ -35,7 +35,7 @@ class default_widget(object):
             "xyz_xyz": widgets.Text(value='[0, 0, 0]', placeholder='[0, 0, 0]', description='Result (mm)', disabled=True, style=style),
             "xyz_convert": widgets.Button( description='Convert', disabled=False, button_style="", tooltip='Convert'),
 
-            "clb_label": widgets.HTML(value="Use this section to calibrate the robot.", layout={'width': '99%'}, style=style),
+            "clb_label": widgets.HTML(value='<p>Calibrate the robot using this section. Print the Aruco marker from the following link: <a href="https://github.com/dorna-robotics/dorna_vision/blob/main/dorna_vision/asset/4x4_1000-0.pdf" target="_blank">Aruco Marker</a>. Ensure that the marker is printed at its original size, with a precise dimension of 20x20mm.</p>', layout={'width': '99%'}, style=style),
             "clb_data_label": widgets.HTML(value="Collected data (size: 0)", disabled=True, style=style),
             "clb_data": widgets.Textarea(value='', placeholder='', disabled=True, rows=5, layout={'width': '99%'}, style=style),
             "clb_result_label": widgets.HTML(value="Calibration result", layout={'width': '99%'}, style=style),
@@ -46,7 +46,7 @@ class default_widget(object):
             "clb_capture_b": widgets.Button( description='Capture One', disabled=False, button_style="", tooltip='Capture One', style=style),
             "clb_capture_m_b": widgets.Button( description='Capture Multiple', disabled=False, button_style="", tooltip='Capture Multiple', style=style),
             "clb_apply_b": widgets.Button( description='Apply the Result', disabled=False, button_style="", tooltip='Apply the Result', style=style),
-            "clb_thr" : widgets.FloatSlider(value=0.5, min=0.01, max=4, step=0.01, description='Threshold value', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "clb_thr" : widgets.FloatSlider(value=1, min=0.01, max=4, step=0.01, description='Threshold value', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "clb_aruco_marker_length": widgets.FloatSlider(value=20, min=1, max=100, step=0.1, description='Marker length (mm)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "clb_aruco_enb": widgets.Checkbox(value=True, description='Use Aruco marker data', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
