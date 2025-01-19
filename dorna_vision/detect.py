@@ -128,7 +128,7 @@ class Detection(object):
                     for i in range(min(len(self.camera_mount["ej"]), len(joint))):
                         joint[i] += self.camera_mount["ej"][i]
 
-            except:
+            except Exception as ex:
                 pass
             self.camera_data = {
                 "depth_frame": depth_frame,
@@ -177,7 +177,7 @@ class Detection(object):
             _img = camera_data[self.feed]
             # frame
             self.frame_mat_inv = np.linalg.inv(self.kinematic.xyzabc_to_mat(np.array(self.frame)))
-            if self.robot is not None:
+            if self.robot is not None and camera_data["joint"] is not None:
                 joint = camera_data["joint"][0:6]
                 if "type" in self.camera_mount and "T" in self.camera_mount and self.camera_mount["type"].startswith("dorna_ta_j4"):
                     T_camholder_to_base = self.robot.kinematic.Ti_r_world(i=5, joint=joint[0:6])
@@ -198,7 +198,6 @@ class Detection(object):
 
             # thr
             self.img_thr = np.zeros(img_roi.shape[:2], dtype=np.uint8)
-
             if "cmd" in self.detection:
                 # detection
                 if self.detection["cmd"] == "elp":

@@ -133,7 +133,6 @@ class OD(object):
         if self.model.startswith("yolov4"):
             img_h = img.shape[0]
             img_w = img.shape[1]
-
             mat_in = ncnn.Mat.from_pixels_resize(
                 img,
                 ncnn.Mat.PixelType.PIXEL_BGR2RGB,
@@ -180,7 +179,7 @@ class OD(object):
             if max_det:            
                 # Select the top `max_det` elements
                 objects = objects[:max_det]
-            
+        
         return objects
 
 

@@ -114,7 +114,7 @@ class ROI(object):
                 mask = 1 - mask
 
             # Apply the mask to the image
-            self.masked_img = cv.bitwise_and(img, img, mask=mask) 
+            masked_img = cv.bitwise_and(img, img, mask=mask) 
             
             if crop:
                 # contour
@@ -122,11 +122,11 @@ class ROI(object):
 
                 # Find the bounding box
                 self.x, self.y, self.w, self.h = cv.boundingRect(self.cnt)
-                
             
+
             # cropped image
-            self.img = self.masked_img[self.y:self.y+self.h, self.x:self.x+self.w]
-        
+            self.img = masked_img[self.y:self.y+self.h, self.x:self.x+self.w].copy()
+
     
     def pxl_to_orig(self, pxl):
         return [int(pxl[0] + self.x), int(pxl[1] + self.y)]
