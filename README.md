@@ -1,20 +1,6 @@
 ## Table of Contents
 
 - [Introduction ](#introduction)
-- [Mounting the Camera and Powering the Vision Kit](#mounting-the-camera-and-powering-the-vision-kit)
-  - [Out-of-the-box Reconstruction/ROS 2 Interface ](#out-of-the-box-reconstructionros-2-interface)
-  - [Public Datasets ](#public-datasets)
-  - [C++ Interface ](#c-interface)
-- [Native Installation ](#native-installation)
-  - [Install dependencies ](#install-dependencies)
-  - [Build and run tests and benchmark ](#build-and-run-tests-and-benchmark)
-  - [Run an example ](#run-an-example)
-- [Docker ](#docker)
-- [Open3D on Jetson ](#open3d-on-jetson)
-- [Building for multiple GPU architectures ](#building-for-multiple-gpu-architectures)
-- [Building redistributable binaries, with static dependencies ](#building-redistributable-binaries-with-static-dependencies)
-- [License ](#license)
-- [Paper ](#paper)
 
 # Introduction
 In this guide, we introduce the Dorna Vision Kit and cover the fundamentals of using vision in automation projects.
