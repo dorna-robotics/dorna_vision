@@ -1,25 +1,61 @@
-## Mounting the Camera and Powering the Vision Kit
+## Table of Contents
 
-### Vision Kit Contents:
-- Vision kit computer and power supply  
-- Ethernet splitter (1-to-2) (optional)  
-- 3D camera and mounting plate  
-- USB cable and cable guides  
+- [Introduction ](#introduction)
+- [Mounting the Camera and Powering the Vision Kit](#mounting-the-camera-and-powering-the-vision-kit)
+  - [Out-of-the-box Reconstruction/ROS 2 Interface ](#out-of-the-box-reconstructionros-2-interface)
+  - [Public Datasets ](#public-datasets)
+  - [C++ Interface ](#c-interface)
+- [Native Installation ](#native-installation)
+  - [Install dependencies ](#install-dependencies)
+  - [Build and run tests and benchmark ](#build-and-run-tests-and-benchmark)
+  - [Run an example ](#run-an-example)
+- [Docker ](#docker)
+- [Open3D on Jetson ](#open3d-on-jetson)
+- [Building for multiple GPU architectures ](#building-for-multiple-gpu-architectures)
+- [Building redistributable binaries, with static dependencies ](#building-redistributable-binaries-with-static-dependencies)
+- [License ](#license)
+- [Paper ](#paper)
 
-### Instructions:
+# Introduction
+In this guide, we introduce the Dorna Vision Kit and cover the fundamentals of using vision in automation projects.
+
+# Items Included
+<p align="center">
+  <img src="docs/images/vision_kit_items.jpg" width="500">
+</p>
+
+1. 3D camera and mounting plate 
+2. Vision kit computer
+3. Ethernet cable
+4. Power supply
+5. Cable guide brackets
+6. USB cable
+
+# Installation Instructions
 
 1. **Attach the Camera**  
-   Mount the camera and its plate onto the robot. Align the two holes on the mounting plate with the holes on the robot’s 5th axis body and secure them. Make sure the camera plate is not tilted and straight.
+   Mount the camera and its plate onto the robot. Align the two holes on the mounting plate with the holes on the robot’s 5th axis body and secure them. Make sure the camera plate is straight and not tilted.
+   <p align="center">
+   <img src="docs/images/mount_j5.jpg" width="500">
+   </p>
 
-2. **Connect the USB Cable to the Robot**  
+2. **Route the USB Cable**  
    Plug the USB cable into the robot's USB port. Ensure the screws on the USB connector are securely fastened to prevent loose connections.
 
 3. **Connect the USB Cable to the Vision Kit**  
    Pass the USB cable to the vision kit and insert it into one of the blue USB 3.0 ports (blue USB ports).
+   <p align="center">
+   <img src="docs/images/cable_3.jpg" width="500">
+   </p>
 
 4. **Organize the USB Cable**  
    Use the cable guides to route the USB cable neatly. Ensure the cable does not obstruct the robot’s movement or become tangled.
-
+   <p align="center">
+   <img src="docs/images/cable_1.jpg" width="500">
+   </p>
+   <p align="center">
+   <img src="docs/images/cable_2.jpg" width="500">
+   </p>
 5. **(Optional) Set Up the Ethernet Splitter**  
    - To minimize the number of Ethernet cables running between devices, use the Ethernet splitter.  
    - Place the robot controller, vision kit, and splitter close together for easy connection.  
@@ -28,12 +64,11 @@
    - Power the splitter by connecting its USB cable to one of the gray USB 2.0 ports on the vision kit.
 
 6. **Power the Vision Kit**  
-   Connect the USB-C power supply cable to the vision kit and plug the other end into a wall outlet.
+   Connect the USB-C power supply cable to the vision kit computer and plug the other end into a wall outlet.
 
 > 🚨 **Notice:** Ensure all connections, including the camera and cables, are properly set up before turning on the vision kit.
 
-
-## Connect to the Vision Kit
+# Connect to the Vision Kit
 
 The vision kit is equipped with a single-board computer running a 64-bit Debian-based Linux distribution to execute your vision applications. The default hostname, username, and password for the vision kit are as follows:
 
@@ -48,7 +83,7 @@ dorna
 dorna
 ```
 
-### IP Address
+## Configuring IP Address
 
 If the vision kit is connected to a router with a DHCP server, the IP address will be automatically assigned. If it is connected directly to your computer via the Ethernet port, you will need to manually configure the IP address.
 
@@ -87,32 +122,60 @@ If the vision kit is connected to a router with a DHCP server, the IP address wi
 > 🚨 **Note:** If the vision kit is connected to a router with a DHCP server, the IP address will be assigned automatically by the router.
 
 ## Accessing Dorna Lab
-To access the Dorna Lab software, enter the vision kit's IP address in your web browser by typing `http://robot_ip_address`.  
+To access the Dorna Lab software, enter the vision kit's IP address in your web browser by typing 
+```bash
+http://vision_kit_ip_address
+```  
 To connect to a robot from the Dorna Lab session, follow these steps:
 1. Click on `Settings` in the top navbar.
 2. Go to `General Info`.
 3. Under `Robot System IP`, enter the robot's IP address.
 4. Click `Set`.
 
-## Detection App and API
+# Detection App
 
-The vision kit includes a detection app that allows you to visually build your vision applications directly from a web browser.
+The vision kit comes with a built-in **detection app** software which lets you to visually build your vision applications directly from a web browser. The detection app  generates the necessary API calls for you. You can then use these generated calls within your code to perform object detection, simplifying the process and integrating detection capabilities seamlessly into your applications.
 
 To access the detection app, navigate to:
 ```bash
-http://robot_ip_address:8888/doc/workspaces/auto-g/tree/Downloads/vision/example/detection_app.ipynb
+http://vision_kit_ip_address:8888/doc/workspaces/auto-g/tree/Downloads/vision/example/detection_app.ipynb
 ```
 
-Alternatively, you can open a new Python3 kernel in Jupyter Notebook and run the following code:
+Alternatively, access Dorna Lab via the Vision Kit, open a new Python3 kernel in Jupyter Notebook and run the following code:
 ```python
 %matplotlib widget
 from dorna_vision import Detection_app
 x = Detection_app()
 ```
+</p>
+<p align="center">
+<img src="docs/images/app.jpg" width="500">
+</p>
 
-The detection app automatically generates the necessary API calls for you. You can then use these generated calls within your code to perform object detection, simplifying the process and integrating detection capabilities seamlessly into your applications.
+## Initialization
+The first tab in the detection app is called Initialization.
 
-## Upgrade the Software
+### Camera mounting
+Here we first choose the type of camera mounting:
+1. **Eye-in-hand**: The configuration where the camera is installed on the robot is called the **Eye-in-hand** configuration. This allows the robot to have a dynamic viewpoint, providing real-time visual feedback from the perspective of the tool or the gripper.
+2. **Eye-to-hand**: Another configuration, where the camera is installed at a fixed location and not on the robot, is called **Eye-to-Hand**.
+
+The default configuration for Dorna vision kit is the eye-in-hand configuration.
+For the eye-in-hand configuration to work properly, the vision processor needs to know the position of the robot when it takes the image. For that the robot and vision processor need to communicate with each other. We enter the ip address of the robot here so the vision processor can communicate with the robot controller.  
+We will not use custom calibration data for the camera here.
+</p>
+<p align="center">
+<img src="docs/images/camera_configuration.jpg" width="500">
+</p>
+
+> 🚨 **Note:** The eye-in-hand configuration only works for the Dorna TA model.
+
+## Frame
+Frame is the coordinate system that when specified, all the reported positions of the detected objects are reported with respect to it. The frame can be specified with 6D pose values of `x, y, z, a, b, c` where `x, y, z` are the translation vector and `a, b, c` are representing the orientation of the frame in the reference frame.
+The definition of this frame is slightly different in the two cases Eye-in-hand and Eye-to-hand.
+
+
+# Upgrade the Software
 
 To upgrade the vision kit software, SSH into the vision kit and run the following command:
 
@@ -120,9 +183,9 @@ To upgrade the vision kit software, SSH into the vision kit and run the followin
 sudo mkdir -p /home/dorna/Downloads && sudo rm -rf /home/dorna/Downloads/upgrade && sudo mkdir /home/dorna/Downloads/upgrade && sudo git clone -b vision https://github.com/dorna-robotics/upgrade.git /home/dorna/Downloads/upgrade && cd /home/dorna/Downloads/upgrade && sudo sh setup.sh dorna_ta
 ```
 
-## Troubleshooting and Resolving Common Issues
+# Troubleshooting and Resolving Common Issues
 
-### 1. Running Multiple Detection Sessions
+## 1. Running Multiple Detection Sessions
 You cannot run multiple sessions of the detection app at the same time. If you are done with a detection session and need to start a new one, you should kill the existing kernel in Jupyter Notebook. To do this:
 - Go to the **Jupyter Notebook** interface.
 - In the **"Running"** tab, you will see a list of active notebooks.
@@ -131,7 +194,7 @@ You cannot run multiple sessions of the detection app at the same time. If you a
 
 This will free up resources for a new session.
 
-### 2. Camera Not Responsive
+## 2. Camera Not Responsive
 If the camera is not responsive, follow these steps:
 - Disconnect and reconnect the USB cable from the vision kit side.
 - After reconnecting, kill the Jupyter session running the program by following the steps above.

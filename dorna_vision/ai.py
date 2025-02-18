@@ -87,6 +87,7 @@ class CLS(object):
 
         return retval
 
+
 class OD(object):
     def __init__(self, path, target_size=416, num_threads=2, use_gpu=False, **kwargs):
         self.path = path
