@@ -80,9 +80,17 @@ class default_widget(object):
             "color_v": widgets.IntRangeSlider(value=[85, 170], min=0, max=255, step=1, description='Vue', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "color_inv": widgets.Checkbox(value=False, description='Invert color mask', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
+            "ori_label": widgets.Label(value="Rotate the source image clockwise as needed.", layout={'width': '99%'}, style=style),
+            "ori_rotate": widgets.Dropdown(value=0, options=[('No rotation', 0), ('90 degrees', 90), ('180 degrees', 180), ('270 degrees', 270)], description='Clockwise rotation', continuous_update=continuous_update, style=style),
+            #"ori_hf": widgets.Checkbox(value=False, description='Horizontal flip', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            #"ori_vf": widgets.Checkbox(value=False, description='Vertical flip', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+
+
             "roi_label": widgets.Label(value="Select the region of interest where the detection method is applied. Use the blue polygon selector on the output image to define this area.", layout={'width': '99%'}, style=style),
             "roi_enb": widgets.Checkbox(value=False, description='Apply ROI', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "roi_value": widgets.Text(value='[]', placeholder='[]', description='ROI', disabled=True, layout={'width': '99%'}, style=style),
+            "roi_offset" : widgets.IntSlider(value=0, min=-200, max=200, step=1, description='Offset', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+
             "roi_inv": widgets.Checkbox(value=False, description='Invert region', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "roi_crop": widgets.Checkbox(value=False, description='Crop region', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
@@ -103,8 +111,10 @@ class default_widget(object):
             "3d_range_z": widgets.IntRangeSlider(value=[0, 50], min=-1000, max=1000, step=1, description='z (mm)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "3d_range_inv": widgets.Checkbox(value=False, description='Invert the range', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
-            "method_value": widgets.Dropdown(value=0, options=[('No detection', 0), ('Ellipse detection', 1), ('Polygon detection', 2), ('Contour detection', 3), ('Aruco detection', 4), ('OCR detection', 5)], description='Detection method', continuous_update=continuous_update, style=style),
-    
+            "method_value": widgets.Dropdown(value=0, options=[('No detection', 0), ('Ellipse detection', 2), ('Polygon detection', 3), ('Contour detection', 4), ('Aruco detection', 5), ('Barcode reader', 6), ('OCR', 7)], description='Detection method', continuous_update=continuous_update, style=style),
+
+            "m_line_min_line_length": widgets.IntSlider(value=100, min=1, max=1000, step=1, description='Min line length', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+
             "m_elp_pf_mode": widgets.Checkbox(value=False, description='Auto detection', continuous_update=continuous_update,layout={'width': '99%'}, style=style),
             "m_elp_nfa_validation": widgets.Checkbox(value=True, description='False alarm validation', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "m_elp_min_path_length": widgets.IntSlider(value=50, min=1, max=1000, step=1, description='Min path length', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
@@ -134,6 +144,12 @@ class default_widget(object):
 
             "m_ocr_conf" : widgets.FloatSlider(value=0.5, min=0.01, max=1, step=0.01, description='Confidence', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
 
+
+            "m_barcode_format": widgets.Dropdown(value="Any", options=["Any", "Aztec", "Codabar", "Code39", "Code93", "Code128","DataMatrix",
+                                "DataBar", "DataBarExpanded", "DataBarLimited", "DXFilmEdge", "EAN8", "EAN13", "ITF", "PDF417", "QRCode", "MicroQRCode",
+                                "RMQRCode", "UPCA", "UPCE", "LinearCodes", "MaxiCode", "MatrixCodes"],
+                                description='Format', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+
             "m_od_conf" : widgets.FloatSlider(value=0.5, min=0.01, max=1, step=0.01, description='Confidence', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
             "m_od_cls" : widgets.Text(value="", placeholder='', description='Detection classes', disabled=False, layout={'width': '99%'}, style=style), 
 
@@ -141,10 +157,11 @@ class default_widget(object):
 
             "output_label": widgets.Label(value="Choose the maximum number of elements to detect per inference round, enable data shuffling if desired, and save the inference image.", layout={'width': '99%'}, style=style),
             "output_enb": widgets.Checkbox(value=False, description='Apply formatting', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "output_display_label": widgets.Checkbox(value=True, description='Display the labels', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "output_max_det" : widgets.IntSlider(value=1, min=1, max=100, step=1, description='Max detections per run', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
             "output_shuffle": widgets.Checkbox(value=True, description='Shuffle return data', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "output_save": widgets.Checkbox(value=False, description='Save the annotated image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
-            "output_save_roi": widgets.Checkbox(value=False, description='Save the annotated ROI image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "output_save_roi": widgets.Checkbox(value=False, description='Save the ROI image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
         }
         self.widget_trigger = {
@@ -167,8 +184,10 @@ class default_widget(object):
             #"robot_connect": widgets.Button( description='Connect', disabled=False, button_style="", tooltip='Connect'),
 
             #"camera_robot_calibration": widgets.Textarea(value='[[0.00525873615, -0.999894519, 0.0134620306, 46.5174596], [0.999959617, 0.00535678348, -0.00735796480, 32.0776662], [0.00728773209, -0.0135001806, 0.999882310, -4.24772615], [0.0, 0.0, 0.0, 1.0]]', placeholder='[[0.00525873615, -0.999894519, 0.0134620306, 46.5174596], [0.999959617, 0.00535678348, -0.00735796480, 32.0776662], [0.00728773209, -0.0135001806, 0.999882310, -4.24772615], [0.0, 0.0, 0.0, 1.0]]', description='Camera & Robot Calibration Matrix', disabled=False, layout={'width': '99%'}, style=style),            
-            
-            "out_prm_label": widgets.HTML(value="API call", layout={'width': '99%'}, style=style),
+            "out_prm_value_label": widgets.HTML(value="Parameters", layout={'width': '99%'}, style=style),
+            "out_prm_value": widgets.Textarea(value='', placeholder='',disabled=True,  rows=3, layout={'width': '99%'}),
+
+            "out_prm_label": widgets.HTML(value="Sample API call", layout={'width': '99%'}, style=style),
             "out_prm": widgets.Textarea(value='', placeholder='',disabled=True,  rows=15, layout={'width': '99%'}),
             
             "out_return_label": widgets.HTML(value="Return value", layout={'width': '99%'}, style=style),
@@ -248,11 +267,12 @@ class Detection_app(object):
         acc_adjust_img = widgets.Accordion()
         acc_adjust_img.children = [
             widgets.VBox([self.widget_tr["source_value"], self.widget_tr["s_file_value"]]),
+            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('ori_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('roi_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('intensity_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('color_')]]+[widgets.HTML("<hr>")]+[color_picker_box]),
         ]
-        for i, title in enumerate(['Source', 'Region of Interest', 'Intensity', 'Color Mask']):
+        for i, title in enumerate(['Source', 'Orientation', 'Region of Interest', 'Intensity', 'Color Mask']):
             acc_adjust_img.set_title(i, title)    
 
         """init vbox"""
@@ -275,10 +295,12 @@ class Detection_app(object):
         method_vbox = widgets.VBox([
             self.widget_in["method_value"],
             widgets.VBox([widgets.HTML("<hr>")]),
+            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_line_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_elp_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_poly_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_cnt_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_aruco_')]]),
+            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_barcode_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_ocr_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_od_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_cls_')]]),
@@ -326,7 +348,7 @@ class Detection_app(object):
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('output_')]]),
         ]
 
-        for i, title in enumerate(["2D Limit ", "3D Limit", "6D Pose","Output Format"]):
+        for i, title in enumerate(["2D Limit ", "3D Limit", "6D Pose", "Output Format"]):
             acc_setting.set_title(i, title)    
 
 
@@ -495,10 +517,10 @@ class Detection_app(object):
         if ml_detection_path:
             if self.widget_init["ml_detection_type"].value == 0:
                 self.d.init_od(ml_detection_path) 
-                self.widget_in["method_value"].options = list(self.widget_in["method_value"].options) + [("Object detection", 6)]
+                self.widget_in["method_value"].options = list(self.widget_in["method_value"].options) + [("Object detection", 8)]
             elif self.widget_init["ml_detection_type"].value == 1:
                 self.d.init_cls(ml_detection_path) 
-                self.widget_in["method_value"].options = list(self.widget_in["method_value"].options) + [("Image classification", 7)]
+                self.widget_in["method_value"].options = list(self.widget_in["method_value"].options) + [("Image classification", 9)]
 
         # hide element in method
         for k in [key for key in self.widget_in.keys() if key.startswith('m_')]:
@@ -775,6 +797,11 @@ detection.close()
             # feed
             prm["feed"] = self.widget_tr["source_feed"].value
             
+            # ori
+            prm["rot"] = kwargs["ori_rotate"]
+            if kwargs["ori_rotate"]:
+                _prm["rot"] = prm["rot"]
+
             # intensity
             prm["intensity"] = {"a": 1.0, "b": 0}
             if kwargs["intensity_enb"]:
@@ -788,34 +815,33 @@ detection.close()
                 _prm["color"] = prm["color"]
 
             # roi
-            prm["roi"] = {"corners": [], "inv": 0, "crop": 0}
+            prm["roi"] = {"corners": [], "inv": 0, "crop": 0, "offset": 0}
             if kwargs["roi_enb"]:
-                prm["roi"] = {"corners": ast.literal_eval(kwargs["roi_value"]), "inv": kwargs["roi_inv"], "crop": kwargs["roi_crop"]}
+                prm["roi"] = {"corners": ast.literal_eval(kwargs["roi_value"]), "inv": kwargs["roi_inv"], "crop": kwargs["roi_crop"], "offset": kwargs["roi_offset"]}
                 _prm["roi"] = prm["roi"]
             
             # detection
-            prm["detection"] = {"cmd":None} 
-            if kwargs["method_value"] == 1:
-                prm["detection"] = {"cmd":"elp", "min_path_length": kwargs["m_elp_min_path_length"], "min_line_length": kwargs["m_elp_min_line_length"], "nfa_validation": kwargs["m_elp_nfa_validation"], "sigma": kwargs["m_elp_sigma"], "gradient_threshold_value": kwargs["m_elp_gradient_threshold_value"], "pf_mode": kwargs["m_elp_pf_mode"]}
-                _prm["detection"] = prm["detection"]
-            elif kwargs["method_value"] == 2:
-                prm["detection"] = {"cmd":"poly", "type": kwargs["m_poly_type"], "inv": kwargs["m_poly_inv"], "blur": kwargs["m_poly_blur"], "thr": kwargs["m_poly_thr"], "mean_sub": kwargs["m_poly_mean_sub"], "side": kwargs["m_poly_side"]}
-                _prm["detection"] = prm["detection"]
-            elif kwargs["method_value"] == 3:
-                prm["detection"] = {"cmd":"cnt", "type": kwargs["m_cnt_type"], "inv": kwargs["m_cnt_inv"], "blur": kwargs["m_cnt_blur"], "thr": kwargs["m_cnt_thr"], "mean_sub": kwargs["m_cnt_mean_sub"]}
-                _prm["detection"] = prm["detection"]
-            elif kwargs["method_value"] == 4:
-                prm["detection"] = {"cmd":"aruco", "dictionary": kwargs["m_aruco_dictionary"], "marker_length": kwargs["m_aruco_marker_length"], "refine": kwargs["m_aruco_refine"] , "subpix": kwargs["m_aruco_subpix"]}
-                _prm["detection"] = prm["detection"]
-            elif kwargs["method_value"] == 5:
-                prm["detection"] = {"cmd":"ocr", "conf": kwargs["m_ocr_conf"]}
-                _prm["detection"] = prm["detection"]
-            elif kwargs["method_value"] == 6:
-                cls_name =  [item.strip() for item in kwargs["m_od_cls"].split(',') if item.strip()]
-                prm["detection"] = {"cmd":"od", "path": self.widget_init["ml_detection_path"].value, "conf": kwargs["m_od_conf"], "cls": cls_name}   
-                _prm["detection"] = prm["detection"]
-            elif kwargs["method_value"] == 7:
-                prm["detection"] = {"cmd":"cls", "path": self.widget_init["ml_detection_path"].value, "conf": kwargs["m_cls_conf"]}   
+            prm["detection"] = {"cmd":None}
+            if kwargs["method_value"] != 0:
+                if kwargs["method_value"] == 1:
+                    prm["detection"] = {"cmd":"line", "min_line_length": kwargs["m_line_min_line_length"]}
+                if kwargs["method_value"] == 2:
+                    prm["detection"] = {"cmd":"elp", "min_path_length": kwargs["m_elp_min_path_length"], "min_line_length": kwargs["m_elp_min_line_length"], "nfa_validation": kwargs["m_elp_nfa_validation"], "sigma": kwargs["m_elp_sigma"], "gradient_threshold_value": kwargs["m_elp_gradient_threshold_value"], "pf_mode": kwargs["m_elp_pf_mode"]}
+                elif kwargs["method_value"] == 3:
+                    prm["detection"] = {"cmd":"poly", "type": kwargs["m_poly_type"], "inv": kwargs["m_poly_inv"], "blur": kwargs["m_poly_blur"], "thr": kwargs["m_poly_thr"], "mean_sub": kwargs["m_poly_mean_sub"], "side": kwargs["m_poly_side"]}
+                elif kwargs["method_value"] == 4:
+                    prm["detection"] = {"cmd":"cnt", "type": kwargs["m_cnt_type"], "inv": kwargs["m_cnt_inv"], "blur": kwargs["m_cnt_blur"], "thr": kwargs["m_cnt_thr"], "mean_sub": kwargs["m_cnt_mean_sub"]}
+                elif kwargs["method_value"] == 5:
+                    prm["detection"] = {"cmd":"aruco", "dictionary": kwargs["m_aruco_dictionary"], "marker_length": kwargs["m_aruco_marker_length"], "refine": kwargs["m_aruco_refine"] , "subpix": kwargs["m_aruco_subpix"]}
+                elif kwargs["method_value"] == 6:
+                    prm["detection"] = {"cmd":"barcode", "format": kwargs["m_barcode_format"]}
+                elif kwargs["method_value"] == 7:
+                    prm["detection"] = {"cmd":"ocr", "conf": kwargs["m_ocr_conf"]}
+                elif kwargs["method_value"] == 8:
+                    cls_name =  [item.strip() for item in kwargs["m_od_cls"].split(',') if item.strip()]
+                    prm["detection"] = {"cmd":"od", "path": self.widget_init["ml_detection_path"].value, "conf": kwargs["m_od_conf"], "cls": cls_name}   
+                elif kwargs["method_value"] == 9:
+                    prm["detection"] = {"cmd":"cls", "path": self.widget_init["ml_detection_path"].value, "conf": kwargs["m_cls_conf"]}   
                 _prm["detection"] = prm["detection"]
 
             #limit
@@ -837,13 +863,13 @@ detection.close()
                 _prm["plane"] = prm["plane"]
             
             # output
-            prm["output"] = {"max_det": 1, "shuffle": 1, "save_img": 0, "save_img_roi": 0}
+            prm["output"] = {"max_det": 1, "shuffle": 1, "save_img": 0, "save_img_roi": 0, "label": 1}
             if kwargs["output_enb"]:
-                prm["output"] = { "max_det": kwargs["output_max_det"], "shuffle": kwargs["output_shuffle"], "save_img": kwargs["output_save"], "save_img_roi": kwargs["output_save_roi"]}
+                prm["output"] = { "max_det": kwargs["output_max_det"], "shuffle": kwargs["output_shuffle"], "save_img": kwargs["output_save"], "save_img_roi": kwargs["output_save_roi"], "label": kwargs["output_display_label"]}
                 _prm["output"] = prm["output"]
 
             """hide and show inputs"""
-            show_key = [[key for key in self.widget_in.keys() if key.startswith(term)] for term in ["m_nothing", "m_elp", "m_poly", "m_cnt", "m_aruco", "m_ocr", "m_od", "m_cls"]][kwargs["method_value"]]
+            show_key = [[key for key in self.widget_in.keys() if key.startswith(term)] for term in ["m_nothing", "m_line", "m_elp", "m_poly", "m_cnt", "m_aruco", "m_barcode", "m_ocr", "m_od", "m_cls"]][kwargs["method_value"]]
             hide_key = [key for key in self.widget_in.keys() if key.startswith('m_') and key not in show_key] 
             for k in show_key:
                 if self.widget_in[k].layout.display != "flex":
@@ -862,9 +888,9 @@ detection.close()
             # adjust the frame size
             self.plt["out"]["img"].set_extent([0, self.d.camera_data[prm["feed"]].shape[1], self.d.camera_data[prm["feed"]].shape[0], 0])
             self.plt["method"]["img"].set_extent([0, self.d.camera_data[prm["feed"]].shape[1], self.d.camera_data[prm["feed"]].shape[0], 0])
-
+            
             # display thr
-            if kwargs["method_value"] in [2, 3]: # polygon and contour
+            if kwargs["method_value"] in [3, 4]: # polygon and contour
                 #self.method_plt.clear_output(wait=True)
                 #self.plt["method"]["img"].set_visible(True)
                 self.plt["method"]["img"].set_data(cv.cvtColor(self.d.img_thr, cv.COLOR_GRAY2RGB))
@@ -890,6 +916,10 @@ detection.close()
             self.widget_tr["out_prm"].value = self.api_call(_prm)
             self.config = kwargs
             
+            # prm
+            self.widget_tr["out_prm_value"].value = json.dumps(_prm)
+
+
         except Exception as ex:
             print(ex)
             pass

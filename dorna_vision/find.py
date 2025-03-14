@@ -1,7 +1,40 @@
 import cv2 as cv
 import numpy as np
 from dorna_vision.board import Aruco
+import zxingcpp
 
+
+
+def barcode(img, **kwargs):
+    # format, text, corners, center
+    retval = []
+    try:
+        if "format" in kwargs and kwargs["format"] is not "Any":
+            barcodes = zxingcpp.read_barcodes(img, getattr(zxingcpp.BarcodeFormat, kwargs["format"]))
+        else:
+            barcodes = zxingcpp.read_barcodes(img)
+        
+        for barcode in barcodes:
+            try:
+                corners = [[int(barcode.position.top_left.x), int(barcode.position.top_left.y)],
+                        [int(barcode.position.top_right.x), int(barcode.position.top_right.y)],
+                        [int(barcode.position.bottom_right.x), int(barcode.position.bottom_right.y)],
+                        [int(barcode.position.bottom_left.x), int(barcode.position.bottom_left.y)]]
+
+                x_coords = [pt[0] for pt in corners]
+                y_coords = [pt[1] for pt in corners]
+                center = [int(sum(x_coords) / len(corners)), int(sum(y_coords) / len(corners))]
+                # format, text, corners, center    
+                retval.append([barcode.format.name,
+                                barcode.text,
+                                corners,
+                                center])
+            except:
+                pass
+    except:
+        pass
+
+    return retval
 
 # [[pxl, corners, cnt], ...]
 def contour(thr_img, **kwargs):

@@ -1,2 +1,4 @@
 scikit-learn
 shapely
+openvino
+zxingcpp

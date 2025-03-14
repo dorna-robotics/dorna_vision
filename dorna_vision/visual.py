@@ -2,6 +2,29 @@ import cv2 as cv
 import numpy as np
 import colorsys
 
+
+def rotate_and_flip(img, rotate=0, flip_h=False, flip_v=False):    
+    # Step 1: Rotation
+    if rotate not in [0, 90, 180, 270]:
+        return img
+    
+    if rotate == 90:
+        img = cv.rotate(img, cv.ROTATE_90_CLOCKWISE)
+    elif rotate == 180:
+        img = cv.rotate(img, cv.ROTATE_180)
+    elif rotate == 270:
+        img = cv.rotate(img, cv.ROTATE_90_COUNTERCLOCKWISE)  # Equivalent to 270° clockwise
+    
+    # Step 2: Horizontal flip (mirror over y-axis)
+    if flip_h:
+        img = cv.flip(img, 1)
+    
+    # Step 3: Vertical flip (mirror over x-axis)
+    if flip_v:
+        img = cv.flip(img, 0)
+    
+    return img
+
 def color_mask(bgr_img, low_hsv=[0, 0, 0], high_hsv=[255, 255, 255], inv=False):
     if low_hsv in [[0, 0, 0], []] and high_hsv in [[255, 255, 255], []] and not inv:
         return bgr_img
@@ -61,7 +84,7 @@ class poly_select(object):
 class ROI(object):
 
     """docstring for Crop"""
-    def __init__(self, img, corners=[], inv=False, crop=False):
+    def __init__(self, img, corners=[], inv=False, crop=False, offset=0):
         """
         Parameters
         ----------
@@ -73,6 +96,8 @@ class ROI(object):
             Invert the mask
         crop : bool
             Crop the image to the region of interest
+        margin : int
+            positive, goes around. negative, goes inside 
 
         Attributes
         ----------
@@ -99,12 +124,30 @@ class ROI(object):
         self.x = 0
         self.y = 0
         self.h, self.w = img.shape[0:2]
-        
-        if len(self.roi) < 3:
-            self.img = img 
-        else:           
+        ratio = self.w / self.h
+
+
+        # adjust roi
+        if len(self.roi) == 0:
+            self.img = img.copy()
+        elif len(self.roi) == 1:
+            x, y = self.roi[0]
+            self.roi = np.array([[x,y], [x+1, y], [x+1, y+1], [x, y+1]], dtype=np.int32)
+        elif len(self.roi) == 2:
+            x1, y1 = self.roi[0]
+            x2, y2 = self.roi[1]
+            self.roi = np.array([[x1,y1], [x2,y1], [x2,y2], [x1,y2]], dtype=np.int32)
+
+        if len(self.roi) > 0:         
             # Create a binary mask with the same shape as the image
             mask = np.zeros_like(img[:, :, 0], dtype=np.uint8)
+
+            # adjust the polygon based on the offset
+            if offset:
+                self.roi = self.offset_polygon(list(self.roi), offset)
+            
+            # bound the roi
+            self.roi = np.array([[min(self.w-1, max(0, v[0])), min(self.h-1, max(0, v[1]))] for v in self.roi], dtype=np.int32)
 
             # Create a polygon and fill it with white (1)
             cv.fillPoly(mask, [self.roi], 1)
@@ -122,11 +165,80 @@ class ROI(object):
 
                 # Find the bounding box
                 self.x, self.y, self.w, self.h = cv.boundingRect(self.cnt)
-            
 
             # cropped image
             self.img = masked_img[self.y:self.y+self.h, self.x:self.x+self.w].copy()
 
-    
+            if crop:
+                self.img = self.adjust_aspect_ratio(self.img, ratio)
+
+    def offset_polygon(self, polygon, offset_px):
+        """
+        Offset a polygon by a fixed pixel distance around its centroid.
+        :param polygon: List of [x, y] points.
+        :param offset_px: Positive to expand, negative to shrink.
+        :return: Offset polygon as list of points.
+        """
+        polygon_np = np.array(polygon, dtype=np.float32)
+        
+        # Compute centroid
+        moments = cv.moments(polygon_np.astype(np.int32))
+        if moments["m00"] == 0:
+            return polygon  # Avoid division by zero
+        cx = moments["m10"] / moments["m00"]
+        cy = moments["m01"] / moments["m00"]
+        centroid = np.array([cx, cy], dtype=np.float32)
+
+        # Compute vectors from centroid to polygon points
+        vectors = polygon_np - centroid
+        
+        # Compute distances and directions
+        distances = np.linalg.norm(vectors, axis=1, keepdims=True)
+        directions = vectors / np.where(distances > 0, distances, 1e-8)  # Avoid division by zero
+        
+        # Apply offset (expand/shrink along radial direction)
+        new_vectors = vectors + directions * offset_px
+        new_polygon = centroid + new_vectors
+        
+        return new_polygon.astype(np.int32)
+
+    def adjust_aspect_ratio(self, image, target_ratio):
+        """
+        Adjust image to a target aspect ratio by adding black margins.
+        
+        Args:
+            image: Input image (numpy array).
+            target_ratio: Target width/height ratio (e.g., 16/9 for 16:9).
+            
+        Returns:
+            Padded image with exact target aspect ratio.
+        """
+        h, w = image.shape[:2]
+        current_ratio = w / h
+
+        if current_ratio < target_ratio:
+            # Image is taller: add right margin
+            new_width = int(round(h * target_ratio))
+            new_height = h
+            #pad_x = new_width - w
+            #pad_y = 0
+        else:
+            # Image is wider: add bottom margin
+            new_height = int(round(w / target_ratio))
+            new_width = w
+            #pad_x = 0
+            #pad_y = new_height - h
+
+        # Create black canvas
+        if len(image.shape) == 3:
+            canvas = np.zeros((new_height, new_width, image.shape[2]), dtype=image.dtype)
+        else:
+            canvas = np.zeros((new_height, new_width), dtype=image.dtype)
+            
+        # Place original image in top-left corner
+        canvas[:h, :w] = image        
+        return canvas
+
+
     def pxl_to_orig(self, pxl):
         return [int(pxl[0] + self.x), int(pxl[1] + self.y)]

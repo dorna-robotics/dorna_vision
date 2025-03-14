@@ -21,14 +21,15 @@ class Detection(object):
             robot=None,
             camera_mount="dorna_ta_j4_1",
             frame=[0, 0, 0, 0, 0, 0], 
-            feed="color_img", 
+            feed="color_img",
+            rot= 0, 
             intensity={"a":1.0, "b":0},
             color={"low_hsv":[0, 0, 0], "high_hsv":[255, 255, 255], "inv":0},
             roi={"corners": [], "inv": 0, "crop": 0},
             detection={"cmd":None},
             limit = {"area":[], "aspect_ratio":[], "xyz":[], "inv":0},
             plane = [],
-            output={"shuffle": 1, "max_det":1, "save_img":0, "save_img_roi":0},
+            output={"shuffle": 1, "max_det":1, "save_img":0, "save_img_roi":0, "label": 1},
             **kwargs
         ):
         super(Detection, self).__init__()
@@ -39,6 +40,7 @@ class Detection(object):
         self.camera_mount = self.set_camera_mount(camera_mount)
         self.frame = frame
         self.feed = feed
+        self.rot = rot
         self.intensity = intensity
         self.color = color
         self.roi = roi
@@ -146,9 +148,19 @@ class Detection(object):
 
 
     def pixel_to_xyz(self, pxl):
+        h, w, _ =self.camera_data["depth_img"].shape
         try:
+            
+            # rot
+            if self.rot == 90:
+                _pxl = [h-1-pxl[1], pxl[0]]
+            elif self.rot == 180:
+                _pxl = [w-1-pxl[0], h-1-pxl[1]]
+            elif self.rot == 270:
+                _pxl = [pxl[1], w-1-pxl[0]]
+
             # xyz_target_2_cam
-            xyz_target_to_cam = self.camera.xyz(pxl, self.camera_data["depth_frame"], self.camera_data["depth_int"])[0].tolist()
+            xyz_target_to_cam = self.camera.xyz(_pxl, self.camera_data["depth_frame"], self.camera_data["depth_int"])[0].tolist()
             T_target_to_cam = self.kinematic.xyzabc_to_mat(np.concatenate((np.array(xyz_target_to_cam), np.array([0, 0, 0]))))
             
             # apply frame
@@ -174,7 +186,12 @@ class Detection(object):
             
             # update camera_data
             camera_data = self.get_camera_data(data)
-            _img = camera_data[self.feed]
+            _img = camera_data[self.feed].copy()
+
+            # ori
+            if self.rot != 0:
+                _img = rotate_and_flip(_img, rotate=self.rot)
+            
             # frame
             self.frame_mat_inv = np.linalg.inv(self.kinematic.xyzabc_to_mat(np.array(self.frame)))
             if self.robot is not None and camera_data["joint"] is not None:
@@ -215,6 +232,13 @@ class Detection(object):
                     retval = [{"timestamp": camera_data["timestamp"], "cls": self.detection["cmd"], "conf": 1, "center": _roi.pxl_to_orig(r[0]), 
                     "corners": [_roi.pxl_to_orig(x) for x in r[1]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
 
+                elif self.detection["cmd"] == "barcode":
+                    # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
+                    result = barcode(img_roi, **self.detection)
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": r[1], "format": r[0], "conf": 1, "center": _roi.pxl_to_orig(r[3]), 
+                    "corners": [_roi.pxl_to_orig(x) for x in r[2]], "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
+
+
                 elif self.detection["cmd"] == "aruco" and camera_data["depth_int"] is not None:
                     try:
                         # [[pxl, corners, (id, rvec, tvec)], ...]
@@ -244,12 +268,12 @@ class Detection(object):
                     result = self.od(img_roi, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r.cls, "conf": r.prob, "center": _roi.pxl_to_orig([r.rect.x+r.rect.w/2, r.rect.y+r.rect.h/2]), 
                     "corners": [_roi.pxl_to_orig(pxl) for pxl in [[r.rect.x, r.rect.y], [r.rect.x+r.rect.w, r.rect.y], [r.rect.x+r.rect.w, r.rect.y+r.rect.h], [r.rect.x, r.rect.y+r.rect.h]]],
-                    "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
+                    "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0], "color": r.color} for r in result]
                 elif self.detection["cmd"] == "cls":
                     result = self.cls(img_roi, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r[0], "conf": r[1], "center": [int(width/2), int(height/2)], 
                     "corners": [[min(20,width-1), min(20,height-1)], [max(0,width-21), min(20,height-1)], [max(0,width-21), max(0,height-21)], [min(20,width-1), max(0,height-21)]],
-                    "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0]} for r in result]
+                    "xyz": [0, 0, 0], "rvec": [0, 0, 0], "tvec": [0, 0, 0], "color": r[2]} for r in result]
 
             # retval
             self.retval["all"] = list(retval)
@@ -293,9 +317,13 @@ class Detection(object):
 
 
             # draw corners
-            if "cmd" in self.detection and self.detection["cmd"] in ["elp", "poly", "cnt", "ocr", "od", "cls"]: # corners and axes
+            if "cmd" in self.detection and self.detection["cmd"] in ["elp", "poly", "cnt", "ocr", "od", "cls", "barcode"]: # corners and axes
                 for r in retval:
-                    draw_corners(img_adjust, r["cls"], r["conf"], r["corners"])
+                    color_label = (0,255,0)
+                    if "color" in r:
+                        color_label = r["color"]
+                    
+                    draw_corners(img_adjust, r["cls"], r["conf"], r["corners"], color=color_label, label=self.output["label"])
 
             # ej
             if "ej" in self.camera_mount:
