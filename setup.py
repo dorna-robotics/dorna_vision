@@ -1,8 +1,7 @@
 import setuptools
-import dorna_vision
 
 # Read the version from the dorna_vision package
-version = dorna_vision.__version__
+version = "2.4.0"
 
 # Read the contents of README.md
 with open("README.md", "r") as fh:
