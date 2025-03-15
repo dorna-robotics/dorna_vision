@@ -58,7 +58,7 @@ class poly_select(object):
         self.vert = []
 
     def onselect(self, vert):
-        self.vert = [[round(v[0],2), round(v[1],2)]for v in vert]
+        self.vert = [[float(round(v[0],2)), float(round(v[1],2))]for v in vert]
         self.widget.value = str(self.vert)
 
 
