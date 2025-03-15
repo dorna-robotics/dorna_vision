@@ -65,7 +65,7 @@ def contour(thr_img, **kwargs):
         rect = cv.minAreaRect(cnt)
     
         # Get the 4 corners of the rectangle
-        box = np.int0(cv.boxPoints(rect))
+        box = cv.boxPoints(rect).astype(int)
 
         # Convert to list of tuples
         corners = [[point[0], point[1]] for point in box]
@@ -198,7 +198,7 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
             rect = (center, (major_axis, minor_axis), rot)
 
             # Get the 4 corners of the bounding box using boxPoints
-            box = np.int0(cv.boxPoints(rect))
+            box = cv.boxPoints(rect).astype(int)
 
             # Convert to list of tuples
             corners = [[point[0], point[1]] for point in box]

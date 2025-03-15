@@ -2,12 +2,13 @@ import os
 import pickle
 import ncnn
 from ncnn.utils.objects import Detect_Object
-from paddleocr import PaddleOCR
+#from paddleocr import PaddleOCR
 import numpy as np
 import importlib
-from openvino.runtime import Core
+from openvino import Core
 from types import SimpleNamespace
 import cv2
+import math
 
 def hex_to_bgr(hex_color):
     # Remove '#' if present
@@ -37,10 +38,12 @@ class OD(object):
 
         
     def __del__(self):
-        del self.model
-        del self.compiled_model
-        self.core = None  # Release Core instance
-
+        try:
+            del self.model
+            del self.compiled_model
+            self.core = None  # Release Core instance
+        except:
+            pass
 
     # Postprocessing: adjust outputs to produce correct bounding boxes.
     def _postprocess(self, outputs, img_size, p6=False):
@@ -166,7 +169,7 @@ class OD(object):
 
             # obj
             obj = SimpleNamespace(
-                prob=score,
+                prob=float(score),
                 cls=label,
                 rect=SimpleNamespace(
                     x=final_boxes[i][0],
@@ -216,9 +219,12 @@ class CLS(object):
 
 
     def __del__(self):
-        del self.model
-        del self.compiled_model
-        self.core = None  # Release Core instance
+        try:
+            del self.model
+            del self.compiled_model
+            self.core = None  # Release Core instance
+        except:
+            pass
 
 
     def __call__(self, img, conf=0.5, **kwargs):
@@ -257,12 +263,202 @@ class CLS(object):
 
         if probability > conf:
             retval = [
-                [self.cls[predicted_class], probability, self.colors[self.cls[predicted_class]]]
+                [self.cls[predicted_class], float(probability), self.colors[self.cls[predicted_class]]]
             ]
 
         return retval
 
 
+class OCR:
+    def __init__(self, device="CPU"):
+        """
+        Initialization:
+          - Load the dictionary from dict_path.
+          - Initialize OpenVINO core.
+          - Load and compile the detection model using the provided XML and BIN files.
+          - Load and compile the recognition model.
+        """
+        spec = importlib.util.find_spec("dorna_vision")
+        if spec and spec.origin:
+            model_folder = os.path.dirname(spec.origin)  # Store the path
+
+        det_model_path = os.path.join(model_folder,"model", "ocr", "horizontal-text-detection-0001.xml")
+        det_weights_path = os.path.join(model_folder,"model", "ocr", "horizontal-text-detection-0001.bin")
+        rec_model_path = os.path.join(model_folder,"model", "ocr", "inference.pdmodel")
+        dict_path = os.path.join(model_folder,"model", "ocr", "ppocr_keys_v1.txt")
+        
+        # Load dictionary for CTC decoding
+        if not os.path.exists(dict_path):
+            raise FileNotFoundError(f"Dictionary file {dict_path} not found.")
+        with open(dict_path, "r", encoding="utf-8") as f:
+            keys = [line.strip() for line in f if line.strip() != ""]
+        self.char_list = [""] + keys  # Reserve index 0 as blank
+
+        # Initialize OpenVINO core
+        self.core = Core()
+
+        # Load and compile detection model
+        if not os.path.exists(det_model_path) or not os.path.exists(det_weights_path):
+            raise FileNotFoundError("Detection model files not found.")
+        self.det_model = self.core.read_model(model=det_model_path, weights=det_weights_path)
+        
+        # Expected input shape [1, 3, 640, 640]
+        self.det_model.reshape({self.det_model.input(0): [1, 3, 640, 640]})
+        self.det_compiled = self.core.compile_model(self.det_model, device)
+        self.det_input = self.det_compiled.input(0)
+        self.det_output = self.det_compiled.output(0)
+
+        # Load and compile recognition model
+        if not os.path.exists(rec_model_path):
+            raise FileNotFoundError("Recognition model file not found.")
+        self.rec_model = self.core.read_model(model=rec_model_path)
+        
+        # Expected input shape: [1, 3, 48, -1] (height fixed, dynamic width)
+        self.rec_model.reshape({self.rec_model.input(0): [1, 3, 48, -1]})
+        self.rec_compiled = self.core.compile_model(self.rec_model, device)
+        self.rec_input = self.rec_compiled.input(0)
+        self.rec_output = self.rec_compiled.output(0)
+
+
+    def __del__(self):
+        try:
+            del self.det_model
+            del self.det_compiled
+            del self.rec_model
+            del self.rec_compiled
+            self.core = None  # Release Core instance
+        except Exception as ex:
+            pass
+
+    def preprocess_crop(self, crop, target_height=48, target_width=320):
+        """
+        Preprocess a cropped text region for recognition:
+        - Convert BGR to RGB.
+        - Resize to target height while preserving aspect ratio.
+        - Normalize pixels to [-1, 1] and pad to target width.
+        Returns the preprocessed image with an added batch dimension.
+        """
+        #crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+        h, w, _ = crop.shape
+        ratio = w / h
+        new_w = int(math.ceil(target_height * ratio))
+        new_w = min(new_w, target_width)
+        resized = cv2.resize(crop, (new_w, target_height))
+        resized = resized.astype("float32") / 255.0
+        resized = (resized - 0.5) / 0.5
+        resized = resized.transpose(2, 0, 1)
+        padded = np.zeros((3, target_height, target_width), dtype="float32")
+        padded[:, :, :new_w] = resized
+        return np.expand_dims(padded, 0)
+
+
+    def ctc_decode(self, logits, char_list):
+        """
+        Simple CTC decoding:
+        - Take argmax along classes for each timestep.
+        - Collapse consecutive duplicates and ignore blank token (index 0).
+        Returns the decoded string.
+        """
+        indices = np.argmax(logits, axis=2)[0]
+        decoded = []
+        prev = -1
+        for idx in indices:
+            if idx != prev and idx != 0:
+                decoded.append(char_list[idx])
+            prev = idx
+        return "".join(decoded)
+
+
+    def letterbox_image(self, image, target_size=(640,640)):
+        """
+        Resize image to fit target_size while maintaining aspect ratio.
+        Pads the image with gray (value 128) and returns the new image, scale factor, and padding values.
+        """
+        ih, iw = image.shape[:2]
+        tw, th = target_size
+        scale = min(tw / iw, th / ih)
+        nw, nh = int(iw * scale), int(ih * scale)
+        image_resized = cv2.resize(image, (nw, nh))
+        new_image = np.full((th, tw, 3), 128, dtype=np.uint8)
+        pad_w = (tw - nw) // 2
+        pad_h = (th - nh) // 2
+        new_image[pad_h:pad_h+nh, pad_w:pad_w+nw, :] = image_resized
+        return new_image, scale, pad_w, pad_h
+
+
+    def ocr(self, img, conf=0.5, detection_enabled=True, **kwargs):
+        """
+        Run the OCR pipeline:
+          - If detection_enabled is True, run text detection on the full image, map detected regions back to original coordinates,
+            and run recognition on each valid detected region.
+          - If detection_enabled is False, assume img is a pre-cropped text region and run recognition directly.
+        Parameters:
+          img: Image matrix (read using cv2, not a file path)
+          detection_enabled: Flag to enable text detection (True) or recognition-only (False)
+          conf: Confidence threshold for filtering detection results
+        Returns:
+          A list of dictionaries for each detected region with keys: 'box', 'text', and 'conf'
+        """
+        results = []
+        if detection_enabled:
+            # Preprocess the image for detection using letterbox resize
+            det_img, scale, pad_w, pad_h = self.letterbox_image(img, (640, 640))
+            #det_input_img = cv2.cvtColor(det_img, cv2.COLOR_BGR2RGB).astype("float32")
+            det_input_img = det_img.astype("float32")
+            det_input_img = det_input_img.transpose(2, 0, 1)
+            det_input_img = np.expand_dims(det_input_img, 0)
+
+            det_result = self.det_compiled([det_input_img])[self.det_output]
+            det_result = np.array(det_result)
+
+            if det_result.ndim == 3:
+                det_result = np.squeeze(det_result, axis=0)
+
+            for b in det_result:
+                x1, y1, x2, y2, score = b
+                if score < conf:
+                    continue
+                # Ensure proper box coordinates
+                x_min_letter = min(x1, x2)
+                x_max_letter = max(x1, x2)
+                y_min_letter = min(y1, y2)
+                y_max_letter = max(y1, y2)
+                # Map coordinates from letterboxed image back to original image
+                x_min = int((x_min_letter - pad_w) / scale)
+                x_max = int((x_max_letter - pad_w) / scale)
+                y_min = int((y_min_letter - pad_h) / scale)
+                y_max = int((y_max_letter - pad_h) / scale)
+                if x_min >= x_max or y_min >= y_max:
+                    continue
+                x_min = max(0, x_min)
+                y_min = max(0, y_min)
+                x_max = min(img.shape[1], x_max)
+                y_max = min(img.shape[0], y_max)
+                crop = img[y_min:y_max, x_min:x_max]
+                if crop.size == 0:
+                    continue
+
+                rec_input_crop = self.preprocess_crop(crop)
+                rec_result = self.rec_compiled([rec_input_crop])[self.rec_output]
+                text = self.ctc_decode(rec_result, self.char_list)
+                results.append([
+                    [[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min]],
+                     [text, float(score)],
+                ])
+
+                
+        else:
+            # Recognition-only mode: assume img is a cropped text region.
+            rec_input_img = self.preprocess_crop(img)
+            rec_result = self.rec_compiled([rec_input_img])[self.rec_output]
+
+            text = self.ctc_decode(rec_result, self.char_list)
+            h, w = img.shape[:2]
+            results.append([
+                [[0, 0], [0, h], [w, h], [w, 0]],
+                [text, 1],
+            ])
+        return results
 
 
 class CLS_NCNN(object):
@@ -442,7 +638,7 @@ class OD_NCNN(object):
         return objects
 
 
-class OCR(PaddleOCR):
+"""class OCR_NCNN(PaddleOCR):
     def __init__(self, lang='en', use_angle_cls=True, **kwargs):
         spec = importlib.util.find_spec("dorna_vision")
         if spec and spec.origin:
@@ -469,4 +665,4 @@ class OCR(PaddleOCR):
     
 
     def __del__(self):
-        self.net = None
+        self.net = None"""

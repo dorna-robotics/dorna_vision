@@ -142,7 +142,7 @@ class default_widget(object):
             "m_aruco_refine":widgets.Dropdown(value="CORNER_REFINE_APRILTAG", options=["CORNER_REFINE_NONE", "CORNER_REFINE_SUBPIX", "CORNER_REFINE_CONTOUR", "CORNER_REFINE_APRILTAG"], description='Refinement', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "m_aruco_subpix": widgets.Checkbox(value=False, description='Sub pixel', continuous_update=continuous_update, layout={'width': '99%'}, style=style),            
 
-            "m_ocr_conf" : widgets.FloatSlider(value=0.5, min=0.01, max=1, step=0.01, description='Confidence', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
+            "m_ocr_conf" : widgets.FloatSlider(value=0.1, min=0.01, max=1, step=0.01, description='Confidence', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
 
 
             "m_barcode_format": widgets.Dropdown(value="Any", options=["Any", "Aztec", "Codabar", "Code39", "Code93", "Code128","DataMatrix",
