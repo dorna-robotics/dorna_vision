@@ -158,6 +158,8 @@ class Detection(object):
                 _pxl = [w-1-pxl[0], h-1-pxl[1]]
             elif self.rot == 270:
                 _pxl = [pxl[1], w-1-pxl[0]]
+            else:
+                _pxl = [pxl[0], pxl[1]]
 
             # xyz_target_2_cam
             xyz_target_to_cam = self.camera.xyz(_pxl, self.camera_data["depth_frame"], self.camera_data["depth_int"])[0].tolist()
