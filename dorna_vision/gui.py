@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 from ipywidgets import interactive, widgets
 import cv2 as cv
 import numpy as np
@@ -727,8 +730,10 @@ class Detection_app(object):
         self.plt["plane"]["ax"].add_patch(min_bounding_box)
 
         # Draw major and minor axes
-        major_axis = plt.Line2D([0, width], [0, 0], color='red', linestyle='dashed', linewidth=1, label='Major Axis')
-        minor_axis = plt.Line2D([0, 0], [0, height], color='green', linestyle='dashed', linewidth=1, label='Minor Axis')
+        major_axis = plt.Line2D([0, width], [0, 0], color='red', linestyle='dashed', linewidth=1)
+        major_axis.set_label('Major Axis')
+        minor_axis = plt.Line2D([0, 0], [0, height], color='green', linestyle='dashed', linewidth=1)
+        minor_axis.set_label('Minor Axis')
         self.plt["plane"]["ax"].add_line(major_axis)
         self.plt["plane"]["ax"].add_line(minor_axis)
 
