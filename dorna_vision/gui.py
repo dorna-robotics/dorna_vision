@@ -917,7 +917,7 @@ detection.close()
             self.config = kwargs
             
             # prm
-            self.widget_tr["out_prm_value"].value = json.dumps(_prm)
+            self.widget_tr["out_prm_value"].value = textwrap.dedent(f"""{_prm}""")
 
 
         except Exception as ex:

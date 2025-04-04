@@ -28,10 +28,10 @@ setuptools.setup(
         'dorna_vision': ['model/ocr/*'],
     },
     packages=setuptools.find_packages(),
-    install_requires=requirements,
+    #install_requires=requirements,
     classifiers=[
         'Intended Audience :: Developers',
-        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.10',
         "Operating System :: OS Independent",
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],

@@ -2,7 +2,6 @@ import os
 import pickle
 import ncnn
 from ncnn.utils.objects import Detect_Object
-#from paddleocr import PaddleOCR
 import numpy as np
 import importlib
 from openvino import Core
