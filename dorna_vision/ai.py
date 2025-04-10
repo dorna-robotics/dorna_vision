@@ -9,6 +9,34 @@ from types import SimpleNamespace
 import cv2
 import math
 
+def letterbox_image(image, target_size=(640, 640), pad_color=(128, 128, 128)):
+    """
+    Resize image to fit target_size while maintaining aspect ratio.
+    Pads the image with the specified pad_color using cv2.copyMakeBorder and returns the new image,
+    scale factor, and padding values.
+    """
+    ih, iw = image.shape[:2]
+    tw, th = target_size  # target width and height
+    scale = min(tw / iw, th / ih)
+    nw, nh = int(iw * scale), int(ih * scale)
+    image_resized = cv2.resize(image, (nw, nh))
+
+    pad_w = (tw - nw) // 2
+    pad_h = (th - nh) // 2
+
+    # Calculate exact border sizes (handles odd differences gracefully)
+    top = pad_h
+    bottom = th - nh - pad_h
+    left = pad_w
+    right = tw - nw - pad_w
+
+    # Add borders using OpenCV's highly optimized copyMakeBorder
+    new_image = cv2.copyMakeBorder(image_resized, top, bottom, left, right,
+                                   borderType=cv2.BORDER_CONSTANT, value=pad_color)
+
+    return new_image, scale, pad_w, pad_h
+
+
 def hex_to_bgr(hex_color):
     # Remove '#' if present
     hex_color = hex_color.lstrip('#')
@@ -114,13 +142,19 @@ class OD(object):
         orig_h, orig_w = img.shape[:2]
         fixed_size = (self.input_shape[2], self.input_shape[3])  # (height, width) e.g. (416, 416)
 
-
+        """
         # Resize image directly to fixed size.
         resized_img = cv2.resize(img, (fixed_size[1], fixed_size[0]), interpolation=cv2.INTER_LINEAR)
 
         # Compute separate scale factors for width and height.
         scale_w = fixed_size[1] / orig_w
         scale_h = fixed_size[0] / orig_h
+        """
+
+        resized_img, scale, pad_w, pad_h = letterbox_image(
+            img, target_size=(fixed_size[1], fixed_size[0]), pad_color=(128, 128, 128)
+        )
+
 
         # Prepare image for inference (convert to CHW and add batch dimension).
         preprocessed_img = resized_img.transpose((2, 0, 1))
@@ -142,8 +176,13 @@ class OD(object):
         boxes_xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2.
         
         # Scale bounding boxes back to original image dimensions.
+        """     
         boxes_xyxy[:, [0, 2]] /= scale_w
         boxes_xyxy[:, [1, 3]] /= scale_h
+        """
+        boxes_xyxy[:, [0, 2]] -= pad_w
+        boxes_xyxy[:, [1, 3]] -= pad_h
+        boxes_xyxy /= scale
 
         # nms
         dets = self._multiclass_nms(boxes_xyxy, scores, nms_thr=nms_thr, score_thr=conf)
@@ -368,23 +407,6 @@ class OCR:
         return "".join(decoded)
 
 
-    def letterbox_image(self, image, target_size=(640,640)):
-        """
-        Resize image to fit target_size while maintaining aspect ratio.
-        Pads the image with gray (value 128) and returns the new image, scale factor, and padding values.
-        """
-        ih, iw = image.shape[:2]
-        tw, th = target_size
-        scale = min(tw / iw, th / ih)
-        nw, nh = int(iw * scale), int(ih * scale)
-        image_resized = cv2.resize(image, (nw, nh))
-        new_image = np.full((th, tw, 3), 128, dtype=np.uint8)
-        pad_w = (tw - nw) // 2
-        pad_h = (th - nh) // 2
-        new_image[pad_h:pad_h+nh, pad_w:pad_w+nw, :] = image_resized
-        return new_image, scale, pad_w, pad_h
-
-
     def ocr(self, img, conf=0.5, detection_enabled=True, **kwargs):
         """
         Run the OCR pipeline:
@@ -401,7 +423,7 @@ class OCR:
         results = []
         if detection_enabled:
             # Preprocess the image for detection using letterbox resize
-            det_img, scale, pad_w, pad_h = self.letterbox_image(img, (640, 640))
+            det_img, scale, pad_w, pad_h = letterbox_image(img, (640, 640))
             #det_input_img = cv2.cvtColor(det_img, cv2.COLOR_BGR2RGB).astype("float32")
             det_input_img = det_img.astype("float32")
             det_input_img = det_input_img.transpose(2, 0, 1)
