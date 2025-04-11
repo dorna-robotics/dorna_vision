@@ -84,7 +84,7 @@ class poly_select(object):
 class ROI(object):
 
     """docstring for Crop"""
-    def __init__(self, img, corners=[], inv=False, crop=False, offset=0):
+    def __init__(self, img, corners=[], inv=False, crop=False, offset=0, color=(128, 128, 128)):
         """
         Parameters
         ----------
@@ -124,7 +124,7 @@ class ROI(object):
         self.x = 0
         self.y = 0
         self.h, self.w = img.shape[0:2]
-        ratio = self.w / self.h
+        #ratio = self.w / self.h
 
 
         # adjust roi
@@ -157,8 +157,17 @@ class ROI(object):
                 mask = 1 - mask
 
             # Apply the mask to the image
-            masked_img = cv.bitwise_and(img, img, mask=mask) 
-            
+            #masked_img = cv.bitwise_and(img, img, mask=mask) 
+            # Create a gray background image with the same shape and type as the original image.
+            gray_background = np.full(img.shape, color, dtype=img.dtype)
+
+            # Convert your single channel mask to a boolean mask.
+            mask_bool = mask.astype(bool)
+
+            # For a multi-channel image, expand the mask's dimensions so it works across all channels.
+            # Use np.where to select pixels: from img where mask is True, and from gray_background otherwise.
+            masked_img = np.where(mask_bool[:, :, None], img, gray_background)
+
             if crop:
                 # contour
                 self.cnt = np.array(self.roi, dtype=np.int32).reshape((-1, 1, 2))
@@ -169,8 +178,10 @@ class ROI(object):
             # cropped image
             self.img = masked_img[self.y:self.y+self.h, self.x:self.x+self.w].copy()
 
+            """
             if crop:
                 self.img = self.adjust_aspect_ratio(self.img, ratio)
+            """
 
     def offset_polygon(self, polygon, offset_px):
         """

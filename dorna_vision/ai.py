@@ -139,7 +139,7 @@ class OD(object):
 
         # Preprocess image: Instead of preserving the aspect ratio with padding,
         # we directly resize every image to the fixed input size (e.g. 416x416).
-        orig_h, orig_w = img.shape[:2]
+        #orig_h, orig_w = img.shape[:2]
         fixed_size = (self.input_shape[2], self.input_shape[3])  # (height, width) e.g. (416, 416)
 
         """
@@ -269,7 +269,8 @@ class CLS(object):
         retval = []
 
         # Resize the image to the expected input dimensions (e.g., 224x224)
-        img_resized = cv2.resize(img, self.target_size)
+        #img_resized = cv2.resize(img, self.target_size)
+        img_resized, _, _, _ = letterbox_image(img, self.target_size)
 
 
         # Normalize the image by subtracting the mean and dividing by scale for each channel
