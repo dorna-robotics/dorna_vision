@@ -2,6 +2,10 @@ import cv2 as cv
 import numpy as np
 import colorsys
 
+def inside(p, limit, inv=False):
+    _in = all([limit[i][0] <= p[i] <= limit[i][1] for i in range(len(p))])
+    return bool(_in) ^ bool(inv)
+
 # bgr_img -> binary
 def binary_thr(bgr_img, type=0, inv=True, blur=3, thr=127, mean_sub=2, **kwargs):    
     # gray image

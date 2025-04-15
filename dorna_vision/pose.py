@@ -1,6 +1,90 @@
 import numpy as np
 from sklearn.linear_model import RANSACRegressor
 from sklearn.preprocessing import PolynomialFeatures
+import cv2
+from itertools import product
+
+
+# return all the keypoint combinations
+def keypoint_combinations(data, labels):
+    # Group elements by class
+    cls_map = {label: [] for label in labels}
+    for item in data:
+        cls = item["cls"]
+        if cls in labels:
+            cls_map[cls].append(item)
+
+    # Check all labels have at least one element
+    if any(len(cls_map[label]) == 0 for label in labels):
+        return []
+
+    # Generate all combinations (Cartesian product of class groups)
+    return [list(combo) for combo in product(*(cls_map[label] for label in labels))]
+
+
+def pose_pnp(detections, geometry, kinematic, camera_matrix, dist_coeffs, frame_mat_inv=np.eye(4), **kwargs):
+    # retval
+    retval = []
+
+    # keypoint combinations
+    keypoint_combinations = keypoint_combinations(detections, list(geometry.keys()))
+
+    # loop over keypoint combinations
+    for combination in keypoint_combinations:        
+        # init success
+        success = False
+        
+        # object points
+        object_points = np.array([
+            geometry[d["cls"]] for d in combination
+        ], dtype=np.float32)
+        
+        # image points
+        image_points = np.array([
+            d["center"] for d in combination
+        ], dtype=np.float32)
+
+        if len(image_points) > 3:
+            success, rvec, tvec, _ = cv2.solvePnPRansac(
+                object_points,
+                image_points,
+                camera_matrix,
+                dist_coeffs,
+                flags=cv2.SOLVEPNP_P3P
+            )
+
+        elif len(image_points) == 3:
+            success, rvec, tvec = cv2.solvePnP(
+                object_points,
+                image_points,
+                camera_matrix,
+                dist_coeffs,
+                flags=cv2.SOLVEPNP_P3P
+            )
+
+
+        if success:
+            # Convert rvec (Rodrigues) to rotation matrix
+            R_target_to_cam, _ = cv2.Rodrigues(rvec)  # 3x3
+
+            # Create 4x4 transformation matrix
+            T_target_to_cam = np.eye(4, dtype=np.float32)
+            T_target_to_cam[:3, :3] = R_target_to_cam
+            T_target_to_cam[:3, 3] = tvec.flatten()
+
+            # to robot frame
+            T_target_to_frame = np.matmul(frame_mat_inv, T_target_to_cam)
+            xyzabc_target_to_frame = kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
+            _tvec = xyzabc_target_to_frame[0:3]
+            _rvec = xyzabc_target_to_frame[3:6]
+
+            retval.append({
+                "rvec": _rvec,
+                "tvec": _tvec
+            })
+
+    return retval
+
 
 def project_to_plane(point, plane_coefficients):
     """
