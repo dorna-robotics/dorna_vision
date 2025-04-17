@@ -1,6 +1,42 @@
 ## Table of Contents
 
 - [Introduction ](#introduction)
+- [Items Included ](#items-included)
+- [Installation Instructions ](#installation-instructions)
+- [Configuring IP Address ](#configuring-ip-address)
+- [Detection App ](#detection-app)
+- [Initialization ](#initialization)
+  - [Camera mounting ](#camera-mounting)
+  - [Frame ](#frame)
+  - [AI Models ](#ai-models)
+- [Image ](#image)
+  - [Source ](#source)
+  - [Orientation ](#orientation)
+  - [Region of Interest ](#region-of-interest)
+  - [Intensity ](#intensity)
+  - [Color Mask ](#color-mask)
+- [Detection Algorithms  ](#detection-algorithms )
+  - [Ellipse ](#ellipse)
+  - [Polygon ](#polygon)
+  - [Contour ](#contour)
+  - [Aruco ](#aruco)
+  - [OCR ](#ocr)
+  - [Bar Code ](#bar-code)
+  - [Object Detection ](#object-detection)
+  - [Image Classification ](#image-classification)
+- [Settings ](#settings)
+  - [2D Limit ](#2d-limit)
+  - [3D Limit ](#3d-limit)
+  - [6D Pose ](#6d-pose)
+  - [Output Format ](#output-format)
+- [Results ](#results)
+  - [API Call ](#api-call)
+  - [Return ](#return)
+- [Helper Functions ](#helper-functions)
+  - [Pixel to XYZ  ](#pixel-to-xyz)
+- [Upgrade the Software ](#upgrade-the-software)
+- [Troubleshooting and Resolving Common Issues ](#troubleshooting-and-resolving-common-issues)
+
 
 # Introduction
 In this guide, we introduce the Dorna Vision Kit and cover the fundamentals of using vision in automation projects.
@@ -175,7 +211,7 @@ In this case, the camera is mounted on the robot and as such it has no fixed pos
 <img src="docs/images/frames.jpg" width="500">
 </p>
 
-The default frame with values `0,0,0,0,0,0` means that all reported values of the vision system are with respect to the robot base which is the desired case in most applications. 
+The default frame with values `[0,0,0,0,0,0]` means that all reported values of the vision system are with respect to the robot base which is the desired case in most applications. 
 </p>
 <p align="center">
 <img src="docs/images/frame.jpg" width="500">
@@ -184,7 +220,7 @@ The default frame with values `0,0,0,0,0,0` means that all reported values of th
 #### Eye to hand: 
 In this case, since the camera itself is a fixed frame in space, we should specify the frame's `x, y, z, a, b, c` values with respect to the camera itself. Here, if we do not specify a frame, all reported values from the vision system will be with respect to the camera's frame which is located in the middle of its two lenses. 
 
-In our scenario, we use Eye In hand configuration and we leave the frame as the default `0,0,0,0,0,0`, which is the robot’s base.
+In our scenario, we use Eye In hand configuration and we leave the frame as the default `[0,0,0,0,0,0]`, which is the robot’s base.
 
 ### AI Models
 AI Models allows us to use AI to identify features, patterns, or objects of interest in images. This can be useful when you need to identify complex things within an image, such as scene context, specific objects, or text, and use that information to make decisions. To use this feature, you must select Object detection or Image classification from the Detection method drop-down menu and introduce in Model path the location path for the AI Model you will use.
@@ -216,9 +252,11 @@ You can either use your stereo camera as the input image source, or you can use 
 ### Orientation
 This allows you to rotate the image clockwise in increments of 90° using the `Clockwise rotation` drop-down menu.
 
+</p>
 | <img src="docs/images/vial_no_rot.jpg" width="250"> | <img src="docs/images/vial_rot_180.jpg" width="250"> |
 |------------------------|------------------------|
 | Original image          | Image rotated 180°    |
+</p>
 
 > 🚨 **Note:** Due to the plotting utility used, the image may appear stretched in the display depending on the orientation, but the image is processed by the Vision system maintaining its original aspect ratio.
 
@@ -240,9 +278,11 @@ Next, we can specify the region of interest. This ROI will restrict the area whe
 ### Intensity
 By adjusting the image’s contrast and brightness we can enhance its quality for the detection algorithm. This is useful to adapt the camera to the lighting conditions of the environment where it will be used. After the desired values of `Contrast` and `Brightness` have been selected using the sliding bars, check the `Apply the intensity` checkbox to apply the changes. 
 
+<p align="center">
 | <img src="docs/images/jag_org.jpg" width="250"> | <img src="docs/images/jag_cont_bright.jpg" width="250"> |
 |------------------------|------------------------|
 | Original image          | Image with Contrast 0.84 and Brightness 63    |
+</p>
 
 > 🚨 **Note:** `Contrast` and `Brightness` settings that work well under specific lighting conditions may not work as well under other ones. To ensure performance consistency, it's recommended to ensure that the lighting conditions are the same every time the Vision system is used.
 
@@ -344,7 +384,7 @@ Bar code detection allows for quick and reliable identification of bar code tags
 <img src="docs/images/bar_code_detection.jpg" width="500">
 </p>
 
-### Object detection ML
+### Object Detection
 This detection method will enable the system to use the AI model it was provided with during the initialization process to detect objects of interest in the image. You can control the minimum confidence level for an object detection to be reported with the `Confidence` slide bar. If the model was trained to detect objects of multiple classes and it is desired to only detect a limited set of them, you can write the names of all the desired classes separated by commas in the `Detection classes` box.
 
 </p>
@@ -354,11 +394,13 @@ This detection method will enable the system to use the AI model it was provided
 
 It's sometimes advantageous to use a ROI with the crop feature enabled to enhance the `Object detection` performance. By using a cropped ROI that contains the objects that you want to detect, those objects will have a higher relevance in the image that AI model will receive, potentially improving the detection results.
 
+<p align="center">
 | <img src="docs/images/object_detection_no_crop.jpg" width="250"> | <img src="docs/images/object_detection_crop.jpg" width="250"> |
 |------------------------|------------------------|
 | Original object detection   | Object detection with cropped ROI   |
+</p>
 
-### Classification from ML
+### Image Classification
 This will enable the system to use the AI model it was provided with during the initialization process to classify the image. Similarly, as with `Object detection`, you can control the minimum confidence level for an image class to be reported with the `Confidence` slide bar.
 
 ## Settings 
@@ -386,7 +428,7 @@ The 3D Limit Settings section allows you to define a rectangular prism in the co
 <img src="docs/images/3D.jpg" width="500">
 </p>
 
-After 3D Limit parameters have been set, you must check `Apply 3D constraints` to make them effective.
+After the 3D Limit parameters have been set, you must check `Apply 3D constraints` to make them effective.
 
 > 🚨 **Note:** It’s important to note that only the object’s center coordinates are used for the 3D limit filter. It’s possible to have an object not fully confined within the prism that will still be reported if its center is within the prism. 
 
@@ -420,7 +462,7 @@ In this section, you can format the output results of the detection algorithm.
 - `Max detections per run`: Limits the number of detections results the algorithm returns, the default value for this parameter is 1. 
 - `Shuffle return data`: Makes the algorithm randomly shuffle the list of the detected instances each time it gets executed. 
 - `Save the annotated image`: Saves the annotated image. This may be helpful for debugging the detection algorithm. However, in most cases, it should be disabled as storing image files will occupy your system's memory. This option could also be used for collecting data for the machine learning tasks which you'll learn about later. 
-- `Save the annotated image`: Identical to Save the annotated image but also considers the ROI according to how it has been configured.
+- `Save the annotated ROI image`: Save the ROI image.
 
 </p>
 <p align="center">
@@ -441,13 +483,18 @@ After this, the detection algorithm with input `prm` is called. The detection al
 
 > 🚨 **Note:** The API calls can be executed as many times as needed within a program. As long as the required Camera Mounting, Frame and AI Models parameters don’t change, only one initialization is required.
 
+### Return
+
 The `retval` fields are as follows: 
 
-- `cls`: The class key usually describes what is the type of the detected object, for example its value could be "cnt" for contour, "poly" for polygon, and so on. In the case of the "OCR" detection, the value of this key will be the exact detected text. When using ML detection methods, you can define as many classes as you wish, and the algorithm can detect multiple classes at once. For example, you can train the algorithm to detect apples and watermelons in an image at the same time. 
+- `timestamp`: If the source was selected as `Stereo camera`, the timestamp will be that of the moment when the camera took the image. If the source is selected as `File`, the timestamp will be that of the moment when the Vision system opened the file. The timestamp is expressed in seconds. 
+- `cls`: The class key. It describes what is the type of the detected object. For example, its value could be "cnt" for contour, "poly" for polygon, and so on. In the case of the "OCR" detection, the value of this key will be the exact detected text. In the case of `Object detection` and `Image classification`, the class will be the one detected by the AI model.
 - `conf`: This is the statistical confidence value, describing how sure the algorithm is of the pattern it has detected. This value has no use when using the classic detection methods, but it will be very important when using ML detection methods. 
 - `center` and `corners`: Correspond to the geometrical position of the detected object’s bounding box corners and its center. The values are in pixel units, and the reference of the coordinate is the top-left corner of the input image. 
 - `xyz`: Is the position in the 3D space, corresponding to the center pixel of the detected pattern. 
 - `tvec` and `rvec`: Are the translational (xyz) and rotational (abc) part of the 6D pose of the detected object, calculated based on the 6D pose algorithm that we explained earlier. 
+- `color`: The BGR (blue, green, red) values of the color of the detected object’s bounding box.
+
 
 ## Helper Functions 
 
