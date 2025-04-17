@@ -252,11 +252,20 @@ You can either use your stereo camera as the input image source, or you can use 
 ### Orientation
 This allows you to rotate the image clockwise in increments of 90° using the `Clockwise rotation` drop-down menu.
 
-</p>
-| <img src="docs/images/vial_no_rot.jpg" width="250"> | <img src="docs/images/vial_rot_180.jpg" width="250"> |
-|------------------------|------------------------|
-| Original image          | Image rotated 180°    |
-</p>
+<div align="center">
+
+<table>
+  <tr>
+    <td><img src="docs/images/vial_no_rot.jpg" width="250"></td>
+    <td><img src="docs/images/vial_rot_180.jpg" width="250"></td>
+  </tr>
+  <tr>
+    <td align="center">Original image</td>
+    <td align="center">Image rotated 180°</td>
+  </tr>
+</table>
+
+</div>
 
 > 🚨 **Note:** Due to the plotting utility used, the image may appear stretched in the display depending on the orientation, but the image is processed by the Vision system maintaining its original aspect ratio.
 
@@ -278,11 +287,21 @@ Next, we can specify the region of interest. This ROI will restrict the area whe
 ### Intensity
 By adjusting the image’s contrast and brightness we can enhance its quality for the detection algorithm. This is useful to adapt the camera to the lighting conditions of the environment where it will be used. After the desired values of `Contrast` and `Brightness` have been selected using the sliding bars, check the `Apply the intensity` checkbox to apply the changes. 
 
-<p align="center">
-| <img src="docs/images/jag_org.jpg" width="250"> | <img src="docs/images/jag_cont_bright.jpg" width="250"> |
-|------------------------|------------------------|
-| Original image          | Image with Contrast 0.84 and Brightness 63    |
-</p>
+<div align="center">
+
+<table>
+  <tr>
+    <td><img src="docs/images/jag_org.jpg" width="250"></td>
+    <td><img src="docs/images/jag_cont_bright.jpg" width="250"></td>
+  </tr>
+  <tr>
+    <td align="center">Original image</td>
+    <td align="center">Image with Contrast 0.84 and Brightness 63</td>
+  </tr>
+</table>
+
+</div>
+
 
 > 🚨 **Note:** `Contrast` and `Brightness` settings that work well under specific lighting conditions may not work as well under other ones. To ensure performance consistency, it's recommended to ensure that the lighting conditions are the same every time the Vision system is used.
 
@@ -394,11 +413,20 @@ This detection method will enable the system to use the AI model it was provided
 
 It's sometimes advantageous to use a ROI with the crop feature enabled to enhance the `Object detection` performance. By using a cropped ROI that contains the objects that you want to detect, those objects will have a higher relevance in the image that AI model will receive, potentially improving the detection results.
 
-<p align="center">
-| <img src="docs/images/object_detection_no_crop.jpg" width="250"> | <img src="docs/images/object_detection_crop.jpg" width="250"> |
-|------------------------|------------------------|
-| Original object detection   | Object detection with cropped ROI   |
-</p>
+<div align="center">
+
+<table>
+  <tr>
+    <td><img src="docs/images/object_detection_no_crop.jpg" width="250"></td>
+    <td><img src="docs/images/object_detection_crop.jpg" width="250"></td>
+  </tr>
+  <tr>
+    <td align="center">Original object detection</td>
+    <td align="center">Object detection with cropped ROI</td>
+  </tr>
+</table>
+
+</div>
 
 ### Image Classification
 This will enable the system to use the AI model it was provided with during the initialization process to classify the image. Similarly, as with `Object detection`, you can control the minimum confidence level for an image class to be reported with the `Confidence` slide bar.
