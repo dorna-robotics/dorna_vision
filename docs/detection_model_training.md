@@ -25,7 +25,7 @@
 </details>
 
 <details>
-<summary><strong>📷 Step 1: Labeling with Roboflow</strong></summary>
+<summary><strong>📷 Data Collection</strong></summary>
 
 1. Sign in to [**Roboflow**](https://roboflow.com/) and click **New Project**.
 2. Choose a project type:
