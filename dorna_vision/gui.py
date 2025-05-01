@@ -33,10 +33,14 @@ class default_widget(object):
         widgets.IntText(value=7, description='Any:', disabled=False)
         self.widget_helper = {
             "xyz_label": widgets.HTML(value="Convert pixel coordinates to its 3D spatial values based on the predefined reference frame.", layout={'width': '99%'}, style=style),
-            "xyz_width": widgets.IntText(value=10, placeholder=10, description='Width (pxl)', disabled=False, style=style),
-            "xyz_height": widgets.IntText(value=10, placeholder=10, description='Height (pxl)', disabled=False, style=style),
-            "xyz_xyz": widgets.Text(value='[0, 0, 0]', placeholder='[0, 0, 0]', description='Result (mm)', disabled=True, style=style),
+            "xyz_pxl": widgets.Text(value='', placeholder='[width, height]', description='Pixel coordinates (pxl)', disabled=False, style=style),
+            "xyz_xyz": widgets.Text(value='', placeholder='', description='Result (mm)', disabled=True, style=style),
             "xyz_convert": widgets.Button( description='Convert', disabled=False, button_style="", tooltip='Convert'),
+
+            "pixel_label": widgets.HTML(value="Convert 3D spatial coordinates to their corresponding pixel positions based on the predefined reference frame.", layout={'width': '99%'}, style=style),
+            "pixel_xyz": widgets.Text(value='', placeholder='[x, y, z]', description='XYZ (mm)', disabled=False, style=style),
+            "pixel_pxl": widgets.Text(value='', placeholder='', description='Result (pxl)', disabled=True, style=style),
+            "pixel_convert": widgets.Button( description='Convert', disabled=False, button_style="", tooltip='Convert'),
 
             "clb_label": widgets.HTML(value='<p>Calibrate the robot using this section. Print the Aruco marker from the following link: <a href="https://github.com/dorna-robotics/dorna_vision/blob/main/dorna_vision/asset/4x4_1000-0.pdf" target="_blank">Aruco Marker</a>. Ensure that the marker is printed at its original size, with a precise dimension of 20x20mm.</p>', layout={'width': '99%'}, style=style),
             "clb_data_label": widgets.HTML(value="Collected data (size: 0)", disabled=True, style=style),
@@ -66,18 +70,23 @@ class default_widget(object):
             "frame_label": widgets.HTML(value="Specify the reference frame based on the camera's setup:    <ul> <li>If the camera is attached to the robot (eye-in-hand), set it relative to the robot's base frame.</li> <li>If the camera is fixed (eye-to-hand), set it relative to the camera frame.</li> </ul> All measurements will be reported concerning this selected frame.", layout={'width': '99%'}, style=style),
             "frame_value": widgets.Text(value='[0, 0, 0, 0, 0, 0]', placeholder='[0, 0, 0, 0, 0, 0]', description='Frame', disabled=False, style=style),
             "ml_label": widgets.HTML(value="Specify the path to the model, for any ML-based detection method.", layout={'width': '99%'}, style=style),
-            "ml_detection_type": widgets.Dropdown(value=0, options=[('Object detection', 0), ('Image classification', 1)], description='Detection method', continuous_update=continuous_update, style=style),
+            "ml_detection_type": widgets.Dropdown(value=0, options=[('Object detection', 0), ('Image classification', 1), ('Keypoint detection', 2)], description='Detection method', continuous_update=continuous_update, style=style),
             "ml_detection_path": widgets.Text(value='', placeholder='Path to the detection model file (*.pkl), e.g., ai_models/test.pkl.', description='Model path', disabled=False, layout={'width': '99%'}, style=style),
+            "ml_kp_geometry": widgets.Textarea(description='Keypoint geometry (mm)', value='', 
+            placeholder='# provide the geometry of each keypoint in the object frame \n' \
+            '{"object1":{"kp1":[0, 0, 0], "kp2":[0, 0, 0], "kp3":[0, 0, 0]}, "object2":{"kp1":[0, 0, 0], "kp2":[0, 0, 0], "kp3":[0, 0, 0]}}', 
+            disabled=False, rows=5, layout={'width': '99%'}, style=style),
 
             "init": widgets.Button( description='Initialize Parameters', disabled=False, tooltip='Initialize Parameters', button_style="success"), 
         }
         self.widget_input = {
-            "plane_label": widgets.Label(value="Choose three points on the oriented bounding box to define a hyperplane and determine the detected item's 6D pose.", layout={'width': '99%'}, style=style),
-            "plane_enb": widgets.Checkbox(value=False, description='Apply 6D pose', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
-            "plane_value": widgets.Text(value="[]", placeholder='[]', description='Plane', disabled=True, layout={'width': '99%'}, style=style),
-            
+            "pose_value": widgets.Dropdown(value=0, options=[('No pose', 0), ('Fit plane', 1), ('Keypoint', 2)], description='6D-pose method', continuous_update=continuous_update, style=style),
+            "pose_kp_thr" : widgets.IntSlider(value=5, min=0, max=10, step=1, description='Error threshold (pxl)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "pose_plane_value": widgets.Text(value="[]", placeholder='[]', description='Plane', disabled=True, layout={'width': '99%'}, style=style),
+
             "color_label": widgets.Label(value="Apply a color mask to filter specific colors by adjusting hue, saturation, and value. Fine-tune these settings to isolate the desired color range for better detection results.", layout={'width': '99%'}, style=style),
             "color_enb": widgets.Checkbox(value=False, description='Apply color mask', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "color_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
             "color_h": widgets.IntRangeSlider(value=[60, 120], min=0, max=179, step=1, description='Hue', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "color_s": widgets.IntRangeSlider(value=[85, 170], min=0, max=255, step=1, description='Saturation', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "color_v": widgets.IntRangeSlider(value=[85, 170], min=0, max=255, step=1, description='Vue', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
@@ -91,28 +100,57 @@ class default_widget(object):
 
             "roi_label": widgets.Label(value="Select the region of interest where the detection method is applied. Use the blue polygon selector on the output image to define this area.", layout={'width': '99%'}, style=style),
             "roi_enb": widgets.Checkbox(value=False, description='Apply ROI', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "roi_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
             "roi_value": widgets.Text(value='[]', placeholder='[]', description='ROI', disabled=True, layout={'width': '99%'}, style=style),
             "roi_offset" : widgets.IntSlider(value=0, min=-200, max=200, step=1, description='Offset', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
-
             "roi_inv": widgets.Checkbox(value=False, description='Invert region', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "roi_crop": widgets.Checkbox(value=False, description='Crop region', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
             "intensity_label": widgets.Label(value="Adjust brightness and contrast if necessary to enhance image details. Use the sliders for optimal visibility and improved detection results.", layout={'width': '99%'}, style=style),
-            "intensity_enb": widgets.Checkbox(value=False, description='Apply the intensity', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "intensity_enb": widgets.Checkbox(value=False, description='Apply intensity', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "intensuity_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
             "intensity_a" : widgets.FloatSlider(value=1, min=0, max=4, step=0.01, description='Contrast', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "intensity_b" : widgets.IntSlider(value=0, min=-255, max=255, step=1, description='Brightness', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
-            "2d_range_label": widgets.Label(value="Apply 2D constraints on the detected item's oriented bounding box aspect ratio and area to refine detection accuracy.", layout={'width': '99%'}, style=style),
-            "2d_range_enb": widgets.Checkbox(value=False, description='Apply 2D constraints', continuous_update=continuous_update,layout={'width': '99%'}, style=style),
-            "2d_range_aspect_ratio": widgets.FloatRangeSlider(value=[0, 1], min=0, max=1, step=0.01, description='Aspect ratio', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
-            "2d_range_area_range": widgets.IntRangeSlider(value=[0, 100000], min=0, max=100000, step=100, description='Area (pxl X pxl)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "bb_range_label": widgets.Label(value="Filter detected objects by their bounding box shape and size to improve detection results.", layout={'width': '99%'}, style=style),
+            "bb_range_enb": widgets.Checkbox(value=False, description='Apply bounding box limit', continuous_update=continuous_update,layout={'width': '99%'}, style=style),
+            "bb_range_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
+            "bb_range_aspect_ratio": widgets.FloatRangeSlider(value=[0, 1], min=0, max=1, step=0.01, description='Aspect ratio', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "bb_range_area": widgets.IntRangeSlider(value=[0, 100000], min=0, max=100000, step=100, description='Area (pxl X pxl)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+
+            "2d_range_label": widgets.Label(value="Filter detected objects by limiting their bounding box center to a specific area in the image.", layout={'width': '99%'}, style=style),
+            "2d_range_enb": widgets.Checkbox(value=False, description='Apply 2D limit', continuous_update=continuous_update,layout={'width': '99%'}, style=style),
+            "2d_range_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
+            "2d_range_w": widgets.IntRangeSlider(value=[100, 200], min=0, max=2000, step=1, description='Width (pxl)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "2d_range_h": widgets.IntRangeSlider(value=[100, 200], min=0, max=2000, step=1, description='Height (pxl)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "2d_range_inv": widgets.Checkbox(value=False, description='Invert the range', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
             "3d_range_label": widgets.Label(value="Apply 3D constraints to remove detected items outside the specified x, y, z range relative to the frame.", layout={'width': '99%'}, style=style),
-            "3d_range_enb": widgets.Checkbox(value=False, description='Apply 3D constraints', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "3d_range_enb": widgets.Checkbox(value=False, description='Apply 3D limit', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "3d_range_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
             "3d_range_x": widgets.IntRangeSlider(value=[250, 350], min=-1000, max=1000, step=1, description='x (mm)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "3d_range_y": widgets.IntRangeSlider(value=[0, 50], min=-1000, max=1000, step=1, description='y (mm)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "3d_range_z": widgets.IntRangeSlider(value=[0, 50], min=-1000, max=1000, step=1, description='z (mm)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "3d_range_inv": widgets.Checkbox(value=False, description='Invert the range', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+
+            "rvec_range_label": widgets.Label(value="Apply 3D constraints to remove detected items outside the specified x, y, z range relative to the frame.", layout={'width': '99%'}, style=style),
+            "rvec_range_enb": widgets.Checkbox(value=False, description='Apply 3D limit', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "rvec_range_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
+            "rvec_range_rvec_base" : widgets.Text(value="[0, 0, 0]", placeholder='', description='Base vector', disabled=False, layout={'width': '99%'}, style=style), 
+            "rvec_range_x_angle": widgets.IntRangeSlider(value=[0, 180], min=0, max=180, step=1, description='x angle (deg)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "rvec_range_y_angle": widgets.IntRangeSlider(value=[0, 180], min=0, max=180, step=1, description='y angle (deg)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "rvec_range_z_angle": widgets.IntRangeSlider(value=[0, 180], min=0, max=180, step=1, description='z angle (deg)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "rvec_range_inv": widgets.Checkbox(value=False, description='Invert the range', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+
+            "tvec_range_label": widgets.Label(value="Apply 3D constraints to remove detected items outside the specified x, y, z range relative to the frame.", layout={'width': '99%'}, style=style),
+            "tvec_range_enb": widgets.Checkbox(value=False, description='Apply 3D limit', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "tvec_range_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
+            "tvec_range_x": widgets.IntRangeSlider(value=[250, 350], min=-1000, max=1000, step=1, description='x (mm)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "tvec_range_y": widgets.IntRangeSlider(value=[0, 50], min=-1000, max=1000, step=1, description='y (mm)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "tvec_range_z": widgets.IntRangeSlider(value=[0, 50], min=-1000, max=1000, step=1, description='z (mm)', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "tvec_range_inv": widgets.Checkbox(value=False, description='Invert the range', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+
+
 
             "method_value": widgets.Dropdown(value=0, options=[('No detection', 0), ('Ellipse detection', 2), ('Polygon detection', 3), ('Contour detection', 4), ('Aruco detection', 5), ('Barcode reader', 6), ('OCR', 7)], description='Detection method', continuous_update=continuous_update, style=style),
 
@@ -158,15 +196,21 @@ class default_widget(object):
 
             "m_cls_conf" : widgets.FloatSlider(value=0.5, min=0.01, max=1, step=0.01, description='Confidence', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
 
+            "m_kp_conf" : widgets.FloatSlider(value=0.5, min=0.01, max=1, step=0.01, description='Confidence', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
+            "m_kp_cls" : widgets.Text(value="", placeholder='', description='Detection classes', disabled=False, layout={'width': '99%'}, style=style), 
+
             "output_label": widgets.Label(value="Choose the maximum number of elements to detect per inference round, enable data shuffling if desired, and save the inference image.", layout={'width': '99%'}, style=style),
             "output_enb": widgets.Checkbox(value=False, description='Apply formatting', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
-            "output_display_label": widgets.Checkbox(value=True, description='Display the labels', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
-            "output_max_det" : widgets.IntSlider(value=1, min=1, max=100, step=1, description='Max detections per run', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
+            "output_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
+            #"output_display_label": widgets.Checkbox(value=True, description='Display the labels', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "output_display": widgets.Dropdown(value=0, description='Display Options', options=[('None', -1), ('BB only', 0), ('BB & Label', 1)], continuous_update=continuous_update, style=style),
+            "output_max_det" : widgets.IntSlider(value=1, min=100, max=200, step=1, description='Max detections per run', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
             "output_shuffle": widgets.Checkbox(value=True, description='Shuffle return data', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "output_save": widgets.Checkbox(value=False, description='Save the annotated image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
-            "output_save_roi": widgets.Checkbox(value=False, description='Save the ROI image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
+            "output_save_roi": widgets.Checkbox(value=False, description='Save the unannotated ROI image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
         }
+        
         self.widget_trigger = {
             "color_picker": widgets.ColorPicker(concise=False, description='Color picker', value='blue', disabled=False, style={'text_width': '0'}),
             "color_hsv": widgets.Text(value='Hue = 119, Saturation = 255, Value = 255', placeholder='', description='', disabled=True,),            
@@ -203,7 +247,7 @@ class Detection_app(object):
     """docstring for App"""
     def __init__(self, **kwargs):
         super(Detection_app, self).__init__()
-        self.retval ={}
+        self.retval =[]
         self.config = {}
 
         """widgets"""
@@ -248,9 +292,10 @@ class Detection_app(object):
             self.plane_plt_maker()
             plt.show()  
             # init plane
-            self.plane_value = poly_select(self.widget_in["plane_value"])
+            self.plane_value = poly_select(self.widget_in["pose_plane_value"])
             # Initialize plane selector
             self.plane_selector = PolygonSelector(self.plt["plane"]["ax"], onselect=self.plane_value.onselect, useblit=True, props=dict(color='orange', linestyle='--'))
+        self.plt_plane.layout.visibility = "hidden"
 
         # calibration plot
         self.plt_clb = widgets.Output(layout=widgets.Layout(flex="1 1 auto"))
@@ -307,6 +352,7 @@ class Detection_app(object):
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_ocr_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_od_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_cls_')]]),
+            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('m_kp_')]]),
         ], layout={'width': '100%'})        
 
         """accordion for settings"""
@@ -315,6 +361,7 @@ class Detection_app(object):
 
         acc_helper.children = [
             widgets.VBox([self.widget_helper[k] for k in [key for key in self.widget_helper.keys() if key.startswith('xyz_')]]),
+            widgets.VBox([self.widget_helper[k] for k in [key for key in self.widget_helper.keys() if key.startswith('pixel_')]]),
             widgets.VBox([
                 self.widget_helper["clb_label"],
                 widgets.HBox([
@@ -338,20 +385,31 @@ class Detection_app(object):
             ]),  
       ]
 
-        for i, title in enumerate(["Pixel to XYZ", "Eye-in-Hand Calibration"]):
+        for i, title in enumerate(["Pixel to XYZ", "XYZ to Pixel", "Eye-in-Hand Calibration"]):
             acc_helper.set_title(i, title)  
+
+        """6d-pose vbox"""
+        pose_vbox = widgets.VBox([
+            self.widget_in["pose_value"],
+            widgets.VBox([widgets.HTML("<hr>")]),
+            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('pose_kp_')]]),
+            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('pose_plane_')]]),
+        ], layout={'width': '100%'})        
 
         """accordion for settings"""
         # acc setting
         acc_setting = widgets.Accordion()
         acc_setting.children = [
+            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('bb_range_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('2d_range_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('3d_range_')]]),
-            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('plane_')]]+ [self.plt_plane]),
+            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('rvec_range_')]]),
+            widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('tvec_range_')]]),
+            widgets.HBox([pose_vbox, self.plt_plane]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('output_')]]),
         ]
 
-        for i, title in enumerate(["2D Limit ", "3D Limit", "6D Pose", "Output Format"]):
+        for i, title in enumerate(["Bounding Box Limits", "Center Pixel Limits", "XYZ Limits", "Rotation Vector Limits", "Translation Vector Limits", "6D Pose Estimate", "Output Format"]):
             acc_setting.set_title(i, title)    
 
 
@@ -407,6 +465,9 @@ class Detection_app(object):
         # interactive for ip
         interactive(self.hide_show_ip, source_value=self.widget_init["camera_setup_type"])
 
+        # interactive for ml model
+        interactive(self.hide_show_model, ml_detection_type=self.widget_init["ml_detection_type"])
+
         # interactive color_picker
         self.widget_tr["color_picker"].observe(self.hex_to_hsv, names='value')
         
@@ -424,6 +485,10 @@ class Detection_app(object):
 
         # pixel to xyz
         self.widget_helper["xyz_convert"].on_click(self.pixel_to_xyz)
+
+        # xyz to pixel
+        self.widget_helper["pixel_convert"].on_click(self.xyz_to_pixel)
+
 
         # calibrate
         self.widget_helper["clb_capture_b"].on_click(self.clb_capture_image)
@@ -482,7 +547,7 @@ class Detection_app(object):
                         }
         
             except Exception as ex:
-                print(ex)
+                pass
         
         # frame
         try:
@@ -499,7 +564,6 @@ class Detection_app(object):
             if camera.connect():
                 camera_connected = True
         except Exception as ex:
-            print(ex)
             pass
         
         # calobrate
@@ -524,9 +588,17 @@ class Detection_app(object):
             elif self.widget_init["ml_detection_type"].value == 1:
                 self.d.init_cls(ml_detection_path) 
                 self.widget_in["method_value"].options = list(self.widget_in["method_value"].options) + [("Image classification", 9)]
+            elif self.widget_init["ml_detection_type"].value == 2:
+                self.d.init_kp(ml_detection_path) 
+                self.widget_in["method_value"].options = list(self.widget_in["method_value"].options) + [("Keypoint detection", 10)]
+
 
         # hide element in method
         for k in [key for key in self.widget_in.keys() if key.startswith('m_')]:
+            self.widget_in[k].layout.display = 'none'
+
+        # hide element in pose
+        for k in [key for key in self.widget_in.keys() if key.startswith('pose_plane') or key.startswith('pose_kp')]:
             self.widget_in[k].layout.display = 'none'
 
         # enable capture image
@@ -659,10 +731,14 @@ class Detection_app(object):
 
 
     def pixel_to_xyz(self, b):
-        width = self.widget_helper["xyz_width"].value
-        height = self.widget_helper["xyz_height"].value
-        xyz = self.d.pixel_to_xyz([width, height])
+        pxl = ast.literal_eval(self.widget_helper["xyz_pxl"].value)
+        xyz = self.d.pixel_to_xyz(pxl)
         self.widget_helper["xyz_xyz"].value = f"[{', '.join(f'{value:.1f}' for value in xyz)}]"
+
+    def xyz_to_pixel(self, b):
+        xyz = ast.literal_eval(self.widget_helper["pixel_xyz"].value)
+        pxl = self.d.xyz_to_pixel(xyz)
+        self.widget_helper["pixel_pxl"].value = f"[{', '.join(f'{value:.1f}' for value in pxl)}]"
 
 
     def capture_camera_data(self, b):
@@ -709,6 +785,12 @@ class Detection_app(object):
             self.widget_init["camera_clb_T"].layout.display = "none"
             self.widget_init["camera_clb_ej"].layout.display = "none"
 
+    def hide_show_model(self, **kwargs):
+        if kwargs["ml_detection_type"] == 2:
+            self.widget_init["ml_kp_geometry"].layout.display = "flex"
+        else:
+            self.widget_init["ml_kp_geometry"].layout.display = "none"
+
 
     def plane_plt_maker(self):
         # create
@@ -716,6 +798,8 @@ class Detection_app(object):
         #fig.suptitle("Select 3 points of interest")
         self.plt["plane"]["fig"].canvas.header_visible = False
         self.plt["plane"]["fig"].tight_layout()
+        self.plt["plane"]["fig"].set_size_inches((4.5, 2.5), forward=True)
+        self.plt["plane"]["ax"].axis('off')
         
         # Set the height and calculate the width based on the golden ratio
         height = 1.0
@@ -843,38 +927,79 @@ detection.close()
                 elif kwargs["method_value"] == 7:
                     prm["detection"] = {"cmd":"ocr", "conf": kwargs["m_ocr_conf"]}
                 elif kwargs["method_value"] == 8:
-                    cls_name =  [item.strip() for item in kwargs["m_od_cls"].split(',') if item.strip()]
+                    try:
+                        cls_name =  ast.literal_eval(kwargs["m_od_cls"])
+                    except:
+                        cls_name = []
                     prm["detection"] = {"cmd":"od", "path": self.widget_init["ml_detection_path"].value, "conf": kwargs["m_od_conf"], "cls": cls_name}   
                 elif kwargs["method_value"] == 9:
                     prm["detection"] = {"cmd":"cls", "path": self.widget_init["ml_detection_path"].value, "conf": kwargs["m_cls_conf"]}   
+                elif kwargs["method_value"] == 10:
+                    try:
+                        cls_name =  ast.literal_eval(kwargs["m_kp_cls"])
+                    except:
+                        cls_name = {}
+                    prm["detection"] = {"cmd":"kp", "path": self.widget_init["ml_detection_path"].value, "conf": kwargs["m_kp_conf"], "cls": cls_name}   
                 _prm["detection"] = prm["detection"]
 
             #limit
-            prm["limit"] = {"area":[], "aspect_ratio":[], "xyz":[], "inv":0}
-            if kwargs["2d_range_enb"]:
-                prm["limit"]["aspect_ratio"] = list(kwargs["2d_range_aspect_ratio"])
-                prm["limit"]["area"] = list(kwargs["2d_range_area_range"])
+            prm["limit"] = {}
+            if kwargs["bb_range_enb"]: # bb
+                prm["limit"]["bb"] = {}
+                prm["limit"]["bb"]["aspect_ratio"] = list(kwargs["bb_range_aspect_ratio"])
+                prm["limit"]["bb"] ["area"] = list(kwargs["bb_range_area"])
+            if kwargs["2d_range_enb"]: # center
+                prm["limit"]["center"] = {}
+                prm["limit"]["center"]["width"] = list(kwargs["2d_range_w"])
+                prm["limit"]["center"]["height"] = list(kwargs["2d_range_h"])
+                prm["limit"]["center"]["inv"] = int(kwargs["2d_range_inv"])
+            if kwargs["3d_range_enb"]: # xyz
+                prm["limit"]["xyz"] = {}
+                prm["limit"]["xyz"]["x"] = list(kwargs["3d_range_x"])
+                prm["limit"]["xyz"]["y"] = list(kwargs["3d_range_y"])
+                prm["limit"]["xyz"]["z"] = list(kwargs["3d_range_z"])
+                prm["limit"]["xyz"]["inv"] = int(kwargs["3d_range_inv"])
+            if kwargs["tvec_range_enb"]: # tvec
+                prm["limit"]["tvec"] = {}
+                prm["limit"]["tvec"]["x"] = list(kwargs["tvec_range_x"])
+                prm["limit"]["tvec"]["y"] = list(kwargs["tvec_range_y"])
+                prm["limit"]["tvec"]["z"] = list(kwargs["tvec_range_z"])
+                prm["limit"]["tvec"]["inv"] = int(kwargs["tvec_range_inv"])
+            if kwargs["rvec_range_enb"]: # rvec
+                prm["limit"]["rvec"] = {}
+                prm["limit"]["rvec"]["rvec_base"] = ast.literal_eval(kwargs["rvec_range_rvec_base"])
+                prm["limit"]["rvec"]["x_angle"] = list(kwargs["rvec_range_x_angle"])
+                prm["limit"]["rvec"]["y_angle"] = list(kwargs["rvec_range_y_angle"])
+                prm["limit"]["rvec"]["z_angle"] = list(kwargs["rvec_range_z_angle"])
+                prm["limit"]["rvec"]["inv"] = int(kwargs["rvec_range_inv"])
+            if prm["limit"]:
                 _prm["limit"] = prm["limit"]
-            if kwargs["3d_range_enb"]:
-                prm["limit"]["xyz"] = [list(kwargs["3d_range_x"]), list(kwargs["3d_range_y"]),list( kwargs["3d_range_z"])]
-                if kwargs["3d_range_inv"]:
-                    prm["limit"]["inv"] = 1
-                _prm["limit"] = prm["limit"]
-            
-            # plane
-            prm["plane"] = []
-            if kwargs["plane_enb"]:
-                prm["plane"] = ast.literal_eval(kwargs["plane_value"])
-                _prm["plane"] = prm["plane"]
+
+            # pose
+            prm["pose"] = {}
+            if kwargs["pose_value"]:
+                if kwargs["pose_value"] == 1: # plane
+                    try:
+                        plane_value = ast.literal_eval(kwargs["pose_plane_value"])
+                    except:
+                        plane_value = []
+                    prm["pose"] = {"cmd":"plane", "plane": plane_value}
+                elif kwargs["pose_value"] == 2: #keypoint
+                    try:
+                        kp_value = ast.literal_eval(self.widget_init["ml_kp_geometry"].value)
+                    except:
+                        kp_value = {}
+                    prm["pose"] = {"cmd":"kp", "kp": kp_value, "thr": kwargs["pose_kp_thr"]}
+                _prm["pose"] = prm["pose"]
             
             # output
-            prm["output"] = {"max_det": 1, "shuffle": 1, "save_img": 0, "save_img_roi": 0, "label": 1}
+            prm["output"] = {"shuffle": 1, "max_det":100, "save_img":0, "save_img_roi":0, "display":0}
             if kwargs["output_enb"]:
-                prm["output"] = { "max_det": kwargs["output_max_det"], "shuffle": kwargs["output_shuffle"], "save_img": kwargs["output_save"], "save_img_roi": kwargs["output_save_roi"], "label": kwargs["output_display_label"]}
+                prm["output"] = { "max_det": kwargs["output_max_det"], "shuffle": kwargs["output_shuffle"], "save_img": kwargs["output_save"], "save_img_roi": kwargs["output_save_roi"], "display": kwargs["output_display"]}
                 _prm["output"] = prm["output"]
 
             """hide and show inputs"""
-            show_key = [[key for key in self.widget_in.keys() if key.startswith(term)] for term in ["m_nothing", "m_line", "m_elp", "m_poly", "m_cnt", "m_aruco", "m_barcode", "m_ocr", "m_od", "m_cls"]][kwargs["method_value"]]
+            show_key = [[key for key in self.widget_in.keys() if key.startswith(term)] for term in ["m_nothing", "m_line", "m_elp", "m_poly", "m_cnt", "m_aruco", "m_barcode", "m_ocr", "m_od", "m_cls", "m_kp"]][kwargs["method_value"]]
             hide_key = [key for key in self.widget_in.keys() if key.startswith('m_') and key not in show_key] 
             for k in show_key:
                 if self.widget_in[k].layout.display != "flex":
@@ -882,8 +1007,24 @@ detection.close()
             for k in hide_key:
                 if self.widget_in[k].layout.display != "none":
                     self.widget_in[k].layout.display = "none"
-            self.hide_key = hide_key
-            self.show_key = show_key
+
+            """hide and show pose"""
+            show_key = [[key for key in self.widget_in.keys() if key.startswith(term)] for term in ["pose_nothing", "pose_plane", "pose_kp"]][kwargs["pose_value"]]
+            hide_key = [key for key in self.widget_in.keys() if (key.startswith('pose_plane') or key.startswith('pose_kp')) and key not in show_key] 
+            for k in show_key:
+                if self.widget_in[k].layout.display != "flex":
+                    self.widget_in[k].layout.display = "flex"
+            for k in hide_key:
+                if self.widget_in[k].layout.display != "none":
+                    self.widget_in[k].layout.display = "none"
+
+            # display thr
+            if kwargs["pose_value"] in [1]: # polygon and contour
+                self.plt_plane.layout.visibility = "visible"
+
+            else:      
+                self.plt_plane.layout.visibility = "hidden"
+
 
             # run pattern detection
             self.prm = prm
@@ -926,5 +1067,4 @@ detection.close()
 
 
         except Exception as ex:
-            print(ex)
             pass

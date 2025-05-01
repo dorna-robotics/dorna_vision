@@ -8,6 +8,8 @@ from openvino import Core
 from types import SimpleNamespace
 import cv2
 import math
+from dorna_vision.visual import *
+from dorna_vision.util import *
 
 def letterbox_image(image, target_size=(640, 640), pad_color=(128, 128, 128)):
     """
@@ -45,11 +47,60 @@ def hex_to_bgr(hex_color):
     # Reverse tuple to convert to BGR
     return rgb[::-1]
 
-class OD(object):
-    def __init__(self, path, device_name="CPU", **kwargs):
+class KP(object):
+    def __init__(self, path=None, device_name="CPU", **kwargs): 
         # load the bin and param
         with open(path, 'rb') as file:
             data = pickle.load(file)
+        
+        self.detection = {
+            "od": OD(path=None, device_name=device_name, data={"bin":data["bin"], "xml":data["xml"], "cls":data["cls"], "colors":data["colors"], "meta":data["meta"]}),
+            "kp":{k: OD(path=None, device_name=device_name, data=data["kp"][k]) for k in data["kp"]},
+        }
+
+    
+
+    def od(self, img, conf=0.5, cls=[], **kwargs):
+        return self.detection["od"](img, conf=conf, cls=cls, **kwargs)
+
+
+    def kp(self, img, label, bb, offset=20,conf=0.5, cls=[], **kwargs):
+        retval = []
+
+        roi = ROI(img, corners=bb, crop=True, offset=offset) 
+        
+        # list of valid keypoints
+        valid_cls = list(self.detection["kp"][label].cls)
+        if not cls:
+            valid_cls = [c for c in cls if c in valid_cls]
+
+        # detection
+        retval = self.detection["kp"][label](roi.img, conf=conf, cls=valid_cls)
+
+        # format
+        for r in retval:
+            r.center = roi.pxl_to_orig([r.rect.x+r.rect.w/2, r.rect.y+r.rect.h/2])
+
+        # return
+        return retval
+
+    def __del__(self):
+        # del od
+        self.detection["od"].__del__()
+
+        # del kp
+        for k in self.detection["kp"]:
+            self.detection["kp"][k].__del__()
+        
+
+class OD(object):
+    def __init__(self, path=None, device_name="CPU", **kwargs):
+        # load the bin and param
+        if path is not None:
+            with open(path, 'rb') as file:
+                data = pickle.load(file)
+        else:
+            data = kwargs["data"]
              
         # classes
         self.cls = data["cls"]

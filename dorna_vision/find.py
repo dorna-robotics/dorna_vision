@@ -9,7 +9,7 @@ def barcode(img, **kwargs):
     # format, text, corners, center
     retval = []
     try:
-        if "format" in kwargs and kwargs["format"] is not "Any":
+        if "format" in kwargs and kwargs["format"] != "Any":
             barcodes = zxingcpp.read_barcodes(img, getattr(zxingcpp.BarcodeFormat, kwargs["format"]))
         else:
             barcodes = zxingcpp.read_barcodes(img)

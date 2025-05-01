@@ -70,8 +70,15 @@ def draw_circle(img, circles, color=(255, 0, 255), thickness=1):
         cv.circle(img, (circle[0], circle[1]), circle[2], color, thickness)
 
 
-def draw_point(img, pxl, radius=1, color=(153,255,255), thickness=3):
-    cv.circle(img, (int(pxl[0]), int(pxl[1])), radius, color, thickness)
+def draw_point(img, pxl, label, radius=3, color=(153, 255, 255), thickness=3, font_scale=0.5, text_offset=(5, -5)):
+    print(pxl, label)
+    # Draw circle
+    center = (int(pxl[0]), int(pxl[1]))
+    cv.circle(img, center, radius, color, thickness)
+
+    # Draw label text near the point
+    text_pos = (center[0] + text_offset[0], center[1] + text_offset[1])
+    cv.putText(img, str(label), text_pos, cv.FONT_HERSHEY_SIMPLEX, font_scale, color, 1, cv.LINE_AA)
 
 
 # draw oriented bounding box
@@ -133,25 +140,11 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0), thickness=1, label=T
 """
 draw 3d_axis
 """
-def draw_3d_axis(img, center, X, Y, Z, camera_matrix, dist_coeffs, length=10, thickness=2, draw=True):
-    #Perform projection
-    p_list = np.array([center, center+ X*length, center+Y*length,center+Z*length])
 
-    res_list, _ =  cv.projectPoints(p_list, np.zeros((3, 1)), np.zeros((3, 1)), camera_matrix, dist_coeffs)
 
-    try:    
-        pc = (int(res_list[0][0][0]), int(res_list[0][0][1]))
-        px = (int(res_list[1][0][0]), int(res_list[1][0][1]))
-        py = (int(res_list[2][0][0]), int(res_list[2][0][1]))
-        pz = (int(res_list[3][0][0]), int(res_list[3][0][1]))
-        if draw:
-            # draw
-            cv.line(img, pz, pc, (255, 0, 0), thickness=thickness)
-            cv.line(img, px, pc, (0, 0, 255), thickness=thickness)
-            cv.line(img, py, pc, (0, 255, 0), thickness=thickness)
 
-        return [pc, px, py, pz]
-    except:
-        pass
-
-    return None
+def draw_3d_axis(img, rvec, tvec, camera_matrix, dist_coeffs, length=10, thickness=2, draw=True):
+    img = cv.drawFrameAxes(img, camera_matrix,
+        dist_coeffs, np.radians(rvec).astype(np.float32).reshape(3, 1),
+        np.array(tvec, dtype=np.float32).reshape(3, 1), 
+        length)
