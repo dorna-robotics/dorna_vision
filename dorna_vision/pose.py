@@ -90,7 +90,6 @@ class PNP(object):
 
             # Compute reprojection error
             err = self.reprojection_error(obj_pts, img_pts, rvec, tvec, camera_matrix, dist_coeffs)
-            print("err:", err)
             # Save best result under threshold
             if err < min(thr, best_error):
                 R, _ = cv2.Rodrigues(rvec)

@@ -204,7 +204,7 @@ class default_widget(object):
             "output_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style),
             #"output_display_label": widgets.Checkbox(value=True, description='Display the labels', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "output_display": widgets.Dropdown(value=0, description='Display Options', options=[('None', -1), ('BB only', 0), ('BB & Label', 1)], continuous_update=continuous_update, style=style),
-            "output_max_det" : widgets.IntSlider(value=1, min=100, max=200, step=1, description='Max detections per run', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
+            "output_max_det" : widgets.IntSlider(value=1, min=1, max=200, step=1, description='Max detections per run', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
             "output_shuffle": widgets.Checkbox(value=True, description='Shuffle return data', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "output_save": widgets.Checkbox(value=False, description='Save the annotated image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "output_save_roi": widgets.Checkbox(value=False, description='Save the unannotated ROI image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),

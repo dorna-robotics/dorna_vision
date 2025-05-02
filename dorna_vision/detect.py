@@ -373,7 +373,7 @@ class Detection(object):
                         continue
 
                 # draw bb
-                if "cmd" in self.detection and self.detection["cmd"] != "aruco" and self.output["display"]>=0:
+                if "cmd" in self.detection and self.detection["cmd"] != "aruco" and "display" in self.output and self.output["display"]>=0:
                     color_label = (0,255,0)
                     if "color" in r:
                         color_label = r["color"]
@@ -403,7 +403,7 @@ class Detection(object):
                     kp_pxl = [[k["cls"], k["center"]] for k in r["kp"]]
 
                 # draw kp
-                if kp_pxl and self.output["display"]>=0:
+                if kp_pxl and "display" in self.output and self.output["display"]>=0:
                     # draw template
                     for pxl in kp_pxl:
                         draw_point(img_adjust, pxl[1], pxl[0])
@@ -414,15 +414,15 @@ class Detection(object):
                     # assign xyz
                     r["xyz"] = self.xyz(r["center"])
 
-                    # xyz limit
-                    if "xyz" in self.limit:
-                        if not Valid().xyz(r["xyz"], **self.limit["xyz"]):
-                            continue
-
                     # assign xyz for kps
                     if "kp" in r:
                         for i in range(len(r["kp"])):
                             r["kp"][i]["xyz"] = self.xyz(r["kp"][i]["center"])
+
+                # xyz limit
+                if "xyz" in self.limit:
+                    if "xyz" not in r or not Valid().xyz(r["xyz"], **self.limit["xyz"]):
+                        continue
 
                 # plane: rvec, tvec
                 if "cmd" in self.detection and self.detection["cmd"] != "aruco" and "cmd" in self.pose and self.pose["cmd"] == "plane" and "plane" in self.pose and len(self.pose["plane"]) > 2 and camera_data["depth_frame"] is not None:
@@ -439,25 +439,24 @@ class Detection(object):
                     if "thr" in self.pose:
                         pose_kp_prm["thr"] = self.pose["thr"]
                     pose_result = PNP().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], kinematic=self.kinematic, camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]), frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
-                    print("pose_result: ", pose_result) 
                     if not pose_result:
                         continue
                     r["rvec"] = pose_result[0]
                     r["tvec"] = pose_result[1]
 
                 # draw rvec
-                if pose_result and self.output["display"]>=0:
+                if pose_result and "display" in self.output and self.output["display"]>=0:
                     # draw template
                     draw_3d_axis(img_adjust, rvec=pose_result[2], tvec=pose_result[3], camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]))                
 
                 # rvec valid
-                if "rvec" in r and "rvec" in self.limit:
-                    if not Valid().rvec(r["rvec"], **self.limit["rvec"]):
+                if "rvec" in self.limit:
+                    if "rvec" not in r or not Valid().rvec(r["rvec"], **self.limit["rvec"]):
                         continue
 
                 # tvec valid
-                if "tvec" in r and "tvec" in self.limit:
-                    if not Valid().tvec(r["tvec"], **self.limit["tvec"]):
+                if "tvec" in self.limit:
+                    if "tvec" not in r or not Valid().tvec(r["tvec"], **self.limit["tvec"]):
                         continue
 
                 # append
