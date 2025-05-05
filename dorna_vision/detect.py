@@ -5,6 +5,7 @@ from dorna_vision.util import *
 from dorna_vision.draw import *
 from dorna_vision.pose import *
 from dorna_vision.limit import *
+from dorna_vision.sort import *
 
 import time
 import cv2 as cv
@@ -27,7 +28,7 @@ class Detection(object):
             intensity={"a":1.0, "b":0},
             color={"low_hsv":[0, 0, 0], "high_hsv":[255, 255, 255], "inv":0},
             roi={"corners": [], "inv": 0, "crop": 0},
-            detection={"cmd":None},
+            detection={},
             limit = {#"area":[], "aspect_ratio":[], "inv":0,
                      #"xyz":{"x":[], "y":[], "z":[], "inv":0}, 
                      #"bb":{"area":[], "aspect_ratio":[], "inv":0},
@@ -35,9 +36,9 @@ class Detection(object):
                      #"rvec":{"rvec_base":[], "x_angle":[], "y_angle":[], "z_angle":[], "inv":0}, 
                      #"tvec":{"x": [], "y": [], "z": [], "inv":0}
                      },
-            plane = [],
             pose = {}, # {"cmd":"kp", "kp":{"plate": {"o":[0, 0, 0], ...}}}
-            output={"shuffle": 1, "max_det":100, "save_img":0, "save_img_roi":0, "display":0},
+            sort={"cmd": None, "max_det":100}, # {"cmd":"conf", "ascending":False, "max_det":100}, {"cmd":"pxl", "pxl":[w,h], "ascending":True, "max_det":100}, {"cmd":"xyz", "xyz":[x,y,z], "ascending":True, "max_det":100}
+            display={"label":0, "save_img":0, "save_img_roi":0},
             **kwargs
         ):
         super(Detection, self).__init__()
@@ -55,7 +56,8 @@ class Detection(object):
         self.detection = detection
         self.limit = limit
         self.pose = pose
-        self.output = output
+        self.sort = sort
+        self.display = display
         self.kwargs = kwargs
 
         # retval
@@ -341,9 +343,16 @@ class Detection(object):
             for i in range(len(retval)):
                 retval[i]["id"] = i
 
-            # shuffle
-            if "shuffle" in self.output and self.output["shuffle"]:
-                random.shuffle(retval)
+            # sort
+            if "cmd" in self.sort:
+                if self.sort["cmd"] == "shuffle":
+                    retval = Sort().shuffle(retval)
+                elif self.sort["cmd"] == "conf":
+                    retval = Sort().conf(retval, ascending=self.sort["ascending"])
+                elif self.sort["cmd"] == "pxl":
+                    retval = Sort().pixel(retval, pxl=self.sort["pxl"], ascending=self.sort["ascending"])
+                elif self.sort["cmd"] == "area":
+                    retval = Sort().area(retval, ascending=self.sort["ascending"])
 
             # ej
             if "ej" in self.camera_mount:
@@ -354,9 +363,11 @@ class Detection(object):
             self.retval["all"] = list(retval)
             
             # valid
+            if self.sort["max_det"] <= 0:
+                self.sort["max_det"] = len(retval)
             for r in retval:
                 # max det
-                if len(self.retval["valid"]) >= self.output["max_det"]:
+                if len(self.retval["valid"]) >= self.sort["max_det"]:
                     break
                 
                 # init
@@ -374,11 +385,11 @@ class Detection(object):
                         continue
 
                 # draw bb
-                if "cmd" in self.detection and self.detection["cmd"] != "aruco" and "display" in self.output and self.output["display"]>=0:
+                if "cmd" in self.detection and self.detection["cmd"] != "aruco" and "label" in self.display and self.display["label"]>=0:
                     color_label = (0,255,0)
                     if "color" in r:
                         color_label = r["color"]
-                    draw_corners(img_adjust, r["cls"], r["conf"], r["corners"], color=color_label, label=self.output["display"])
+                    draw_corners(img_adjust, r["cls"], r["conf"], r["corners"], color=color_label, label=self.display["label"])
 
                 # find keypoints
                 if "cmd" in self.detection and self.detection["cmd"] == "kp":
@@ -404,7 +415,7 @@ class Detection(object):
                     kp_pxl = [[k["cls"], k["center"]] for k in r["kp"]]
 
                 # draw kp
-                if kp_pxl and "display" in self.output and self.output["display"]>=0:
+                if kp_pxl and "label" in self.display and self.display["label"]>=0:
                     # draw template
                     for pxl in kp_pxl:
                         draw_point(img_adjust, pxl[1], pxl[0])
@@ -446,7 +457,7 @@ class Detection(object):
                     r["tvec"] = pose_result[1]
 
                 # draw rvec
-                if pose_result and "display" in self.output and self.output["display"]>=0:
+                if pose_result and "label" in self.display and self.display["label"]>=0:
                     # draw template
                     draw_3d_axis(img_adjust, rvec=pose_result[2], tvec=pose_result[3], camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]))                
 
@@ -465,7 +476,7 @@ class Detection(object):
 
             
             # save image
-            if "save_img" in self.output and self.output["save_img"]:
+            if "save_img" in self.display and self.display["save_img"]:
                 # make directory if not exists
                 os.makedirs("output", exist_ok=True)
                 # Create a thread to perform the file write operation
@@ -474,7 +485,7 @@ class Detection(object):
                 self.thread_list.append(thread)
 
             # save image
-            if "save_img_roi" in self.output and self.output["save_img_roi"]:
+            if "save_img_roi" in self.display and self.display["save_img_roi"]:
                 # make directory if not exists
                 os.makedirs("output", exist_ok=True)
                 # Create a thread to perform the file write operation
