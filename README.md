@@ -537,7 +537,7 @@ The `retval` is a list of dictionaries, where each dictionary contains the detai
 - `conf`: A confidence score showing how sure the algorithm is about the detection. This is mainly relevant for AI/ML-based methods, not used for classical detection methods (like ellipses or polygons).
 - `center` and `corners`: Geometrical coordinates of the object’s bounding box expressed in pixels. Coordinates start from the top-left corner of the image.
 - `xyz`: The 3D position (in space) of the detected object, calculated based on the center pixel. 
-- `tvec` and `rvec`: The translation (`x, y, z`) and rotation (`a, b, c`) values representing the object's 6D pose.
+- `tvec` and `rvec`: The translation `[x, y, z]` and rotation (axis-angle rotation vector in degrees) `[a, b, c]` values representing the object's 6D pose.
 - `color`: The color of the object’s bounding box, given in BGR (Blue, Green, Red) format.
 
 ## Helper Functions 

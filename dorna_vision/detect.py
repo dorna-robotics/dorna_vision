@@ -12,7 +12,6 @@ import cv2 as cv
 import os
 import threading
 import numpy as np
-import random
 
 from dorna2 import Kinematic
 
@@ -61,7 +60,7 @@ class Detection(object):
         self.kwargs = kwargs
 
         # retval
-        self.retval = {"all":[], "valid":[]}
+        self.retval = self.init_retval()
 
         # thread list
         self.thread_list = []
@@ -225,9 +224,13 @@ class Detection(object):
         return self.xyz_to_pixel(xyz)
 
 
+    def init_retval(self):
+        return {"all":[], "valid":[], "camera_data": None, "frame_mat_inv": None}
+
+
     def run(self, data=None, **kwargs):
         # return
-        self.retval = {"all":[], "valid":[]}
+        self.retval = self.init_retval()
         retval = []
         try:
             # assign the new value
@@ -496,6 +499,12 @@ class Detection(object):
 
             # img
             self.img = img_adjust
+
+            # retval
+            self.retval["camera_data"] = camera_data
+            self.retval["camera_data"]["img"] = img_adjust.copy()
+            self.retval["camera_data"]["img_roi"] = img_roi.copy()
+            self.retval["frame_mat_inv"] = self.frame_mat_inv.copy()
         except Exception as ex:
             print("Exception: ", ex)    
         
