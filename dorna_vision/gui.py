@@ -14,6 +14,7 @@ import ast
 import pickle as pkl
 import itertools
 import random
+from datetime import datetime
 
 from camera import Camera
 from dorna2 import Dorna
@@ -1088,10 +1089,29 @@ detection.close()
             else:      
                 self.plt_method.layout.visibility = "hidden"
 
+            # remove old text when updating
+            for txt in self.plt["out"]["ax"].texts:
+                txt.remove()
+
             # Update the existing plot
             self.plt["out"]["img"].set_data(cv.cvtColor(self.d.img, cv.COLOR_BGR2RGB))
-            self.plt["out"]["fig"].canvas.draw_idle() 
             
+            # Update the existing plot with the timestamped image
+            ts = self.d.retval["camera_data"]["timestamp"]
+            dt = datetime.fromtimestamp(ts)
+            caption = f'Img captured at: {dt.strftime("%Y-%m-%d %H:%M:%S")}'
+            
+            #draw the caption on top of the image
+            self.plt["out"]["ax"].text(
+                0.5, 1.05, caption,
+                transform=self.plt["out"]["ax"].transAxes,
+                ha="center", va="bottom",
+                clip_on=False, 
+                color="black",
+                fontsize=9,
+            )
+            self.plt["out"]["fig"].canvas.draw_idle() 
+
             # type retval
             self.retval = retval
             json_str = json.dumps(retval)
