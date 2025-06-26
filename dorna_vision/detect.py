@@ -325,9 +325,14 @@ class Detection(object):
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r.cls, "conf": r.prob, "center": _roi.pxl_to_orig([r.rect.x+r.rect.w/2, r.rect.y+r.rect.h/2]), 
                     "corners": [_roi.pxl_to_orig(pxl) for pxl in [[r.rect.x, r.rect.y], [r.rect.x+r.rect.w, r.rect.y], [r.rect.x+r.rect.w, r.rect.y+r.rect.h], [r.rect.x, r.rect.y+r.rect.h]]],"color": r.color} for r in result]
                 elif self.detection["cmd"] == "cls":
+                    roi_height, roi_width = img_roi.shape[0:2]
+
                     result = self.cls(img_roi, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r[0], "conf": r[1], "center": [int(width/2), int(height/2)], 
-                    "corners": [[min(20,width-1), min(20,height-1)], [max(0,width-21), min(20,height-1)], [max(0,width-21), max(0,height-21)], [min(20,width-1), max(0,height-21)]],"color": r[2]} for r in result]
+                    "corners": [_roi.pxl_to_orig([min(20,roi_width-1), min(20,roi_height-1)]), 
+                                _roi.pxl_to_orig([max(0,roi_width-21), min(20,roi_height-1)]), 
+                                _roi.pxl_to_orig([max(0,roi_width-21), max(0,roi_height-21)]), 
+                                _roi.pxl_to_orig([min(20,roi_width-1), max(0,roi_height-21)])],"color": r[2]} for r in result]
                 elif self.detection["cmd"] == "kp":
                     # kp parameters
                     kp_prm={}
@@ -407,7 +412,7 @@ class Detection(object):
                         kp_prm["cls"] = self.detection["cls"][r["cls"]]
                     
                     # run
-                    kps = self.kp.kp(img_roi, label=r["cls"], bb=r["corners"], **kp_prm)
+                    kps = self.kp.kp(img_roi, label=r["cls"], bb=[_roi.pxl_orig_to_roi(pxl) for pxl in r["corners"]], **kp_prm)
                     for kp in kps:
                         r["kp"].append({
                             "cls": kp.cls,
@@ -421,7 +426,7 @@ class Detection(object):
                 if kp_pxl and "label" in self.display and self.display["label"]>=0:
                     # draw template
                     for pxl in kp_pxl:
-                        draw_point(img_adjust, pxl[1], pxl[0])
+                        draw_point(img_adjust, pxl[1], pxl[0], display_label=self.display["label"])
 
 
                 # assign xyz and filter if the data comes from camera

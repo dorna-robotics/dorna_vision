@@ -68,7 +68,6 @@ class KP(object):
         retval = []
 
         roi = ROI(img, corners=bb, crop=True, offset=offset) 
-        
         # list of valid keypoints
         valid_cls = list(self.detection["kp"][label].cls)
         if not cls:

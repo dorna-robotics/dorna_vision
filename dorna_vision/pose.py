@@ -34,6 +34,7 @@ class PNP(object):
         img_pts = np.array(img_pts, dtype=np.float32)
         return np.mean(np.linalg.norm(proj_pts - img_pts, axis=1))
 
+
     """
     kp_list: [{"center": [x, y], "cls": "label1"}, {"center": [x, y], "cls": "label2"}, ...]
     kp: {"label1": [x1, y1, z1], "label2": [x2, y2, z2], ...}

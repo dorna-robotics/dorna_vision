@@ -70,14 +70,15 @@ def draw_circle(img, circles, color=(255, 0, 255), thickness=1):
         cv.circle(img, (circle[0], circle[1]), circle[2], color, thickness)
 
 
-def draw_point(img, pxl, label, radius=3, color=(153, 255, 255), thickness=3, font_scale=0.5, text_offset=(5, -5)):
+def draw_point(img, pxl, label, radius=3, color=(153, 255, 255), thickness=-1, font_scale=0.5, text_offset=(5, -5), display_label=True):
     # Draw circle
     center = (int(pxl[0]), int(pxl[1]))
     cv.circle(img, center, radius, color, thickness)
 
     # Draw label text near the point
-    text_pos = (center[0] + text_offset[0], center[1] + text_offset[1])
-    cv.putText(img, str(label), text_pos, cv.FONT_HERSHEY_SIMPLEX, font_scale, color, 1, cv.LINE_AA)
+    if display_label:
+        text_pos = (center[0] + text_offset[0], center[1] + text_offset[1])
+        cv.putText(img, str(label), text_pos, cv.FONT_HERSHEY_SIMPLEX, font_scale, color, 1, cv.LINE_AA)
 
 
 # draw oriented bounding box

@@ -253,3 +253,7 @@ class ROI(object):
 
     def pxl_to_orig(self, pxl):
         return [int(pxl[0] + self.x), int(pxl[1] + self.y)]
+
+
+    def pxl_orig_to_roi(self, pxl):
+        return [int(pxl[0] - self.x), int(pxl[1] - self.y)]
