@@ -329,10 +329,10 @@ class Detection(object):
 
                     result = self.cls(img_roi, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r[0], "conf": r[1], "center": [int(width/2), int(height/2)], 
-                    "corners": [_roi.pxl_to_orig([min(20,roi_width-1), min(20,roi_height-1)]), 
-                                _roi.pxl_to_orig([max(0,roi_width-21), min(20,roi_height-1)]), 
-                                _roi.pxl_to_orig([max(0,roi_width-21), max(0,roi_height-21)]), 
-                                _roi.pxl_to_orig([min(20,roi_width-1), max(0,roi_height-21)])],"color": r[2]} for r in result]
+                    "corners": [_roi.pxl_to_orig([min(5,roi_width-1), min(5,roi_height-1)]), 
+                                _roi.pxl_to_orig([max(0,roi_width-6), min(5,roi_height-1)]), 
+                                _roi.pxl_to_orig([max(0,roi_width-6), max(0,roi_height-6)]), 
+                                _roi.pxl_to_orig([min(5,roi_width-1), max(0,roi_height-6)])],"color": r[2]} for r in result]
                 elif self.detection["cmd"] == "kp":
                     # kp parameters
                     kp_prm={}
