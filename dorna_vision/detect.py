@@ -485,19 +485,29 @@ class Detection(object):
             
             # save image
             if "save_img" in self.display and self.display["save_img"]:
-                # make directory if not exists
-                os.makedirs("output", exist_ok=True)
+                if isinstance(self.display["save_img"], str):
+                    # save image path name
+                    save_img_path = self.display["save_img"]
+                else:
+                    # make directory if not exists
+                    os.makedirs("output", exist_ok=True)
+                    save_img_path = "output/"+str(int(camera_data["timestamp"]))+".jpg"
                 # Create a thread to perform the file write operation
-                thread = threading.Thread(target=cv.imwrite, args=("output/"+str(int(camera_data["timestamp"]))+".jpg", img_adjust))
+                thread = threading.Thread(target=cv.imwrite, args=(save_img_path, img_adjust))
                 thread.start()
                 self.thread_list.append(thread)
 
             # save image
             if "save_img_roi" in self.display and self.display["save_img_roi"]:
-                # make directory if not exists
-                os.makedirs("output", exist_ok=True)
+                if isinstance(self.display["save_img_roi"], str):
+                    # save image path name
+                    save_img_path = self.display["save_img_roi"]
+                else:
+                    # make directory if not exists
+                    os.makedirs("output", exist_ok=True)
+                    save_img_path = "output/roi_"+str(int(camera_data["timestamp"]))+".jpg"
                 # Create a thread to perform the file write operation
-                thread = threading.Thread(target=cv.imwrite, args=("output/roi_"+str(int(camera_data["timestamp"]))+".jpg", img_roi))
+                thread = threading.Thread(target=cv.imwrite, args=(save_img_path, img_roi))
                 thread.start()
                 self.thread_list.append(thread)
 
