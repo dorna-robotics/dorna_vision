@@ -19,9 +19,6 @@ def draw_2d_axis(img, center, angle, label=False, length=20, thickness=1):
             cv.putText(img, f'c: ({center[0]}, {center[1]})'+ ", rot: {:.1f}".format(angle), center,
                        cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), thickness, cv.LINE_AA)
 
-        # Calculate the rotation matrix
-        rotation_matrix = cv.getRotationMatrix2D(center, angle, 1)
-
         # Calculate the axis endpoints
         x_axis_end = (int(center[0] + length * np.cos(np.radians(angle))),
                       int(center[1] + length * np.sin(np.radians(angle))))
@@ -137,14 +134,9 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0), thickness=1, label=T
         cv.putText(img, text, (x + 5, y - 5), font, font_scale, (0, 0, 0), thickness, cv.LINE_AA)  # black text
 
 
-"""
-draw 3d_axis
-"""
-
-
-
-def draw_3d_axis(img, rvec, tvec, camera_matrix, dist_coeffs, length=10, thickness=2, draw=True):
-    img = cv.drawFrameAxes(img, camera_matrix,
+# Draw 3D axis on the image using the camera pose
+def draw_3d_axis(img, rvec, tvec, camera_matrix, dist_coeffs, length=10, **kwargs):
+    cv.drawFrameAxes(img, camera_matrix,
         dist_coeffs, np.radians(rvec).astype(np.float32).reshape(3, 1),
         np.array(tvec, dtype=np.float32).reshape(3, 1), 
         length)

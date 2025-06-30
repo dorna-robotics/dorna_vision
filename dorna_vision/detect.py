@@ -373,6 +373,7 @@ class Detection(object):
             # valid
             if self.sort["max_det"] <= 0:
                 self.sort["max_det"] = len(retval)
+
             for r in retval:
                 # max det
                 if len(self.retval["valid"]) >= self.sort["max_det"]:
@@ -446,7 +447,7 @@ class Detection(object):
 
                 # plane: rvec, tvec
                 if "cmd" in self.detection and self.detection["cmd"] != "aruco" and "cmd" in self.pose and self.pose["cmd"] == "plane" and "plane" in self.pose and len(self.pose["plane"]) > 2 and camera_data["depth_frame"] is not None:
-                    pose_result = Plane().pose(r["corners"], self.pose["plane"], self.kinematic, self.camera, camera_data["depth_frame"], camera_data["depth_int"], self.frame_mat_inv)
+                    pose_result = Plane().pose(r["corners"], self.pose["plane"], self.camera, camera_data["depth_frame"], camera_data["depth_int"], self.frame_mat_inv)
                     if not pose_result:
                         continue
                     r["rvec"] = pose_result[0]
@@ -458,7 +459,13 @@ class Detection(object):
                     pose_kp_prm = {}
                     if "thr" in self.pose:
                         pose_kp_prm["thr"] = self.pose["thr"]
-                    pose_result = PNP().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], kinematic=self.kinematic, camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]), frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
+                    
+                    # number of keypoints
+                    if len(self.pose["kp"][r["cls"]]) == 2:
+                        pose_result = Pose_two_point().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]), frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
+                    if len(self.pose["kp"][r["cls"]]) >= 4:
+                        pose_result = PNP().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]), frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
+                    
                     if not pose_result:
                         continue
                     r["rvec"] = pose_result[0]

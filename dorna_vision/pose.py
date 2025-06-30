@@ -3,7 +3,81 @@ from sklearn.linear_model import RANSACRegressor
 from sklearn.preprocessing import PolynomialFeatures
 import cv2
 from collections import defaultdict
-from itertools import product
+from itertools import product, combinations
+from dorna2 import pose
+
+class Pose_two_point(object):
+    def pick_best_pair(self, kp_list, ref_labels):
+        target = set(ref_labels)
+        # consider every unordered pair
+        pairs = [
+        (a,b) for a,b in combinations(kp_list,2)
+        if {a["cls"], b["cls"]}==target
+        ]
+        # pick the pair with max sum of confidences
+        return max(pairs, key=lambda pair: pair[0]["conf"]+pair[1]["conf"],
+                default=[])
+    
+
+    def pose(self, kp_list, kp_geometry, camera_matrix, dist_coeffs, frame_mat_inv=np.eye(4), **kwargs):
+        # retval
+        retval = []
+        # best pair
+        best_pair = self.pick_best_pair(kp_list, kp_geometry.keys())
+        if not best_pair:
+            return retval
+        
+        # img_pts
+        img_pts = [x["center"] for x in best_pair]
+        obj_pts = [kp_geometry[x["cls"]] for x in best_pair]
+        
+        # 1) Undistort & normalize the image points
+        pts_norm = cv2.undistortPoints(
+            np.expand_dims(np.array(img_pts, dtype=np.float32), 1),
+            camera_matrix, dist_coeffs
+        ).reshape(-1,2)  # shape (2,2): [[x1_norm,y1_norm],[x2_norm,y2_norm]]
+
+        # 2) Compute the object‐point distance
+        obj_pts = np.array(obj_pts, dtype=float)
+        L_obj = np.linalg.norm(obj_pts[1] - obj_pts[0])
+
+        # 3) Compute the normalized image‐plane difference
+        diff_norm = pts_norm[1] - pts_norm[0]               # shape (2,)
+        norm_diff = np.linalg.norm(diff_norm)               # scalar
+
+        # 4) Pick Z0 so that the 3D back‐projected points are L_obj apart:
+        Z0 = L_obj / (norm_diff + 1e-9)
+
+        # 5) Back‐project at depth Z0
+        cam_pts = np.hstack([
+            pts_norm * Z0,               # X = x_norm*Z0, Y = y_norm*Z0
+            np.ones((2,1)) * Z0          # Z = Z0
+        ])  # shape (2,3)
+
+        # 6) Kabsch to find R, t
+        mo = obj_pts.mean(axis=0)
+        mc = cam_pts.mean(axis=0)
+        H  = (obj_pts - mo).T @ (cam_pts - mc)
+        U, _, Vt = np.linalg.svd(H)
+        R = Vt.T @ U.T
+        if np.linalg.det(R) < 0:
+            Vt[2,:] *= -1
+            R = Vt.T @ U.T
+        t = mc - R @ mo
+
+        rvec, _ = cv2.Rodrigues(R)
+        T = np.eye(4, dtype=np.float32)
+        T[:3, :3] = R
+        T[:3, 3] = t.flatten()
+        xyzabc = pose.T_to_xyzabc(frame_mat_inv @ T)
+        retval = [
+            xyzabc[3:6],  # rvec_target_to_robot
+            xyzabc[:3],   # tvec_target_to_robot
+            [float(np.degrees(rvec[i, 0])) for i in range(3)],         # rvec_target_to_camera
+            t.flatten().tolist(),        # tvec_target_to_camera
+            img_pts                # 2D keypoints used
+        ]
+        return retval
 
 
 class PNP(object):
@@ -36,11 +110,11 @@ class PNP(object):
 
 
     """
-    kp_list: [{"center": [x, y], "cls": "label1"}, {"center": [x, y], "cls": "label2"}, ...]
-    kp: {"label1": [x1, y1, z1], "label2": [x2, y2, z2], ...}
+    kp_list: [{"center": [x, y], "cls": "label1", "conf":0.5}, {"center": [x, y], "cls": "label2"}, ...]
+    kp_geometry: {"label1": [x1, y1, z1], "label2": [x2, y2, z2], ...}
     """
-    def pose(self, kp_list, kp_geometry, kinematic, camera_matrix, dist_coeffs, frame_mat_inv=np.eye(4), thr=5.0, ransac_min_pts=4, **kwargs):
-
+    def pose(self, kp_list, kp_geometry, camera_matrix, dist_coeffs, frame_mat_inv=np.eye(4), thr=5.0, ransac_min_pts=4, **kwargs):            
+        # pose four points and more
         best_error = float('inf')
         retval = []
 
@@ -99,12 +173,12 @@ class PNP(object):
                 T[:3, 3] = tvec.flatten()
 
                 T_rf = frame_mat_inv @ T
-                xyzabc = kinematic.mat_to_xyzabc(T_rf)
+                xyzabc = pose.T_to_xyzabc(T_rf)
                 best_error = err
 
                 retval = [
-                    xyzabc[3:6].tolist(),  # rvec_target_to_robot
-                    xyzabc[:3].tolist(),   # tvec_target_to_robot
+                    xyzabc[3:6],  # rvec_target_to_robot
+                    xyzabc[:3],   # tvec_target_to_robot
                     [np.degrees(rvec[i, 0]) for i in range(3)],         # rvec_target_to_camera
                     tvec.flatten().tolist(),        # tvec_target_to_camera
                     img_pts                # 2D keypoints used
@@ -233,7 +307,7 @@ class Plane(object):
         return center_3d, X, Y , Z, pxls, valid
 
 
-    def pose(self, corners, plane, kinematic, camera, depth_frame, depth_int, frame_mat_inv=np.eye(4), **kwargs):
+    def pose(self, corners, plane, camera, depth_frame, depth_int, frame_mat_inv=np.eye(4), **kwargs):
         # init
         retval = []
 
@@ -254,11 +328,11 @@ class Plane(object):
             rvec_target_to_cam = [np.degrees(rodrigues[i, 0]) for i in range(3)]
 
             # xyz_target_2_cam
-            T_target_to_cam = kinematic.xyzabc_to_mat(np.array(tvec_target_to_cam+ rvec_target_to_cam))
+            T_target_to_cam = pose.T_to_xyzabc(np.array(tvec_target_to_cam+ rvec_target_to_cam))
 
             # apply frame
             T_target_to_frame = np.matmul(frame_mat_inv, T_target_to_cam)
-            xyzabc_target_to_frame = kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
+            xyzabc_target_to_frame = pose.T_to_xyzabc(T_target_to_frame).tolist()
 
             # rvec, tvec, rvec_target_to_cam, tvec_target_to_cam, pxl_map
             retval = [xyzabc_target_to_frame[3:6], xyzabc_target_to_frame[0:3], rvec_target_to_cam, tvec_target_to_cam, pxl_map]

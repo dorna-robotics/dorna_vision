@@ -83,7 +83,7 @@ class default_widget(object):
         }
         self.widget_input = {
             "sort_label": widgets.Label(value="Arrange the detected objects by confidence score, pixel distance, bounding-box area, and other criteria.", layout={'width': '99%'}, style=style),
-            "sort_value": widgets.Dropdown(value=0, options=[('No sorting', 0), ('Random shuffle', 1), ('Confiddence score', 2), ('Pixel distance', 3), ('BB area', 4)], description='Sorting', continuous_update=continuous_update, style=style),
+            "sort_value": widgets.Dropdown(value=0, options=[('No sorting', 0), ('Random shuffle', 1), ('Confiddence score', 2), ('Pixel distance', 3), ('Bounding box area', 4)], description='Sorting', continuous_update=continuous_update, style=style),
             "sort_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style_2),
 
             "sort_no_max_det" : widgets.IntSlider(value=100, min=1, max=200, step=1, description='Max detections per run', continuous_update=continuous_update, layout={'width': '99%'}, style=style), 
@@ -224,7 +224,7 @@ class default_widget(object):
             "display_text": widgets.Label(value="Configure how inference results are presented and saved", layout={'width': '99%'}, style=style),
             "display_enb": widgets.Checkbox(value=False, description='Apply formatting', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "display_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style_2),
-            "display_label": widgets.Dropdown(value=0, description='Display', options=[('None', -1), ('BB only', 0), ('BB and labels', 1)], continuous_update=continuous_update, style=style),
+            "display_label": widgets.Dropdown(value=0, description='Display', options=[('None', -1), ('Bounding box only', 0), ('Bounding box and labels', 1)], continuous_update=continuous_update, style=style),
             "display_save": widgets.Checkbox(value=False, description='Save the annotated image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "display_save_roi": widgets.Checkbox(value=False, description='Save the unannotated ROI image in the "output/*.jpg"', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
 
