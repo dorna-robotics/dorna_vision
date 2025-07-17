@@ -81,7 +81,7 @@ def find_grasp_candidates_3d(target_id, detections,
                              gripper_cfg,
                              img_bgr, 
                              mask_type="bb", prune_factor=2.0,
-                             num_steps=360, thr_mm=None):
+                             num_steps=360, search_angle=(0, 360), thr_mm=None):
 
     # 1) image‐center + scale
     u0,v0 = project_center_to_pixel(rvec, tvec, K, dist_coeffs)
@@ -93,11 +93,18 @@ def find_grasp_candidates_3d(target_id, detections,
     # 2) collect & prune obstacles
     all_obs = [np.array(d["corners"], float)
                for d in detections if d["id"] != target_id]
+    
+    # if the list is empty, return the default rvec
+    if len(all_obs) == 0:
+        return [{
+            "angle": 0.0,
+            "score_mm": 9999.0,
+            "rvec": rvec.ravel().tolist()
+        }]
     thresh_px = prune_factor * r_px
     obs_pruned = [poly for poly in all_obs
         if np.any(np.hypot(poly[:,0]-u0, poly[:,1]-v0) <= thresh_px)]
     if not obs_pruned:
-        print("No obstacles found within threshold.")
         obs_pruned = all_obs
 
     # 2a) mask type
@@ -139,7 +146,15 @@ def find_grasp_candidates_3d(target_id, detections,
     e2       = np.cross(axis_cam, e1)
 
     # 5) generate all fingertip rays
-    thetas = np.linspace(0,2*np.pi,num_steps,endpoint=False)  # (T,)
+    #thetas = np.linspace(0,2*np.pi,num_steps,endpoint=False)  # (T,)
+    theta_min = np.deg2rad(search_angle[0])
+    theta_max = np.deg2rad(search_angle[1])
+    if theta_max < theta_min:
+        theta_max += 2*np.pi  # wrap around
+
+    thetas_full = np.linspace(0, 2*np.pi, num_steps, endpoint=False)
+    thetas = thetas_full[(thetas_full >= theta_min) & (thetas_full <= theta_max)]
+
     offs   = np.deg2rad(gripper_cfg.finger_angles_deg)       # (F,)
     T, F   = len(thetas), len(offs)
     th_off = thetas[:,None] + offs[None,:]                    # (T,F)
@@ -183,7 +198,7 @@ def find_grasp_candidates_3d(target_id, detections,
     return cands
 
 
-def collision_free_rvec(target_id, target_rvec, gripper_opening, finger_wdith, finger_location, detection_obj, mask_type="bb", prune_factor=2, num_steps=360):        
+def collision_free_rvec(target_id, target_rvec, gripper_opening, finger_wdith, finger_location, detection_obj, mask_type="bb", prune_factor=2, num_steps=360, search_angle=(0, 360)):        
     best_rvec = None
 
     try:
@@ -218,7 +233,7 @@ def collision_free_rvec(target_id, target_rvec, gripper_opening, finger_wdith, f
                             gripper, 
                             img_bgr,
                             mask_type=mask_type, prune_factor=prune_factor,
-                            num_steps=num_steps, thr_mm=gripper.finger_width_mm/2)
+                            num_steps=num_steps, search_angle=search_angle, thr_mm=gripper.finger_width_mm/2)
         
         if cands:
             # best score
