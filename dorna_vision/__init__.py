@@ -8,5 +8,6 @@ from .gui import *
 from .pose import *
 from .util import *
 from .visual import *
+from . import grasp
 
 __version__ = "2.4.0"
