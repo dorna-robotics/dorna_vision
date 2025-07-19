@@ -71,8 +71,8 @@ class Pose_two_point(object):
         T[:3, 3] = t.flatten()
         xyzabc = pose.T_to_xyzabc(frame_mat_inv @ T)
         retval = [
-            xyzabc[3:6],  # rvec_target_to_robot
-            xyzabc[:3],   # tvec_target_to_robot
+            [float(xyzabc[i]) for i in range(3,6)],  # rvec_target_to_robot
+            [float(xyzabc[i]) for i in range(3)],   # tvec_target_to_robot
             [float(np.degrees(rvec[i, 0])) for i in range(3)],         # rvec_target_to_camera
             t.flatten().tolist(),        # tvec_target_to_camera
             img_pts                # 2D keypoints used
@@ -177,8 +177,8 @@ class PNP(object):
                 best_error = err
 
                 retval = [
-                    xyzabc[3:6],  # rvec_target_to_robot
-                    xyzabc[:3],   # tvec_target_to_robot
+                    [float(xyzabc[i]) for i in range(3,6)],  # rvec_target_to_robot
+                    [float(xyzabc[i]) for i in range(3)],   # tvec_target_to_robot
                     [np.degrees(rvec[i, 0]) for i in range(3)],         # rvec_target_to_camera
                     tvec.flatten().tolist(),        # tvec_target_to_camera
                     img_pts                # 2D keypoints used
