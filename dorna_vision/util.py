@@ -92,5 +92,30 @@ def get_obb_corners(center, wh, rot):
 
 
 
+def frame_center_pixel(rvec, tvec, camera_matrix, dist_coeffs):
+    """
+    Given:
+      - rvec, tvec: your rotation (degrees) and translation vectors
+      - camera_matrix, dist_coeffs: your OpenCV intrinsics/distortion
+    Returns:
+      (u, v) = integer pixel coordinates of the axes origin.
+    """
+    # 1) prepare vectors
+    rvec_f = np.radians(rvec).astype(np.float32).reshape(3, 1)
+    tvec_f = np.array(tvec, dtype=np.float32).reshape(3, 1)
+
+    # 2) the 3D point at the origin of the object frame
+    obj_pt = np.zeros((1, 3), dtype=np.float32)
+
+    # 3) project it
+    img_pts, _ = cv.projectPoints(
+        obj_pt, rvec_f, tvec_f,
+        camera_matrix, dist_coeffs
+    )
+
+    # 4) extract and round to ints
+    u, v = img_pts[0,0]
+    return int(round(u)), int(round(v))
+
 
 

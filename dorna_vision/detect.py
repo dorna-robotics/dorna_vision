@@ -471,11 +471,24 @@ class Detection(object):
                     r["rvec"] = pose_result[0]
                     r["tvec"] = pose_result[1]
 
+                # assign pose meta
+                if pose_result:
+                    try:
+                        pose_center = frame_center_pixel(
+                                                        rvec=pose_result[2], 
+                                                        tvec=pose_result[3], 
+                                                        camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), 
+                                                        dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]))
+                        pose_xyz = self.xyz(pose_center)
+                        r["pose"] = {"center": pose_center, "xyz":pose_xyz}
+                    except:
+                        pass
+                    
                 # draw rvec
                 if pose_result and "label" in self.display and self.display["label"]>=0:
                     # draw template
                     draw_3d_axis(img_adjust, rvec=pose_result[2], tvec=pose_result[3], camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]))                
-
+                    
                 # rvec valid
                 if "rvec" in self.limit:
                     if "rvec" not in r or not Valid().rvec(r["rvec"], **self.limit["rvec"]):
