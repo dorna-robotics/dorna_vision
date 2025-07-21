@@ -75,7 +75,7 @@ class KP(object):
 
         # list of valid keypoints
         valid_cls = list(self.detection["kp"][label].cls)
-        if cls:
+        if not cls:
             valid_cls = [c for c in cls if c in valid_cls]
 
         # detection
