@@ -55,7 +55,7 @@ class KP(object):
         
         self.detection = {
             "od": OD(path=None, device_name=device_name, data={"bin":data["bin"], "xml":data["xml"], "cls":data["cls"], "colors":data["colors"], "meta":data["meta"]}),
-            "kp":{k: OD(path=None, device_name=device_name, data=data["kp"][k]) for k in data["kp"]},
+            "kp": {k: OD(path=None, device_name=device_name, data=data["kp"][k]) for k in data["kp"] if data["kp"][k]},
         }
 
     
@@ -68,6 +68,11 @@ class KP(object):
         retval = []
 
         roi = ROI(img, corners=bb, crop=True, offset=offset) 
+        
+        # check if label exists, if not, return empty list
+        if label not in self.detection["kp"]:
+            return []
+
         # list of valid keypoints
         valid_cls = list(self.detection["kp"][label].cls)
         if not cls:
