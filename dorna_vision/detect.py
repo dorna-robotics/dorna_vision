@@ -12,6 +12,8 @@ import cv2 as cv
 import os
 import threading
 import numpy as np
+import matplotlib.pyplot as plt
+from IPython.display import clear_output
 
 from dorna2 import Kinematic
 
@@ -544,6 +546,56 @@ class Detection(object):
             print("Exception: ", ex)    
         
         return list(self.retval["valid"])
+
+    def draw(self,
+            title="",
+            axis=False,
+            poly=[[]],
+            poly_color=(0, 255, 0),
+            poly_thickness=2,
+            poly_fill=False):
+
+        try:
+            img = self.retval["camera_data"]["img"].copy()
+        except:
+            return
+
+        if poly:
+            for p in poly:
+                if len(p) == 0:
+                    continue
+                pts = np.array(p, dtype=np.int32)
+                if poly_fill:
+                    cv2.fillPoly(img, [pts], poly_color)
+                else:
+                    cv2.polylines(img, [pts], isClosed=True, color=poly_color, thickness=poly_thickness)
+
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        # Jupyter behavior
+        if in_jupyter():
+            clear_output(wait=True)
+            plt.figure(figsize=(8, 5))
+            plt.imshow(img_rgb)
+            if not axis:
+                plt.axis('off')
+            if title:
+                plt.title(title)
+            plt.show()
+        else:
+            # Terminal / script behavior (non-blocking window)
+            if not hasattr(self, '_fig') or self._fig is None:
+                plt.ion()
+                self._fig, self._ax = plt.subplots(figsize=(8, 5))
+
+            self._ax.clear()
+            self._ax.imshow(img_rgb)
+            if not axis:
+                self._ax.axis('off')
+            if title:
+                self._ax.set_title(title)
+            self._fig.canvas.draw()
+            self._fig.canvas.flush_events()
 
 
     def close(self):

@@ -117,5 +117,9 @@ def frame_center_pixel(rvec, tvec, camera_matrix, dist_coeffs):
     u, v = img_pts[0,0]
     return int(round(u)), int(round(v))
 
-
-
+def in_jupyter():
+    try:
+        shell = get_ipython().__class__.__name__
+        return shell in ['ZMQInteractiveShell', 'Shell']
+    except NameError:
+        return False
