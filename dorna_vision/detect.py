@@ -574,7 +574,7 @@ class Detection(object):
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         if clear_jupyter_plot and in_jupyter():
-                clear_output(wait=True)
+            clear_output(wait=True)
 
         plt.figure(figsize=(8, 5))
         plt.imshow(img_rgb)
