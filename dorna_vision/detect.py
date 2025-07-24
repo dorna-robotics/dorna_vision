@@ -550,7 +550,7 @@ class Detection(object):
     def draw(self,
             title="",
             axis=False,
-            poly=[[]],
+            poly=[],
             poly_color=(0, 255, 0),
             poly_thickness=2,
             poly_fill=False,
