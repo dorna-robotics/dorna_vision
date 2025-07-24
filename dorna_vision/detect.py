@@ -553,7 +553,8 @@ class Detection(object):
             poly=[[]],
             poly_color=(0, 255, 0),
             poly_thickness=2,
-            poly_fill=False):
+            poly_fill=False,
+            clear_jupyter_plot=False):
 
         try:
             img = self.retval["camera_data"]["img"].copy()
@@ -572,31 +573,16 @@ class Detection(object):
 
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # Jupyter behavior
-        if in_jupyter():
-            clear_output(wait=True)
-            plt.figure(figsize=(8, 5))
-            plt.imshow(img_rgb)
-            if not axis:
-                plt.axis('off')
-            if title:
-                plt.title(title)
-            plt.show()
-        else:
-            # Terminal / script behavior (non-blocking window)
-            if not hasattr(self, '_fig') or self._fig is None:
-                plt.ion()
-                self._fig, self._ax = plt.subplots(figsize=(8, 5))
+        if clear_jupyter_plot and in_jupyter():
+                clear_output(wait=True)
 
-            self._ax.clear()
-            self._ax.imshow(img_rgb)
-            if not axis:
-                self._ax.axis('off')
-            if title:
-                self._ax.set_title(title)
-            self._fig.canvas.draw()
-            self._fig.canvas.flush_events()
-
+        plt.figure(figsize=(8, 5))
+        plt.imshow(img_rgb)
+        if not axis:
+            plt.axis('off')
+        if title:
+            plt.title(title)
+        plt.show()
 
     def close(self):
         # save image
