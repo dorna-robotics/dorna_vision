@@ -1,6 +1,5 @@
 import numpy as np
 import cv2
-from matplotlib.path import Path
 from dorna2 import pose as dorna_pose
 
 class BB:
@@ -172,13 +171,47 @@ def find_grasp_candidates_3d(target_id, detections,
     dists = point_segments_distances(pts, v0_all, seg_all, seg_len2_all)
     dists = dists.reshape(T, F)                               # (T,F)
     scores= dists.min(axis=1)                                 # (T,)
-
+    """
     # 8) reject any θ whose fingertip lands inside an obstacle
     inside = np.zeros(pts.shape[0], bool)
     for poly in all_obs:
         inside |= Path(poly).contains_points(pts)
     inside = inside.reshape(T, F)
     scores[inside.any(axis=1)] = -np.inf
+    """
+    # 8a) Reshape fingertips into (T,F,2)
+    pts_tf = pts.reshape(T, F, 2).astype(np.float32)
+
+    # 8b) Compute ray vectors from center
+    center = np.array([u0, v0], dtype=np.float32)
+    rays   = pts_tf - center[None, None, :]
+
+    # 8c) Broadcast rays against all edges
+    r    = rays[..., None, :]           # → (T, F, 1, 2)
+    s    = seg_all[None, None, :, :]    # → (1, 1, S, 2)
+    qmp  = v0_all[None, None, :, :] - center  # → (1, 1, S, 2)
+
+    # 8d) 2D cross‑products
+    cross_rs    = r[...,0]*s[...,1] - r[...,1]*s[...,0]   # (T,F,S)
+    cross_qmp_s = qmp[...,0]*s[...,1] - qmp[...,1]*s[...,0]  # (T,F,S)
+    cross_qmp_r = qmp[...,0]*r[...,1] - qmp[...,1]*r[...,0]  # (T,F,S)
+
+    # 8e) Solve for ray (t) and edge (u) parameters
+    mask_valid = cross_rs != 0
+    t = np.where(mask_valid, cross_qmp_s / cross_rs, 0.0)
+    u = np.where(mask_valid, cross_qmp_r / cross_rs, 0.0)
+
+    # 8f) Intersection occurs when 0≤t≤1 and 0≤u≤1
+    intersect = (
+        mask_valid &
+        (t >= 0) & (t <= 1) &
+        (u >= 0) & (u <= 1)
+    )  # shape (T, F, S)
+
+    # 8g) Invalidate any angle if any finger intersects any edge
+    hit_edge  = intersect.any(axis=2)  # (T, F)
+    hit_angle = hit_edge.any(axis=1)   # (T,)
+    scores[hit_angle] = -np.inf
 
     # 9) collect only scores ≥ threshold
     valid = np.nonzero(scores >= thr_px)[0]
