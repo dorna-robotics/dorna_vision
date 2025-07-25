@@ -78,7 +78,6 @@ class Aruco(object):
 
         # Estimate pose
         rvecs, tvecs, _ = cv.aruco.estimatePoseSingleMarkers(aruco_corner, markerLength=self.marker_length, cameraMatrix=camera_matrix, distCoeffs=dist_coeffs, estimateParameters=prm)
-
         return rvecs, tvecs, aruco_corner, aruco_id, img_gray
 
 
@@ -187,7 +186,6 @@ def main_chess_corenr():
 
     img = cv.imread("board.png")
     response, corners = test.chess_corner(img)
-    print(corners)
     cv.imshow("charuco", img)
     cv.waitKey(0)
 

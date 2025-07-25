@@ -312,7 +312,6 @@ class Detection(object):
                             xyzabc_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
                             r["tvec"] = xyzabc_target_to_frame[0:3]
                             r["rvec"] = xyzabc_target_to_frame[3:6]
-
                     except Exception as ex:
                         pass
                 

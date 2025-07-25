@@ -1,15 +1,39 @@
 import cv2 as cv
 import numpy as np
 
-def draw_aruco(img, ids, corners, rvecs, tvecs, camera_matrix, dist_coeffs, length=20, thickness=1):
-    # draw
-    if len(ids):
-        cv.aruco.drawDetectedMarkers(img, corners, ids)
 
-        # draw
-        for i in range(len(ids)):
-            # Draw axes
-            cv.drawFrameAxes(img, camera_matrix, dist_coeffs, rvecs[i], tvecs[i], length, thickness)
+def draw_aruco(img, ids, corners, rvecs, tvecs,
+               camera_matrix, dist_coeffs,
+               length=20, thickness=1):
+    # 1) Make sure ids is a NumPy array of shape (N,1)
+    if isinstance(ids, list):
+        ids = np.array(ids, dtype=np.int32).reshape(-1, 1)
+    elif isinstance(ids, np.ndarray) and ids.ndim == 1:
+        ids = ids.astype(np.int32).reshape(-1, 1)
+
+    # 2) If corners is one big ndarray of shape (1,N,4,2), split it up
+    if isinstance(corners, np.ndarray):
+        # corners.shape == (1, N, 4, 2)
+        corners = [
+            c.reshape(-1, 1, 2).astype(np.float32)
+            for c in corners.squeeze(0)
+        ]
+
+    # 3) Nothing to draw?
+    if ids is None or len(ids) == 0:
+        return
+
+    # 4) Draw the detected markers
+    cv.aruco.drawDetectedMarkers(img, corners, ids)
+
+    # 5) Draw each pose axis
+    for i in range(len(ids)):
+        cv.drawFrameAxes(
+            img,
+            camera_matrix, dist_coeffs,
+            rvecs[i], tvecs[i],
+            length, thickness
+        )
 
 
 def draw_2d_axis(img, center, angle, label=False, length=20, thickness=1):
