@@ -32,13 +32,35 @@ refine method
 """
 class Aruco(object):
     """docstring for aruco"""
-    def __init__(self, dictionary = "DICT_4X4_100", refine="CORNER_REFINE_APRILTAG", subpix=False, marker_length=20, marker_size=100):
+    def __init__(self, dictionary = "DICT_4X4_100", refine="CORNER_REFINE_APRILTAG", subpix=False, marker_length=20, marker_size=100, win_size=(11,11), scale=4):
         super(Aruco, self).__init__()
         self.dictionary = cv.aruco.getPredefinedDictionary(getattr(cv.aruco, dictionary))
         self.refine = refine
         self.subpix = subpix
         self.marker_length = marker_length
         self.marker_size = marker_size
+        self.win_size = win_size
+        self.scale = scale
+        """"
+        # prms and refine
+        prms =  cv.aruco.DetectorParameters()
+        prms.cornerRefinementMethod = getattr(cv.aruco, self.refine)
+        """
+        self.prms = cv.aruco.DetectorParameters()
+        # Adaptive threshold
+        self.prms.adaptiveThreshWinSizeMin    = 3
+        self.prms.adaptiveThreshWinSizeMax    = 23
+        self.prms.adaptiveThreshWinSizeStep   = 10
+        self.prms.adaptiveThreshConstant      = 7
+        # Contour filtering
+        self.prms.minMarkerPerimeterRate      = 0.04
+        self.prms.maxMarkerPerimeterRate      = 4.0
+        self.prms.polygonalApproxAccuracyRate = 0.03
+        # Corner refinement
+        self.prms.cornerRefinementMethod      = getattr(cv.aruco, self.refine)
+        self.prms.cornerRefinementWinSize     = 21   # bigger window
+        self.prms.cornerRefinementMaxIterations = 100
+        self.prms.cornerRefinementMinAccuracy   = 1e-6
 
     def create(self, board_path="board.png", marker_id=0):
         # Generate the marker image
@@ -47,49 +69,140 @@ class Aruco(object):
         # write
         cv.imwrite(board_path, board)
 
+
     def corner(self, img):
-        # bgr to gray
-        img_gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        """
+        Detect ArUco corners with upsampling + CLAHE + optional blur,
+        then (if self.subpix) run cv.cornerSubPix on the upsampled image
+        before scaling back to the original resolution.
+        Returns: corners, ids, rejected, gray_orig
+        """
+        # 1) convert to gray and keep the original for return
+        gray_orig = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
-        # prms and refine
-        prms =  cv.aruco.DetectorParameters()
-        prms.cornerRefinementMethod = getattr(cv.aruco, self.refine)
-                
-        # Detect ArUco markers in the image
-        aruco_corner, aruco_id, aruco_reject = cv.aruco.detectMarkers(img_gray, self.dictionary, parameters=prms)
+        # 2) upscale so sub‑pixel has more pixels to work with
+        gray = cv.resize(
+            gray_orig,
+            None,
+            fx=self.scale,
+            fy=self.scale,
+            interpolation=cv.INTER_CUBIC
+        )
 
-        # corner subpix
-        if self.subpix:
-            [cv.cornerSubPix(img_gray, corner, winSize=(11, 11), zeroZone=(-1, -1), criteria=(cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 1, 0.001)) for corner in aruco_corner]
+        # 3) apply CLAHE (Contrast Limited AHE) for more uniform grads
+        clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        gray = clahe.apply(gray)
 
-        return aruco_corner, aruco_id, aruco_reject, img_gray
+        # 4) optional light blur to reduce sensor noise
+        gray = cv.GaussianBlur(gray, (5,5), 0)
+
+        # 5) detect markers on the upsampled, equalized image
+        corners_up, ids, rejected_up = cv.aruco.detectMarkers(
+            gray, self.dictionary, parameters=self.prms
+        )
+
+        # 6) if subpix refinement is on, refine each upsampled corner
+        if self.subpix and corners_up:
+            for c in corners_up:
+                cv.cornerSubPix(
+                    gray,
+                    c,
+                    winSize=self.win_size,
+                    zeroZone=(-1,-1),
+                    criteria=(cv.TERM_CRITERIA_EPS|cv.TERM_CRITERIA_MAX_ITER, 50, 1e-6)
+                )
+
+        # 7) scale corners & rejected candidates back down to original size
+        corners = [c.astype(np.float32) / self.scale for c in corners_up]
+        rejected = [r.astype(np.float32) / self.scale for r in rejected_up]
+
+        return corners, ids, rejected, gray_orig
+
 
     def pose(self, img, camera_matrix, dist_coeffs, coordinate="ccw"):
+        """
+        Same as before, but uses the new, robust corner() filter.
+        """
+        corners, ids, rejected, gray = self.corner(img)
+        rvecs, tvecs = [], []
+        m = float(self.marker_length)
 
-        # corner detection
-        aruco_corner, aruco_id, aruco_reject, img_gray = self.corner(img)
-
-        # Estimate pose
-        prm = cv.aruco.EstimateParameters()
-        if coordinate == "cw":
-            prm.pattern = cv.aruco.ARUCO_CW_TOP_LEFT_CORNER
+        # choose object‑points based on coordinate flag
+        if coordinate.lower() == "cw":
+            obj_pts = np.array([
+                [0,   0,   0],
+                [m,   0,   0],
+                [m,   m,   0],
+                [0,   m,   0]
+            ], dtype=np.float32)
         else:
-            prm.pattern = cv.aruco.ARUCO_CCW_CENTER
+            obj_pts = np.array([
+                [-m/2,  m/2, 0],
+                [ m/2,  m/2, 0],
+                [ m/2, -m/2, 0],
+                [-m/2, -m/2, 0]
+            ], dtype=np.float32)
 
-        # Estimate pose
-        rvecs, tvecs, _ = cv.aruco.estimatePoseSingleMarkers(aruco_corner, markerLength=self.marker_length, cameraMatrix=camera_matrix, distCoeffs=dist_coeffs, estimateParameters=prm)
-        return rvecs, tvecs, aruco_corner, aruco_id, img_gray
+        # solvePnP per remaining marker
+        for c in corners:
+            img_pts = c.reshape(4,2).astype(np.float32)
+            ok, rvec, tvec = cv.solvePnP(
+                obj_pts, img_pts,
+                camera_matrix, dist_coeffs,
+                flags=cv.SOLVEPNP_IPPE_SQUARE
+            )
+            if ok:
+                rvecs.append(rvec)
+                tvecs.append(tvec)
+
+        # format output arrays
+        if rvecs:
+            rvecs = np.array(rvecs, dtype=np.float32)
+            tvecs = np.array(tvecs, dtype=np.float32)
+        else:
+            rvecs = np.empty((0,1,3), np.float32)
+            tvecs = np.empty((0,1,3), np.float32)
+
+        return rvecs, tvecs, corners, ids, gray
 
 
 class Charuco(object):
-    """docstring for charuco"""
-    def __init__(self, sqr_x=8, sqr_y=8, sqr_length=12, marker_length=8, dictionary="DICT_4X4_100", refine="CORNER_REFINE_APRILTAG", subpix=False):
-        super(Charuco, self).__init__()
-        self.aruco = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length)
+    def __init__(
+        self,
+        sqr_x=8, sqr_y=8,
+        sqr_length=12, marker_length=8,
+        dictionary="DICT_4X4_100",
+        refine="CORNER_REFINE_SUBPIX",
+        subpix=True,
+        win_size=(11, 11),
+        scale=2               # upsample factor for sub‑pixel
+    ):
+        # subpix flag for chess intersections
         self.subpix = subpix
-        self.board = cv.aruco.CharucoBoard((sqr_x, sqr_y), sqr_length, marker_length, self.aruco.dictionary)
-        self.sqr_x = sqr_x
-        self.sqr_y = sqr_y
+        self.scale  = scale
+        self.win_size = win_size
+
+        # build a matching ArUco detector (with sub‑pixel or not)
+        self.aruco = Aruco(
+            dictionary=dictionary,
+            refine=refine,
+            subpix=False,     # we do sub‑pix ourselves on Charuco corners
+            marker_length=marker_length,
+            win_size=self.win_size,
+            scale=self.scale
+        )
+        # create a Charuco board
+        self.board = cv.aruco.CharucoBoard(
+            (sqr_x, sqr_y),
+            sqr_length,
+            marker_length,
+            self.aruco.dictionary
+        )
+        # use the contrib factory for the best defaults
+        self.prms = cv.aruco.DetectorParameters()
+
+        # tighten thresholding if needed
+        self.prms.adaptiveThreshConstant = 7
 
 
     """
@@ -102,55 +215,134 @@ class Charuco(object):
     """
     detect charuco chess board corners
     """
-    def corner(self, img):
-        # init
-        response = 0
-        charuco_corner = []
-        charuco_id = []
+    def corner(self, img, camera_matrix, dist_coeffs):
+        """
+        1) Call your robust ArUco.corner() to get:
+            - marker corners already refined at upsampled scale
+            - the ORIGINAL gray (gray0)
+        2) Reconstruct the UPSAMPLED gray (exactly as Aruco.corner does)
+        3) Prune & refine those same marker corners (but scaled up) on that gray
+        4) Interpolate Charuco intersections on that gray
+        5) SubPix-refine the intersections (still on upsampled gray)
+        6) Down-scale the Charuco intersections and return them
+        """
+        # 1) get marker corners + gray0 from your Aruco pipeline
+        #    (gray0 is the original-resolution gray)
+        marker_corners, marker_ids, marker_rejected, gray0 = self.aruco.corner(img)
+        if not marker_corners or marker_ids is None:
+            return 0, [], [], gray0
 
-        # aruco markers
-        aruco_corner, aruco_id, aruco_reject, img_gray = self.aruco.corner(img)
+        # 2) rebuild the exact upsampled gray
+        gray_up = cv.resize(
+            gray0, None,
+            fx=self.scale, fy=self.scale,
+            interpolation=cv.INTER_CUBIC
+        )
+        gray_up = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray_up)
+        gray_up = cv.GaussianBlur(gray_up, (5,5), 0)
 
-        # Get charuco corners and ids from detected aruco markers
-        if aruco_corner:
-            response, charuco_corner, charuco_id = cv.aruco.interpolateCornersCharuco(
-                markerCorners=aruco_corner,
-                markerIds=aruco_id,
-                image=img_gray,
-                board=self.board)
+        # 3) scale your marker corners *back up* to match gray_up coords
+        mk_up = [ (c * self.scale).astype(np.float32) for c in marker_corners ]
 
-            if response:
-                # subpix
-                if self.subpix:
-                    charuco_corner = cv.cornerSubPix(img_gray,
-                        charuco_corner,
-                        (11,11),
-                        (-1,-1),
-                        (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 1, 0.001))
+        #    prune + snap to board
+        cv.aruco.refineDetectedMarkers(
+            gray_up,
+            self.board,
+            mk_up,
+            marker_ids,
+            marker_rejected,
+            camera_matrix,
+            dist_coeffs
+        )
 
-                cv.aruco.drawDetectedCornersCharuco(img, charuco_corner, charuco_id, cornerColor=(0, 255, 0))
+        # 4) interpolate chessboard intersections
+        resp, charuco_up, charuco_ids = cv.aruco.interpolateCornersCharuco(
+            markerCorners=mk_up,
+            markerIds=marker_ids,
+            image=gray_up,
+            board=self.board
+        )
 
-        return response, charuco_corner, charuco_id, img_gray
+        # 5) optional sub-pixel refine on the UPSAMPLED intersections
+        if resp > 0 and self.subpix:
+            cv.cornerSubPix(
+                gray_up,
+                charuco_up,
+                winSize=self.win_size,
+                zeroZone=(-1,-1),
+                criteria=(cv.TERM_CRITERIA_EPS|cv.TERM_CRITERIA_MAX_ITER, 50, 1e-6)
+            )
 
+        # 6) scale the Charuco intersections back to original res
+        if resp > 0:
+            charuco_up /= self.scale
 
-    def pose(self, img, camera_matrix, dist_coeffs):
-        # init
-        rvec = np.zeros((3, 3))
-        tvec = np.zeros((3, 1))
-        
-        # find corners
-        response, charuco_corner, charuco_id, img_gray = self.corner(img)
+        # return: count, corners @ original resolution, ids, original gray
+        return resp, charuco_up, charuco_ids, gray0
 
-        if response:
+    def pose(self, img, camera_matrix, dist_coeffs, disp=True):
+        # 1) Detect Charuco corners
+        resp, charuco_corners, charuco_ids, gray_orig = self.corner(
+            img, camera_matrix, dist_coeffs
+        )
+        if resp <= 0:
+            return None, None, charuco_corners, charuco_ids, gray_orig, None
 
-            # estimate pose
-            retval, rvec, tvec = cv.aruco.estimatePoseCharucoBoard(charuco_corner, charuco_id, self.board, camera_matrix, dist_coeffs, rvec, tvec)    
+        # 2) Initial estimate
+        rvec = np.zeros((3,1), dtype=np.float64)
+        tvec = np.zeros((3,1), dtype=np.float64)
+        retval, rvec, tvec = cv.aruco.estimatePoseCharucoBoard(
+            charuco_corners,
+            charuco_ids,
+            self.board,
+            camera_matrix,
+            dist_coeffs,
+            rvec,
+            tvec
+        )
+        if not retval:
+            return None, None, charuco_corners, charuco_ids, gray_orig, None
 
-            # draw axis
-            cv.drawFrameAxes(img, camera_matrix, dist_coeffs, rvec, tvec, self.board.getChessboardSize()[0]*self.board.getSquareLength(), 1)
+        # 3) Build the matching 3D points for each detected corner
+        size_x, size_y = self.board.getChessboardSize()   # e.g. (7,7) squares
+        sq = self.board.getSquareLength()
+        # intersections = (size_x-1)*(size_y-1), left→right, top→bottom
+        obj_all = np.array(
+            [[i*sq, j*sq, 0] 
+            for j in range(1, size_y)    # j=0 top row
+            for i in range(1, size_x)],   # i=0 left column
+            dtype=np.float32
+        )
+        objPts = obj_all[ charuco_ids.flatten() ]  # shape = (N,3)
 
-        return rvec, tvec, charuco_corner, charuco_id, img_gray 
-        
+        # 4) Iterative LM refine on the full set
+        ok, rvec, tvec = cv.solvePnP(
+            objPts,
+            charuco_corners.reshape(-1,2),
+            camera_matrix,
+            dist_coeffs,
+            rvec,
+            tvec,
+            useExtrinsicGuess=True,
+            flags=cv.SOLVEPNP_ITERATIVE
+        )
+
+        # 5) Compute mean reprojection error
+        proj, _    = cv.projectPoints(objPts, rvec, tvec, camera_matrix, dist_coeffs)
+        proj_pts2d = proj.reshape(-1,2)
+        detected2d = charuco_corners.reshape(-1,2)
+        errs       = np.linalg.norm(detected2d - proj_pts2d, axis=1)
+        mean_err   = float(errs.mean())
+
+        # 6) Draw if requested
+        if disp:
+            cv.aruco.drawDetectedCornersCharuco(img, charuco_corners, charuco_ids)
+            axis_len = sq * (size_x - 1)
+            cv.drawFrameAxes(img, camera_matrix, dist_coeffs, rvec, tvec, axis_len)
+
+        # 7) Return everything plus error
+        return rvec, tvec, charuco_corners, charuco_ids, gray_orig, mean_err
+    
 
     def chess_corner(self, img):
         # termination criteria

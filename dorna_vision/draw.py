@@ -51,8 +51,8 @@ def draw_2d_axis(img, center, angle, label=False, length=20, thickness=1):
                       int(center[1] + length * np.cos(np.radians(angle))))
 
         # Draw the rotated axes
-        cv.line(img, center, x_axis_end, (0, 0, 255), thickness)  # Red X-axis
-        cv.line(img, center, y_axis_end, (0, 255, 0), thickness)  # Green Y-axis
+        cv.line(img, center, x_axis_end, (0, 0, 255), thickness, lineType=cv.LINE_AA)  # Red X-axis
+        cv.line(img, center, y_axis_end, (0, 255, 0), thickness, lineType=cv.LINE_AA)  # Green Y-axis
    
     
 def draw_cnt(cnt_img, draws, axis=True, label=False, length=20, color=(0, 255, 0), thickness=1):
@@ -69,7 +69,7 @@ def draw_cnt(cnt_img, draws, axis=True, label=False, length=20, color=(0, 255, 0
 
 
 def draw_poly(img, vertices, color=(0, 255, 0), thickness=1):
-    cv.polylines(img, [np.array(vertices, np.int32)], isClosed=True, color=color, thickness=thickness)
+    cv.polylines(img, [np.array(vertices, np.int32)], isClosed=True, color=color, thickness=thickness, lineType=cv.LINE_AA)
 
     
 def draw_ellipse(img, elps, axis=True, label=False, color=(0, 255, 0), length=20, thickness=2):
@@ -86,20 +86,20 @@ def draw_ellipse(img, elps, axis=True, label=False, color=(0, 255, 0), length=20
 def draw_circle(img, circles, color=(255, 0, 255), thickness=1):    
     for circle in circles:
         # circle center
-        cv.circle(img, (circle[0], circle[1]), 1, color, thickness)
+        cv.circle(img, (circle[0], circle[1]), 1, color, thickness, lineType=cv.LINE_AA)
         # circle outline
-        cv.circle(img, (circle[0], circle[1]), circle[2], color, thickness)
+        cv.circle(img, (circle[0], circle[1]), circle[2], color, thickness, lineType=cv.LINE_AA)
 
 
 def draw_point(img, pxl, label, radius=3, color=(153, 255, 255), thickness=-1, font_scale=0.5, text_offset=(5, -5), display_label=True):
     # Draw circle
     center = (int(pxl[0]), int(pxl[1]))
-    cv.circle(img, center, radius, color, thickness)
+    cv.circle(img, center, radius, color, thickness, lineType=cv.LINE_AA)
 
     # Draw label text near the point
     if display_label:
         text_pos = (center[0] + text_offset[0], center[1] + text_offset[1])
-        cv.putText(img, str(label), text_pos, cv.FONT_HERSHEY_SIMPLEX, font_scale, color, 1, cv.LINE_AA)
+        cv.putText(img, str(label), text_pos, cv.FONT_HERSHEY_SIMPLEX, font_scale, color, 1, lineType=cv.LINE_AA)
 
 
 # draw oriented bounding box
@@ -112,29 +112,29 @@ def _draw_obb(img, id, center, wh, rot, xyz, color= (255,0,255), thickness=1):
     box = np.int0(box)
 
     # Draw the rotated rectangle
-    cv.polylines(img, [box], isClosed=True, color=color, thickness=thickness)
+    cv.polylines(img, [box], isClosed=True, color=color, thickness=thickness, lineType=cv.LINE_AA)
 
     # put label
     # Draw the center coordinates on the image
-    cv.putText(img, f"id={id}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, cv.LINE_AA)
+    cv.putText(img, f"id={id}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, lineType=cv.LINE_AA)
 
 # draw oriented bounding box
 def draw_obb(img, id, center, corners, color= (255,0,255), thickness=1):
     top_left, top_right, bottom_right, bottom_left = corners
 
-    cv.line(img, top_left, top_right, color, thickness)
-    cv.line(img, top_right, bottom_right, color, thickness)
-    cv.line(img, bottom_right, bottom_left, color, thickness)
-    cv.line(img, bottom_left, top_left, color, thickness)
+    cv.line(img, top_left, top_right, color, thickness, lineType=cv.LINE_AA)
+    cv.line(img, top_right, bottom_right, color, thickness, lineType=cv.LINE_AA)
+    cv.line(img, bottom_right, bottom_left, color, thickness, lineType=cv.LINE_AA)
+    cv.line(img, bottom_left, top_left, color, thickness, lineType=cv.LINE_AA)
 
     # Draw the center coordinates on the image
-    cv.putText(img, f"id={id}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, cv.LINE_AA)
+    cv.putText(img, f"id={id}", center, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), thickness, lineType=cv.LINE_AA)
 
 
 def draw_corners(img, cls, conf, corners, color= (0,255,0), thickness=1, label=True):
     # Draw the rotated rectangle
     converted_corners = np.array(corners, dtype=np.int32).reshape((-1, 1, 2))
-    cv.polylines(img, [converted_corners], isClosed=True, color=color, thickness=thickness)
+    cv.polylines(img, [converted_corners], isClosed=True, color=color, thickness=thickness, lineType=cv.LINE_AA)
 
     if label:
         # Draw a green rectangle as the background
@@ -144,7 +144,7 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0), thickness=1, label=T
         font_scale = 0.6
 
         # Get the size of the text to calculate the background
-        (text_width, text_height), _ = cv.getTextSize(text, font, font_scale, thickness=thickness)
+        (text_width, text_height), _ = cv.getTextSize(text, font, font_scale, thickness=thickness, lineType=cv.LINE_AA)
 
         # Define rectangle position and size (background)
         background_rect = (x, y - text_height - 5, text_width + 10, text_height + 5)
@@ -152,10 +152,10 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0), thickness=1, label=T
         # Draw the green background rectangle
         cv.rectangle(img, (background_rect[0], background_rect[1]), 
                     (background_rect[0] + background_rect[2], background_rect[1] + background_rect[3]), 
-                    color, -1)  # Green color, filled rectangle
+                    color, -1, lineType=cv.LINE_AA)  # Green color, filled rectangle
 
         # Draw the text in white on top of the background
-        cv.putText(img, text, (x + 5, y - 5), font, font_scale, (0, 0, 0), thickness, cv.LINE_AA)  # black text
+        cv.putText(img, text, (x + 5, y - 5), font, font_scale, (0, 0, 0), thickness, lineType=cv.LINE_AA)  # black text
 
 
 # Draw 3D axis on the image using the camera pose

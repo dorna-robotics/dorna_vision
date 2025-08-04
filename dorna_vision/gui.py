@@ -588,7 +588,7 @@ class Detection_app(object):
         # calobrate
         self.clb = None
         if robot and camera_connected:
-            clb_prm = {'detection': {'cmd': 'aruco', 'dictionary': "DICT_4X4_100", 'marker_length': 20, 'refine': "CORNER_REFINE_APRILTAG", 'subpix': False}}
+            clb_prm = {'detection': {'cmd': 'aruco', 'dictionary': "DICT_4X4_100", 'marker_length': 20, 'refine': "CORNER_REFINE_APRILTAG", 'subpix': True}}
             clb_detection = Detection(camera=camera, robot=None, **clb_prm)
             self.clb = Calibration(robot, clb_detection)
 
