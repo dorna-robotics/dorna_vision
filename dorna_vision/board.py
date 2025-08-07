@@ -169,13 +169,13 @@ class Aruco(object):
 class Charuco(object):
     def __init__(
         self,
-        sqr_x=8, sqr_y=8,
-        sqr_length=12, marker_length=8,
-        dictionary="DICT_4X4_100",
-        refine="CORNER_REFINE_SUBPIX",
-        subpix=True,
+        sqr_x=7, sqr_y=7,
+        sqr_length=30, marker_length=24,
+        dictionary="DICT_5X5_1000",
+        refine="CORNER_REFINE_APRILTAG",
+        subpix=False,
         win_size=(11, 11),
-        scale=2               # upsample factor for sub‑pixel
+        scale=3               # upsample factor for sub‑pixel
     ):
         # subpix flag for chess intersections
         self.subpix = subpix
