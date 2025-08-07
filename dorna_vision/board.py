@@ -337,7 +337,7 @@ class Charuco(object):
         # 6) Draw if requested
         if disp:
             cv.aruco.drawDetectedCornersCharuco(img, charuco_corners, charuco_ids)
-            axis_len = sq * (size_x - 1)
+            axis_len = sq * (size_x)
             cv.drawFrameAxes(img, camera_matrix, dist_coeffs, rvec, tvec, axis_len)
 
         # 7) Return everything plus error
