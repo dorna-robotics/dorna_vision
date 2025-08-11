@@ -301,7 +301,7 @@ class Detection(object):
                         # build _retval  (FIX: stop indexing [0] on rvec/tvec/id)
                         _retval = [{
                             "timestamp": camera_data["timestamp"],
-                            "cls": str(int(r[2][0])),                              # CHANGED
+                            "cls": str(int(np.asarray(r[2][0]).item())),                              # CHANGED
                             "conf": 1,
                             "center": _roi.pxl_to_orig(r[0]),
                             "corners": [_roi.pxl_to_orig(x) for x in r[1]],
