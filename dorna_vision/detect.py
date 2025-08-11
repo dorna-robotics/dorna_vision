@@ -6,6 +6,7 @@ from dorna_vision.draw import *
 from dorna_vision.pose import *
 from dorna_vision.limit import *
 from dorna_vision.sort import *
+from dorna2 import pose as dorna_pose
 
 import time
 import cv2 as cv
@@ -296,25 +297,60 @@ class Detection(object):
 
                 elif self.detection["cmd"] == "aruco" and camera_data["depth_int"] is not None:
                     try:
-                        # [[pxl, corners, (id, rvec, tvec)], ...]
                         result = aruco(img_roi, self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), **self.detection)
-                        _retval = [{"timestamp": camera_data["timestamp"], "cls": str(r[2][0][0]), "conf": 1, "center": _roi.pxl_to_orig(r[0]),
-                        "corners": [_roi.pxl_to_orig(x) for x in r[1]], "rvec": [np.degrees(x) for x in r[2][2][0].tolist()], "tvec": r[2][3][0].tolist()} for r in result]
-                        draw_aruco(img_adjust, np.array([r[2][0] for r in result]), np.array([[r["corners"] for r in _retval]], dtype=np.float32), [r[2][2] for r in result], [r[2][3] for r in result], self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]))
+                        # build _retval  (FIX: stop indexing [0] on rvec/tvec/id)
+                        _retval = [{
+                            "timestamp": camera_data["timestamp"],
+                            "cls": str(int(r[2][0])),                              # CHANGED
+                            "conf": 1,
+                            "center": _roi.pxl_to_orig(r[0]),
+                            "corners": [_roi.pxl_to_orig(x) for x in r[1]],
+                            "rvec": dorna_pose.rvec_to_abc(r[2][2].flatten().tolist()),  # CHANGED
+                            "tvec": r[2][3].flatten().tolist(),                              # CHANGED
+                        } for r in result]
+                        
+                        # draw
+                        draw_aruco(img_adjust, np.array([r[2][0] for r in result]),
+                                    np.array([[r["corners"] for r in _retval]], dtype=np.float32), 
+                                    [r[2][2] for r in result], [r[2][3] for r in result], 
+                                    self.camera.camera_matrix(camera_data["depth_int"]), 
+                                    self.camera.dist_coeffs(camera_data["depth_int"]),
+                                    self.detection["marker_length"])
+                       
+                        # add to retval
                         retval = _retval
-                        # rvec tvec
-                        # xyz_target_2_cam
-                        for r in retval:
-                            T_target_to_cam = self.kinematic.xyzabc_to_mat(np.array(r["tvec"]+ r["rvec"]))
 
-                            # apply frame
-                            T_target_to_frame = np.matmul(self.frame_mat_inv, T_target_to_cam)
-                            xyzabc_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
-                            r["tvec"] = xyzabc_target_to_frame[0:3]
-                            r["rvec"] = xyzabc_target_to_frame[3:6]
+                        # --- frame application (unchanged logic, but now r["tvec"]/r["rvec"] are clean 3-lists) ---
+                        for r in retval:
+                            T_target_to_cam = self.kinematic.xyzabc_to_mat(np.array(r["tvec"] + r["rvec"]))
+                            T_target_to_frame = self.frame_mat_inv @ T_target_to_cam
+                            xyzabc = dorna_pose.T_to_xyzabc(T_target_to_frame)
+                            r["tvec"], r["rvec"] = xyzabc[:3], xyzabc[3:]
+
+                    except Exception as ex:
+                        print("ali3: ", ex)
+                        pass
+                elif self.detection["cmd"] == "charuco" and camera_data["depth_int"] is not None:
+                    try:
+                        # [[pxl, corners, (id, rvec, tvec)], ...]
+                        result = charuco(img_roi, self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), **self.detection)
+                        if result:
+                            retval =[{"timestamp": camera_data["timestamp"], "cls": "charuco", "conf": 1, "center": [0, 0],
+                            "corners": [0, 0], "rvec": dorna_pose.rvec_to_abc(result[0].flatten().tolist()), "tvec": result[1].flatten().tolist(), "err": result[4]}]
+
+                            # draw
+                            draw_charuco(img_adjust, result[2], result[3], self.detection["sqr_x"]*self.detection["sqr_length"], self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), result[0], result[1])
+                            # xyz_target_2_cam
+                            for r in retval:
+                                T_target_to_cam = dorna_pose.xyzabc_to_T(np.array(r["tvec"]+ r["rvec"]))
+
+                                # apply frame
+                                T_target_to_frame = np.matmul(self.frame_mat_inv, T_target_to_cam)
+                                xyzabc_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
+                                r["tvec"] = xyzabc_target_to_frame[0:3]
+                                r["rvec"] = xyzabc_target_to_frame[3:6]
                     except Exception as ex:
                         pass
-                
                 elif self.detection["cmd"] == "ocr":
                     result = self.ocr.ocr(img_roi, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r[1][0], "conf": r[1][1], "center": _roi.pxl_to_orig([(sum([p[0] for p in r[0]])/len(r[0])), sum([p[1] for p in r[0]])/len(r[0])]), 

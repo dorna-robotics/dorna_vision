@@ -30,22 +30,23 @@ refine method
     CORNER_REFINE_CONTOUR,
     CORNER_REFINE_APRILTAG
 """
+import cv2 as cv
+import numpy as np
+
 class Aruco(object):
     """docstring for aruco"""
-    def __init__(self, dictionary = "DICT_4X4_100", refine="CORNER_REFINE_APRILTAG", subpix=False, marker_length=20, marker_size=100, win_size=(11,11), scale=4):
+    def __init__(self, dictionary="DICT_4X4_100", refine="CORNER_REFINE_SUBPIX",
+                 subpix=False, marker_length=20, marker_size=100,
+                 win_size=(11,11), scale=1):
         super(Aruco, self).__init__()
-        self.dictionary = cv.aruco.getPredefinedDictionary(getattr(cv.aruco, dictionary))
-        self.refine = refine
-        self.subpix = subpix
-        self.marker_length = marker_length
-        self.marker_size = marker_size
-        self.win_size = win_size
-        self.scale = scale
-        """"
-        # prms and refine
-        prms =  cv.aruco.DetectorParameters()
-        prms.cornerRefinementMethod = getattr(cv.aruco, self.refine)
-        """
+        self.dictionary   = cv.aruco.getPredefinedDictionary(getattr(cv.aruco, dictionary))
+        self.refine       = refine
+        self.subpix       = subpix
+        self.marker_length= marker_length     # units of your choice; tvec will match this
+        self.marker_size  = marker_size
+        self.win_size     = win_size
+        self.scale        = scale
+
         self.prms = cv.aruco.DetectorParameters()
         # Adaptive threshold
         self.prms.adaptiveThreshWinSizeMin    = 3
@@ -58,110 +59,106 @@ class Aruco(object):
         self.prms.polygonalApproxAccuracyRate = 0.03
         # Corner refinement
         self.prms.cornerRefinementMethod      = getattr(cv.aruco, self.refine)
-        self.prms.cornerRefinementWinSize     = 21   # bigger window
+        self.prms.cornerRefinementWinSize     = 21
         self.prms.cornerRefinementMaxIterations = 100
         self.prms.cornerRefinementMinAccuracy   = 1e-6
 
     def create(self, board_path="board.png", marker_id=0):
-        # Generate the marker image
         board = cv.aruco.generateImageMarker(self.dictionary, marker_id, self.marker_size)
-
-        # write
         cv.imwrite(board_path, board)
-
 
     def corner(self, img):
         """
-        Detect ArUco corners with upsampling + CLAHE + optional blur,
-        then (if self.subpix) run cv.cornerSubPix on the upsampled image
-        before scaling back to the original resolution.
-        Returns: corners, ids, rejected, gray_orig
+        Detect ArUco corners with upsampling + CLAHE (+ optional subpix),
+        then scale corners back to the original resolution.
+        Returns: corners(list of (1,4,2) float32), ids, rejected, gray_orig
         """
-        # 1) convert to gray and keep the original for return
         gray_orig = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
-        # 2) upscale so sub‑pixel has more pixels to work with
-        gray = cv.resize(
-            gray_orig,
-            None,
-            fx=self.scale,
-            fy=self.scale,
-            interpolation=cv.INTER_CUBIC
-        )
-
-        # 3) apply CLAHE (Contrast Limited AHE) for more uniform grads
-        clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        gray = clahe.apply(gray)
-
-        # 4) optional light blur to reduce sensor noise
+        gray = cv.resize(gray_orig, None, fx=self.scale, fy=self.scale, interpolation=cv.INTER_CUBIC)
+        gray = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray)
         gray = cv.GaussianBlur(gray, (5,5), 0)
 
-        # 5) detect markers on the upsampled, equalized image
-        corners_up, ids, rejected_up = cv.aruco.detectMarkers(
-            gray, self.dictionary, parameters=self.prms
-        )
+        corners_up, ids, rejected_up = cv.aruco.detectMarkers(gray, self.dictionary, parameters=self.prms)
 
-        # 6) if subpix refinement is on, refine each upsampled corner
         if self.subpix and corners_up:
             for c in corners_up:
                 cv.cornerSubPix(
-                    gray,
-                    c,
-                    winSize=self.win_size,
-                    zeroZone=(-1,-1),
+                    gray, c, winSize=self.win_size, zeroZone=(-1,-1),
                     criteria=(cv.TERM_CRITERIA_EPS|cv.TERM_CRITERIA_MAX_ITER, 50, 1e-6)
                 )
 
-        # 7) scale corners & rejected candidates back down to original size
-        corners = [c.astype(np.float32) / self.scale for c in corners_up]
+        corners  = [c.astype(np.float32) / self.scale for c in corners_up]
         rejected = [r.astype(np.float32) / self.scale for r in rejected_up]
 
         return corners, ids, rejected, gray_orig
 
-
-    def pose(self, img, camera_matrix, dist_coeffs, coordinate="ccw"):
+    def pose(self, img, camera_matrix, dist_coeffs):
         """
-        Same as before, but uses the new, robust corner() filter.
+        Pose via OpenCV's ArUco estimator (no manual solvePnP).
+        Returns rvecs, tvecs with shape (N,3), corners, ids, gray.
         """
         corners, ids, rejected, gray = self.corner(img)
-        rvecs, tvecs = [], []
+
+        if ids is None or len(corners) == 0:
+            rvecs = np.empty((0,3), np.float32)
+            tvecs = np.empty((0,3), np.float32)
+
+            return rvecs, tvecs, corners, ids, gray
+
+        # 1) Pose from OpenCV estimator
+        # corners must be a list of (1,4,2) float32 arrays in original pixel scale
+        prm = cv.aruco.EstimateParameters()
+        prm.pattern = cv.aruco.ARUCO_CW_TOP_LEFT_CORNER
+        rvecs_e, tvecs_e, _ = cv.aruco.estimatePoseSingleMarkers(
+            corners, float(self.marker_length), camera_matrix, dist_coeffs,
+            estimateParameters=prm
+        )  # rvecs_e, tvecs_e: (N,1,3)
+
+        rvecs = rvecs_e.reshape(-1,3).astype(np.float32)
+        tvecs = tvecs_e.reshape(-1,3).astype(np.float32)
+
+        # 2) Cheirality enforcement per marker. If any Z<=0, retry with reversed winding and keep better/front-facing.
+        # Build object points from marker_length (centered square at Z=0).
         m = float(self.marker_length)
+        obj_cw  = np.array([[-m/2,  m/2, 0.0],
+                            [ m/2,  m/2, 0.0],
+                            [ m/2, -m/2, 0.0],
+                            [-m/2, -m/2, 0.0]], dtype=np.float32)
+        obj_ccw = obj_cw[[0,3,2,1], :]
 
-        # choose object‑points based on coordinate flag
-        if coordinate.lower() == "cw":
-            obj_pts = np.array([
-                [0,   0,   0],
-                [m,   0,   0],
-                [m,   m,   0],
-                [0,   m,   0]
-            ], dtype=np.float32)
-        else:
-            obj_pts = np.array([
-                [-m/2,  m/2, 0],
-                [ m/2,  m/2, 0],
-                [ m/2, -m/2, 0],
-                [-m/2, -m/2, 0]
-            ], dtype=np.float32)
+        for i in range(len(corners)):
+            if tvecs[i,2] > 0:
+                continue  # good
 
-        # solvePnP per remaining marker
-        for c in corners:
-            img_pts = c.reshape(4,2).astype(np.float32)
-            ok, rvec, tvec = cv.solvePnP(
-                obj_pts, img_pts,
-                camera_matrix, dist_coeffs,
-                flags=cv.SOLVEPNP_IPPE_SQUARE
+            # Try reversed corner order for this marker
+            img_pts = corners[i].reshape(4,2).astype(np.float32)
+
+            # Estimate again with reversed winding by reordering the image corners to match CCW model
+            # (equivalently reorder obj points; here we reorder image to keep API simple)
+            img_rev = img_pts[[0,3,2,1], :][None, ...].astype(np.float32)  # shape (1,4,2)
+            r_alt, t_alt, _ = cv.aruco.estimatePoseSingleMarkers(
+                [img_rev.astype(np.float32)],  # list of (1,4,2)
+                float(self.marker_length), camera_matrix, dist_coeffs
             )
-            if ok:
-                rvecs.append(rvec)
-                tvecs.append(tvec)
+            r_alt = r_alt.reshape(3).astype(np.float32)
+            t_alt = t_alt.reshape(3).astype(np.float32)
 
-        # format output arrays
-        if rvecs:
-            rvecs = np.array(rvecs, dtype=np.float32)
-            tvecs = np.array(tvecs, dtype=np.float32)
-        else:
-            rvecs = np.empty((0,1,3), np.float32)
-            tvecs = np.empty((0,1,3), np.float32)
+            # Choose front-facing with lower reprojection error
+            def reproj_err(rvec, tvec, obj):
+                proj, _ = cv.projectPoints(obj, rvec.reshape(3,1), tvec.reshape(3,1), camera_matrix, dist_coeffs)
+                return float(np.mean(np.linalg.norm(proj.reshape(-1,2) - img_pts, axis=1)))
+
+            err_cur = reproj_err(rvecs[i], tvecs[i], obj_cw)
+            err_alt = reproj_err(r_alt,     t_alt,     obj_ccw)
+
+            if (t_alt[2] > 0) and (err_alt <= err_cur):
+                rvecs[i] = r_alt
+                tvecs[i] = t_alt
+            elif tvecs[i,2] <= 0 and t_alt[2] > 0:
+                rvecs[i] = r_alt
+                tvecs[i] = t_alt
+            # else keep current (even if negative) only if both are negative—should be rare
 
         return rvecs, tvecs, corners, ids, gray
 
@@ -172,7 +169,7 @@ class Charuco(object):
         sqr_x=7, sqr_y=7,
         sqr_length=30, marker_length=24,
         dictionary="DICT_5X5_1000",
-        refine="CORNER_REFINE_APRILTAG",
+        refine="CORNER_REFINE_SUBPIX",
         subpix=False,
         win_size=(11, 11),
         scale=3               # upsample factor for sub‑pixel

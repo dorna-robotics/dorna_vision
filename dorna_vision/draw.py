@@ -2,6 +2,11 @@ import cv2 as cv
 import numpy as np
 
 
+def draw_charuco(img, charuco_corners, charuco_ids, axis_len, camera_matrix, dist_coeffs, rvec, tvec):
+    cv.aruco.drawDetectedCornersCharuco(img, charuco_corners, charuco_ids)
+    cv.drawFrameAxes(img, camera_matrix, dist_coeffs, rvec, tvec, axis_len)
+
+
 def draw_aruco(img, ids, corners, rvecs, tvecs,
                camera_matrix, dist_coeffs,
                length=20, thickness=1):

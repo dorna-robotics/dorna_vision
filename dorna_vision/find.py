@@ -1,6 +1,6 @@
 import cv2 as cv
 import numpy as np
-from dorna_vision.board import Aruco
+from dorna_vision.board import Aruco, Charuco
 import zxingcpp
 
 
@@ -110,47 +110,68 @@ refine method
 
 """
 # [[pxl, corners, (id, rvec, tvec)], ...]
-def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False, coordinate="ccw", **kwargs):
+def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False, **kwargs):
 
     retval = []
 
     # pose
     board = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length)
-    rvecs, tvecs, aruco_corner, aruco_id, _ = board.pose(img, camera_matrix, dist_coeffs, coordinate)
+    rvecs, tvecs, aruco_corner, aruco_id, _ = board.pose(img, camera_matrix, dist_coeffs)
 
     # empty
     if aruco_id is None:
         return retval
 
     for i in range(len(aruco_id)):
-        if len(aruco_corner[i][0]) == 4:
-            corners = aruco_corner[i][0].reshape((4,2))
-            
-            # pxl
-            A1 = corners[2][1] - corners[0][1]
-            B1 = corners[0][0] - corners[2][0]
-            C1 = A1 * corners[0][0] + B1 * corners[0][1]
-            
-            # Coefficients for the second line
-            A2 = corners[3][1] - corners[1][1]
-            B2 = corners[1][0] - corners[3][0]
-            C2 = A2 * corners[1][0] + B2 *corners[1][1]
-            
-            # Calculate the determinant
-            det = A1 * B2 - A2 * B1
-            
-            if det == 0:
-                continue
-            
-            # Calculate the intersection point
-            pxl = [int((C1 * B2 - C2 * B1) / det), int((A1 * C2 - A2 * C1) / det)]
+        c = aruco_corner[i][0]      # shape (4, 2), OpenCV order: TL, TR, BR, BL
+        if len(c) != 4:
+            continue
 
-            # make corners int
-            corners = [[int(c[0]), int(c[1])] for c in corners]
+        # Diagonals: p0–p2 and p1–p3
+        x0,y0 = c[0]; x2,y2 = c[2]
+        x1,y1 = c[1]; x3,y3 = c[3]
 
-            retval.append([pxl, corners, [aruco_id[i], aruco_corner[i], rvecs[i], tvecs[i]]])
+        # Line through (x0,y0)-(x2,y2): A1 x + B1 y = C1
+        A1 = y2 - y0
+        B1 = x0 - x2
+        C1 = A1 * x0 + B1 * y0
+
+        # Line through (x1,y1)-(x3,y3): A2 x + B2 y = C2
+        A2 = y3 - y1
+        B2 = x1 - x3
+        C2 = A2 * x1 + B2 * y1
+
+        det = A1 * B2 - A2 * B1
+        if abs(det) < 1e-6:         # more robust than det == 0
+            continue
+
+        # Intersection (center pixel)
+        cx = (C1 * B2 - C2 * B1) / det
+        cy = (A1 * C2 - A2 * C1) / det
+        pxl = [int(round(cx)), int(round(cy))]
+
+        corners = [[int(round(px)), int(round(py))] for (px, py) in c]
+
+        retval.append([pxl, corners, [aruco_id[i], aruco_corner[i], rvecs[i], tvecs[i]]])
+
     return retval
 
+
+
+def charuco(img, camera_matrix, dist_coeffs, dictionary="DICT_5X5_1000", sqr_x=7, sqr_y=7, sqr_length=30, marker_length=24, refine="CORNER_REFINE_APRILTAG", subpix=False, win_size=(11, 11), scale=3, **kwargs):
+
+    retval = []
+
+    # pose
+    board = Charuco(sqr_x=sqr_x, sqr_y=sqr_y, sqr_length=sqr_length, marker_length=marker_length,
+                    dictionary=dictionary, refine=refine, subpix=subpix, win_size=win_size, scale=scale)
+    rvec, tvec, charuco_corners, charuco_ids, _, mean_err = board.pose(img, camera_matrix, dist_coeffs, disp=True)
+
+    # empty
+    if rvec is not None:
+        retval = [rvec, tvec, charuco_corners, charuco_ids, mean_err]
+
+    return retval
 
 #[[pxl, corners, (major_axis, minor_axis, rot)], ...]    
 def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = True, sigma=1, gradient_threshold_value=20, pf_mode = False, **kwargs):
