@@ -35,7 +35,7 @@ import numpy as np
 
 class Aruco(object):
     """docstring for aruco"""
-    def __init__(self, dictionary="DICT_4X4_100", refine="CORNER_REFINE_SUBPIX",
+    def __init__(self, dictionary="DICT_4X4_100", refine="CORNER_REFINE_APRILTAG",
                  subpix=False, marker_length=20, marker_size=100,
                  win_size=(11,11), scale=1):
         super(Aruco, self).__init__()
