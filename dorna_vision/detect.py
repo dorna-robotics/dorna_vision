@@ -339,7 +339,8 @@ class Detection(object):
                             "corners": [0, 0], "rvec": dorna_pose.rvec_to_abc(result[0].flatten().tolist()), "tvec": result[1].flatten().tolist(), "err": result[4]}]
 
                             # draw
-                            draw_charuco(img_adjust, result[2], result[3], self.detection["sqr_x"]*self.detection["sqr_length"], self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), result[0], result[1])
+                            if self.display and "label" in self.display and self.display["label"] >= 0:
+                                draw_charuco(img_adjust, result[2], result[3], self.detection["sqr_x"]*self.detection["sqr_length"], self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), result[0], result[1])
                             # xyz_target_2_cam
                             for r in retval:
                                 T_target_to_cam = dorna_pose.xyzabc_to_T(np.array(r["tvec"]+ r["rvec"]))
@@ -429,7 +430,7 @@ class Detection(object):
                         continue
 
                 # draw bb
-                if "cmd" in self.detection and self.detection["cmd"] != "aruco" and "label" in self.display and self.display["label"]>=0:
+                if "cmd" in self.detection and self.detection["cmd"] not in ["aruco", "charuco"] and "label" in self.display and self.display["label"]>=0:
                     color_label = (0,255,0)
                     if "color" in r:
                         color_label = r["color"]
@@ -481,7 +482,7 @@ class Detection(object):
                         continue
 
                 # plane: rvec, tvec
-                if "cmd" in self.detection and self.detection["cmd"] != "aruco" and "cmd" in self.pose and self.pose["cmd"] == "plane" and "plane" in self.pose and len(self.pose["plane"]) > 2 and camera_data["depth_frame"] is not None:
+                if "cmd" in self.detection and self.detection["cmd"] not in ["aruco", "charuco"] and "cmd" in self.pose and self.pose["cmd"] == "plane" and "plane" in self.pose and len(self.pose["plane"]) > 2 and camera_data["depth_frame"] is not None:
                     pose_result = Plane().pose(r["corners"], self.pose["plane"], self.camera, camera_data["depth_frame"], camera_data["depth_int"], self.frame_mat_inv)
                     if not pose_result:
                         continue

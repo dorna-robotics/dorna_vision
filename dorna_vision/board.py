@@ -30,8 +30,6 @@ refine method
     CORNER_REFINE_CONTOUR,
     CORNER_REFINE_APRILTAG
 """
-import cv2 as cv
-import numpy as np
 
 class Aruco(object):
     """docstring for aruco"""
@@ -163,6 +161,9 @@ class Aruco(object):
         return rvecs, tvecs, corners, ids, gray
 
 
+import cv2 as cv
+import numpy as np
+
 class Charuco(object):
     def __init__(
         self,
@@ -172,12 +173,31 @@ class Charuco(object):
         refine="CORNER_REFINE_SUBPIX",
         subpix=False,
         win_size=(11, 11),
-        scale=3               # upsample factor for sub‑pixel
+        scale=3,                # upsample factor for sub‑pixel
+        # --- new knobs ---
+        pnp="SQPNP",           # "SQPNP" | "ITERATIVE" | "AP3P"
+        use_ransac=True,
+        ransac_reproj=2.0,     # px
+        ransac_iters=200,
+        ransac_conf=0.999,
+        refine_lm=True,
+        min_corners=4,
+        use_norm_points=True    # undistort to normalized coords before PnP
     ):
         # subpix flag for chess intersections
         self.subpix = subpix
         self.scale  = scale
         self.win_size = win_size
+
+        # PnP options
+        self.pnp = pnp
+        self.use_ransac = use_ransac
+        self.ransac_reproj = float(ransac_reproj)
+        self.ransac_iters  = int(ransac_iters)
+        self.ransac_conf   = float(ransac_conf)
+        self.refine_lm = refine_lm
+        self.min_corners = int(min_corners)
+        self.use_norm_points = bool(use_norm_points)
 
         # build a matching ArUco detector (with sub‑pixel or not)
         self.aruco = Aruco(
@@ -197,17 +217,73 @@ class Charuco(object):
         )
         # use the contrib factory for the best defaults
         self.prms = cv.aruco.DetectorParameters()
-
-        # tighten thresholding if needed
         self.prms.adaptiveThreshConstant = 7
 
+    # --- helpers (added) ---
+    def _pnp_flag(self):
+        name = (self.pnp or "").upper()
+        if name == "SQPNP":
+            return cv.SOLVEPNP_SQPNP
+        if name == "AP3P":
+            return cv.SOLVEPNP_AP3P
+        # default
+        return cv.SOLVEPNP_ITERATIVE
+
+    def _solve_with_pipeline(self, objPts_all, imgPts_all, K, D, rvec0, tvec0):
+        """
+        Runs: (optional) RANSAC -> solvePnP (chosen flag) -> LM refine.
+        Returns rvec, tvec, inlier_indices (or None).
+        """
+        flag = self._pnp_flag()
+        rvec, tvec = rvec0, tvec0
+        inliers = None
+
+        # RANSAC (on all points)
+        if self.use_ransac and len(imgPts_all) >= self.min_corners:
+            ok, rvec_r, tvec_r, inliers = cv.solvePnPRansac(
+                objectPoints=objPts_all,
+                imagePoints=imgPts_all,
+                cameraMatrix=K,
+                distCoeffs=D,
+                useExtrinsicGuess=True,
+                iterationsCount=self.ransac_iters,
+                reprojectionError=self.ransac_reproj,
+                confidence=self.ransac_conf,
+                flags=flag
+            )
+            if ok and inliers is not None and len(inliers) >= self.min_corners:
+                rvec, tvec = rvec_r, tvec_r
+                idx = inliers.reshape(-1)
+                objPts = objPts_all[idx]
+                imgPts = imgPts_all[idx]
+            else:
+                objPts, imgPts = objPts_all, imgPts_all
+                inliers = None
+        else:
+            objPts, imgPts = objPts_all, imgPts_all
+
+        # main solve with chosen flag
+        ok2, rvec_s, tvec_s = cv.solvePnP(
+            objPts, imgPts, K, D,
+            rvec, tvec, useExtrinsicGuess=True, flags=flag
+        )
+        if ok2:
+            rvec, tvec = rvec_s, tvec_s
+
+        # optional LM refine
+        if self.refine_lm:
+            try:
+                cv.solvePnPRefineLM(objPts, imgPts, K, D, rvec, tvec)
+            except Exception:
+                pass
+
+        return rvec, tvec, (inliers.reshape(-1) if inliers is not None else None)
 
     """
     save charuco board, and save the result in a file
     """
     def create(self, board_path="board.png", width=1000, height=1000, margin=0):
         cv.imwrite(board_path, self.board.generateImage((width,height), margin, margin))
-
 
     """
     detect charuco chess board corners
@@ -224,7 +300,6 @@ class Charuco(object):
         6) Down-scale the Charuco intersections and return them
         """
         # 1) get marker corners + gray0 from your Aruco pipeline
-        #    (gray0 is the original-resolution gray)
         marker_corners, marker_ids, marker_rejected, gray0 = self.aruco.corner(img)
         if not marker_corners or marker_ids is None:
             return 0, [], [], gray0
@@ -282,82 +357,72 @@ class Charuco(object):
         resp, charuco_corners, charuco_ids, gray_orig = self.corner(
             img, camera_matrix, dist_coeffs
         )
-        if resp <= 0:
+        if resp is None or resp <= 0 or charuco_ids is None or len(charuco_ids) < self.min_corners:
             return None, None, charuco_corners, charuco_ids, gray_orig, None
 
-        # 2) Initial estimate
-        rvec = np.zeros((3,1), dtype=np.float64)
-        tvec = np.zeros((3,1), dtype=np.float64)
-        retval, rvec, tvec = cv.aruco.estimatePoseCharucoBoard(
+        # 2) Initial estimate (seed)
+        rvec0 = np.zeros((3,1), dtype=np.float64)
+        tvec0 = np.zeros((3,1), dtype=np.float64)
+        retval, rvec_seed, tvec_seed = cv.aruco.estimatePoseCharucoBoard(
             charuco_corners,
             charuco_ids,
             self.board,
             camera_matrix,
             dist_coeffs,
-            rvec,
-            tvec
+            rvec0,
+            tvec0
         )
         if not retval:
             return None, None, charuco_corners, charuco_ids, gray_orig, None
+        rvec, tvec = rvec_seed, tvec_seed
 
         # 3) Build the matching 3D points for each detected corner
         size_x, size_y = self.board.getChessboardSize()   # e.g. (7,7) squares
         sq = self.board.getSquareLength()
-        # intersections = (size_x-1)*(size_y-1), left→right, top→bottom
         obj_all = np.array(
-            [[i*sq, j*sq, 0] 
-            for j in range(1, size_y)    # j=0 top row
-            for i in range(1, size_x)],   # i=0 left column
+            [[i*sq, j*sq, 0]
+             for j in range(1, size_y)    # j=0 top row
+             for i in range(1, size_x)],  # i=0 left column
             dtype=np.float32
         )
-        objPts = obj_all[ charuco_ids.flatten() ]  # shape = (N,3)
+        ids = charuco_ids.flatten()
+        objPts_all = obj_all[ids].astype(np.float32)                # (N,3)
 
-        # 4) Iterative LM refine on the full set
-        ok, rvec, tvec = cv.solvePnP(
-            objPts,
-            charuco_corners.reshape(-1,2),
-            camera_matrix,
-            dist_coeffs,
-            rvec,
-            tvec,
-            useExtrinsicGuess=True,
-            flags=cv.SOLVEPNP_ITERATIVE
+        # 4) Prepare 2D points; optionally undistort to normalized coords
+        #    Keep a copy of original pixels for final error computation.
+        imgPts_px = charuco_corners.reshape(-1,2).astype(np.float32)
+
+        if self.use_norm_points:
+            # normalized coordinates (no distortion)
+            undist = cv.undistortPoints(
+                charuco_corners.astype(np.float32), camera_matrix, dist_coeffs
+            )  # (N,1,2)
+            imgPts_all = undist.reshape(-1,2).astype(np.float32)
+            Kn = np.eye(3, dtype=np.float32)
+            Dn = None
+        else:
+            imgPts_all = imgPts_px
+            Kn, Dn = camera_matrix, dist_coeffs
+
+        # 5) Robust PnP pipeline on chosen coordinate space
+        rvec, tvec, inliers = self._solve_with_pipeline(
+            objPts_all, imgPts_all, Kn, Dn, rvec, tvec
         )
 
-        # 5) Compute mean reprojection error
-        proj, _    = cv.projectPoints(objPts, rvec, tvec, camera_matrix, dist_coeffs)
+        # 6) Mean reprojection error (pixels in the ORIGINAL image space)
+        proj, _ = cv.projectPoints(objPts_all, rvec, tvec, camera_matrix, dist_coeffs)
         proj_pts2d = proj.reshape(-1,2)
-        detected2d = charuco_corners.reshape(-1,2)
-        errs       = np.linalg.norm(detected2d - proj_pts2d, axis=1)
-        mean_err   = float(errs.mean())
+        errs = np.linalg.norm(imgPts_px - proj_pts2d, axis=1)
+        mean_err = float(errs.mean()) if len(errs) else None
 
-        # 6) Draw if requested
+        # 7) Draw if requested
         if disp:
             cv.aruco.drawDetectedCornersCharuco(img, charuco_corners, charuco_ids)
             axis_len = sq * (size_x)
             cv.drawFrameAxes(img, camera_matrix, dist_coeffs, rvec, tvec, axis_len)
 
-        # 7) Return everything plus error
+        # 8) Return everything plus error (same signature/order as yours)
         return rvec, tvec, charuco_corners, charuco_ids, gray_orig, mean_err
-    
-
-    def chess_corner(self, img):
-        # termination criteria
-        criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 1, 0.001)
-
-        # bgr to gray
-        gray_img = cv.cvtColor(img,cv.COLOR_BGR2GRAY)
-
-        # Find the chess board corners
-        ret, corners = cv.findChessboardCorners(gray_img, (self.sqr_y-1, self.sqr_x-1), None)
-        color_img = cv.drawChessboardCorners(img, (self.sqr_y-1, self.sqr_x-1), corners, ret)
-
-        # If found, add object points, image points (after refining them)
-        corners2 = []
-        if ret == True:
-            corners2 = cv.cornerSubPix(gray_img, corners,(11,11),(-1,-1),criteria)
-
-        return ret , corners2
 
 
 def main_charuco_corenr():

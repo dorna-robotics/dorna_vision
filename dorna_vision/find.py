@@ -126,7 +126,7 @@ def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_len
         c = aruco_corner[i][0]      # shape (4, 2), OpenCV order: TL, TR, BR, BL
         if len(c) != 4:
             continue
-
+        """
         # Diagonals: p0–p2 and p1–p3
         x0,y0 = c[0]; x2,y2 = c[2]
         x1,y1 = c[1]; x3,y3 = c[3]
@@ -149,6 +149,8 @@ def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_len
         cx = (C1 * B2 - C2 * B1) / det
         cy = (A1 * C2 - A2 * C1) / det
         pxl = [int(round(cx)), int(round(cy))]
+        """
+        pxl = [int(round(c[0][0])), int(round(c[0][1]))]  # TL, for example
 
         corners = [[int(round(px)), int(round(py))] for (px, py) in c]
 
@@ -165,7 +167,7 @@ def charuco(img, camera_matrix, dist_coeffs, dictionary="DICT_5X5_1000", sqr_x=7
     # pose
     board = Charuco(sqr_x=sqr_x, sqr_y=sqr_y, sqr_length=sqr_length, marker_length=marker_length,
                     dictionary=dictionary, refine=refine, subpix=subpix, win_size=win_size, scale=scale)
-    rvec, tvec, charuco_corners, charuco_ids, _, mean_err = board.pose(img, camera_matrix, dist_coeffs, disp=True)
+    rvec, tvec, charuco_corners, charuco_ids, _, mean_err = board.pose(img, camera_matrix, dist_coeffs, disp=False)
 
     # empty
     if rvec is not None:
