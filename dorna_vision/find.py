@@ -110,12 +110,12 @@ refine method
 
 """
 # [[pxl, corners, (id, rvec, tvec)], ...]
-def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False, **kwargs):
+def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False, win_size=(11, 11), scale=3, **kwargs):
 
     retval = []
 
     # pose
-    board = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length)
+    board = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length, win_size=win_size, scale=scale)
     rvecs, tvecs, aruco_corner, aruco_id, _ = board.pose(img, camera_matrix, dist_coeffs)
 
     # empty
