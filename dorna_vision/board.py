@@ -38,8 +38,9 @@ class Aruco(object):
                  subpix=False,
                  marker_length=20,            # physical marker length (mm or your unit)
                  marker_size=200,             # pixels when generating marker
-                 win_size=(11,11),
-                 scale=2):                    # upscale factor for detection
+                 win_size=(5, 5),
+                 scale=1,                       # upscale factor for detection
+                 **kwargs):                    
         super(Aruco, self).__init__()
         self.dictionary   = cv.aruco.getPredefinedDictionary(getattr(cv.aruco, dictionary))
         self.refine       = refine
@@ -77,10 +78,11 @@ class Aruco(object):
         gray_orig = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
         gray = cv.resize(gray_orig, None, fx=self.scale, fy=self.scale, interpolation=cv.INTER_CUBIC)
-        gray = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray)
-        gray = cv.GaussianBlur(gray, (5,5), 0)
+        #gray = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray)
+        #gray = cv.GaussianBlur(gray, (5,5), 0)
 
         corners_up, ids, rejected_up = cv.aruco.detectMarkers(gray, self.dictionary, parameters=self.prms)
+
 
         if self.subpix and corners_up:
             for c in corners_up:
@@ -152,9 +154,9 @@ class Charuco(object):
         sqr_length=30, marker_length=24,
         dictionary="DICT_5X5_1000",
         refine="CORNER_REFINE_SUBPIX",
-        subpix=False,
-        win_size=(11, 11),
-        scale=3,                # upsample factor for sub‑pixel
+        subpix=True,
+        win_size=(5, 5),
+        scale=1,                # upsample factor for sub‑pixel
         # --- new knobs ---
         pnp="SQPNP",           # "SQPNP" | "ITERATIVE" | "AP3P"
         use_ransac=True,
@@ -163,7 +165,8 @@ class Charuco(object):
         ransac_conf=0.999,
         refine_lm=True,
         min_corners=4,
-        use_norm_points=True    # undistort to normalized coords before PnP
+        use_norm_points=True,    # undistort to normalized coords before PnP
+        **kwargs,
     ):
         # subpix flag for chess intersections
         self.subpix = subpix
@@ -291,8 +294,8 @@ class Charuco(object):
             fx=self.scale, fy=self.scale,
             interpolation=cv.INTER_CUBIC
         )
-        gray_up = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray_up)
-        gray_up = cv.GaussianBlur(gray_up, (5,5), 0)
+        #gray_up = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray_up)
+        #gray_up = cv.GaussianBlur(gray_up, (5,5), 0)
 
         # 3) scale your marker corners *back up* to match gray_up coords
         mk_up = [ (c * self.scale).astype(np.float32) for c in marker_corners ]
@@ -386,7 +389,7 @@ class Charuco(object):
             Kn, Dn = camera_matrix, dist_coeffs
 
         # 5) Robust PnP pipeline on chosen coordinate space
-        rvec, tvec, inliers = self._solve_with_pipeline(
+        rvec, tvec, _ = self._solve_with_pipeline(
             objPts_all, imgPts_all, Kn, Dn, rvec, tvec
         )
 

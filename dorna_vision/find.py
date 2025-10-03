@@ -110,12 +110,12 @@ refine method
 
 """
 # [[pxl, corners, (id, rvec, tvec)], ...]
-def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_length=10, refine="CORNER_REFINE_APRILTAG", subpix=False, win_size=(11, 11), scale=3, **kwargs):
+def aruco(img, camera_matrix, dist_coeffs, **kwargs):
 
     retval = []
 
     # pose
-    board = Aruco(dictionary=dictionary, refine=refine, subpix=subpix, marker_length=marker_length, win_size=win_size, scale=scale)
+    board = Aruco(**kwargs)
     rvecs, tvecs, aruco_corner, aruco_id, _ = board.pose(img, camera_matrix, dist_coeffs)
 
     # empty
@@ -160,13 +160,12 @@ def aruco(img, camera_matrix, dist_coeffs, dictionary="DICT_6X6_250", marker_len
 
 
 
-def charuco(img, camera_matrix, dist_coeffs, dictionary="DICT_5X5_1000", sqr_x=7, sqr_y=7, sqr_length=30, marker_length=24, refine="CORNER_REFINE_APRILTAG", subpix=False, win_size=(11, 11), scale=3, **kwargs):
+def charuco(img, camera_matrix, dist_coeffs, **kwargs):
 
     retval = []
 
     # pose
-    board = Charuco(sqr_x=sqr_x, sqr_y=sqr_y, sqr_length=sqr_length, marker_length=marker_length,
-                    dictionary=dictionary, refine=refine, subpix=subpix, win_size=win_size, scale=scale)
+    board = Charuco(**kwargs)
     rvec, tvec, charuco_corners, charuco_ids, _, mean_err = board.pose(img, camera_matrix, dist_coeffs, disp=False)
 
     # empty
