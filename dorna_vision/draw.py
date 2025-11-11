@@ -152,7 +152,7 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0), thickness=1, label=T
         (text_width, text_height), _ = cv.getTextSize(text, font, font_scale, thickness=thickness, lineType=cv.LINE_AA)
 
         # Define rectangle position and size (background)
-        background_rect = (x, y - text_height - 5, text_width + 10, text_height + 5)
+        background_rect = (int(x), int(y) - text_height - 5, text_width + 10, text_height + 5)
 
         # Draw the green background rectangle
         cv.rectangle(img, (background_rect[0], background_rect[1]), 
@@ -160,7 +160,7 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0), thickness=1, label=T
                     color, -1, lineType=cv.LINE_AA)  # Green color, filled rectangle
 
         # Draw the text in white on top of the background
-        cv.putText(img, text, (x + 5, y - 5), font, font_scale, (0, 0, 0), thickness, lineType=cv.LINE_AA)  # black text
+        cv.putText(img, text, (int(x) + 5, int(y) - 5), font, font_scale, (0, 0, 0), thickness, lineType=cv.LINE_AA)  # black text
 
 
 # Draw 3D axis on the image using the camera pose

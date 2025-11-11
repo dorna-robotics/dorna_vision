@@ -179,7 +179,7 @@ class PNP(object):
                 retval = [
                     [float(xyzabc[i]) for i in range(3,6)],  # rvec_target_to_robot
                     [float(xyzabc[i]) for i in range(3)],   # tvec_target_to_robot
-                    [np.degrees(rvec[i, 0]) for i in range(3)],         # rvec_target_to_camera
+                    [float(np.degrees(rvec[i, 0])) for i in range(3)],         # rvec_target_to_camera
                     tvec.flatten().tolist(),        # tvec_target_to_camera
                     img_pts                # 2D keypoints used
                 ]

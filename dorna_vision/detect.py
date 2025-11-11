@@ -128,18 +128,22 @@ class Detection(object):
 
 
     def get_camera_data(self, data=None):
+        self.camera_data = {key:None for key in ["depth_frame", "ir_frame", "color_frame", "depth_img", "ir_img", "color_img", "depth_int", "frames", "joint", "K", "D", "timestamp"]}
+
         if type(data) == str: # read from file
             data = cv.imread(data)
-            self.camera_data = {key:None for key in ["depth_frame", "ir_frame", "color_frame", "depth_img", "ir_img", "color_img", "depth_int", "frames", "joint"]}
             self.camera_data[self.feed] = data
             self.camera_data["timestamp"] = time.time()
         
         elif type(data) == dict: # keep the current
-            self.camera_data = data
+            for k in data:
+                self.camera_data[k] = data[k]
         
         else: # update
             joint = None
             depth_frame, ir_frame, color_frame, depth_img, ir_img, color_img, depth_int, frames, timestamp = self.camera.get_all()
+            K = self.camera.camera_matrix(depth_int)
+            D = self.camera.dist_coeffs(depth_int)
             try:
                 joint = self.robot.get_all_joint()
                 if "ej" in self.camera_mount:
@@ -159,6 +163,8 @@ class Detection(object):
                 "frames": frames,
                 "joint": joint,
                 "timestamp": timestamp,
+                "K": K,
+                "D": D
             }
         return self.camera_data
 
@@ -294,10 +300,22 @@ class Detection(object):
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r[1], "format": r[0], "conf": 1, "center": _roi.pxl_to_orig(r[3]), 
                     "corners": [_roi.pxl_to_orig(x) for x in r[2]]} for r in result]
 
+                elif self.detection["cmd"] == "blob":
+                    # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
+                    result = blob(img_roi, **self.detection)
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": "blob", "conf": 1, "center": _roi.pxl_to_orig(r["center"]), 
+                    "corners": [_roi.pxl_to_orig(x) for x in r["corners"]]} for r in result]
 
-                elif self.detection["cmd"] == "aruco" and camera_data["depth_int"] is not None:
+                elif self.detection["cmd"] == "elp_fit":
+                    # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
+                    result = elp_fit(img_roi, **self.detection)
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": "elp_fit", "conf": 1, "center": _roi.pxl_to_orig(r["center"]), 
+                    "corners": [_roi.pxl_to_orig(x) for x in r["corners"]]} for r in result]
+
+
+                elif self.detection["cmd"] == "aruco" and camera_data["K"] is not None:
                     try:
-                        result = aruco(img_roi, self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), **self.detection)
+                        result = aruco(img_roi, camera_data["K"], camera_data["D"], **self.detection)
                         # build _retval  (FIX: stop indexing [0] on rvec/tvec/id)
                         _retval = [{
                             "timestamp": camera_data["timestamp"],
@@ -313,8 +331,7 @@ class Detection(object):
                         draw_aruco(img_adjust, np.array([r[2][0] for r in result]),
                                     np.array([[r["corners"] for r in _retval]], dtype=np.float32), 
                                     [r[2][2] for r in result], [r[2][3] for r in result], 
-                                    self.camera.camera_matrix(camera_data["depth_int"]), 
-                                    self.camera.dist_coeffs(camera_data["depth_int"]),
+                                    camera_data["K"], camera_data["D"],
                                     self.detection["marker_length"])
                        
                         # add to retval
@@ -328,19 +345,19 @@ class Detection(object):
                             r["tvec"], r["rvec"] = xyzabc[:3], xyzabc[3:]
 
                     except Exception as ex:
-                        print("ali3: ", ex)
+                        print("Exception: ", ex)
                         pass
-                elif self.detection["cmd"] == "charuco" and camera_data["depth_int"] is not None:
+                elif self.detection["cmd"] == "charuco" and camera_data["K"] is not None:
                     try:
                         # [[pxl, corners, (id, rvec, tvec)], ...]
-                        result = charuco(img_roi, self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), **self.detection)
+                        result = charuco(img_roi, camera_data["K"], camera_data["D"], **self.detection)
                         if result:
                             retval =[{"timestamp": camera_data["timestamp"], "cls": "charuco", "conf": 1, "center": [0, 0],
                             "corners": [0, 0], "rvec": dorna_pose.rvec_to_abc(result[0].flatten().tolist()), "tvec": result[1].flatten().tolist(), "err": result[4]}]
 
                             # draw
                             if self.display and "label" in self.display and self.display["label"] >= 0:
-                                draw_charuco(img_adjust, result[2], result[3], self.detection["sqr_x"]*self.detection["sqr_length"], self.camera.camera_matrix(camera_data["depth_int"]), self.camera.dist_coeffs(camera_data["depth_int"]), result[0], result[1])
+                                draw_charuco(img_adjust, result[2], result[3], self.detection["sqr_x"]*self.detection["sqr_length"], camera_data["K"], camera_data["D"], result[0], result[1])
                             # xyz_target_2_cam
                             for r in retval:
                                 T_target_to_cam = dorna_pose.xyzabc_to_T(np.array(r["tvec"]+ r["rvec"]))
@@ -467,7 +484,7 @@ class Detection(object):
 
 
                 # assign xyz and filter if the data comes from camera
-                if camera_data["depth_frame"] is not None and camera_data["depth_int"] is not None:
+                if camera_data["depth_frame"] is not None and camera_data["K"] is not None:
                     # assign xyz
                     r["xyz"] = self.xyz(r["center"])
 
@@ -498,10 +515,10 @@ class Detection(object):
                     
                     # number of keypoints
                     if len(self.pose["kp"][r["cls"]]) == 2:
-                        pose_result = Pose_two_point().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]), frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
+                        pose_result = Pose_two_point().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], camera_matrix=camera_data["K"], dist_coeffs=camera_data["D"], frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
                     if len(self.pose["kp"][r["cls"]]) >= 4:
-                        pose_result = PNP().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]), frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
-                    
+                        pose_result = PNP().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], camera_matrix=camera_data["K"], dist_coeffs=camera_data["D"], frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
+
                     if not pose_result:
                         continue
                     r["rvec"] = pose_result[0]
@@ -513,8 +530,8 @@ class Detection(object):
                         pose_center = frame_center_pixel(
                                                         rvec=pose_result[2], 
                                                         tvec=pose_result[3], 
-                                                        camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), 
-                                                        dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]))
+                                                        camera_matrix=camera_data["K"], 
+                                                        dist_coeffs=camera_data["D"])
                         pose_xyz = self.xyz(pose_center)
                         r["pose"] = {"center": pose_center, "xyz":pose_xyz}
                     except:
@@ -523,7 +540,7 @@ class Detection(object):
                 # draw rvec
                 if pose_result and "label" in self.display and self.display["label"]>=0:
                     # draw template
-                    draw_3d_axis(img_adjust, rvec=pose_result[2], tvec=pose_result[3], camera_matrix=self.camera.camera_matrix(camera_data["depth_int"]), dist_coeffs=self.camera.dist_coeffs(camera_data["depth_int"]))                
+                    draw_3d_axis(img_adjust, rvec=pose_result[2], tvec=pose_result[3], camera_matrix=camera_data["K"], dist_coeffs=camera_data["D"])
                     
                 # rvec valid
                 if "rvec" in self.limit:

@@ -1,5 +1,6 @@
 import cv2 as cv
 import numpy as np
+cv.setRNGSeed(0)
 
 """
 pre define dictionary 
@@ -52,9 +53,9 @@ class Aruco(object):
 
         self.prms = cv.aruco.DetectorParameters()
         # Adaptive thresholding: wider, finer steps
-        self.prms.adaptiveThreshWinSizeMin  = 5
-        self.prms.adaptiveThreshWinSizeMax  = 45
-        self.prms.adaptiveThreshWinSizeStep = 5
+        self.prms.adaptiveThreshWinSizeMin  = 7
+        self.prms.adaptiveThreshWinSizeMax  = 7
+        self.prms.adaptiveThreshWinSizeStep = 1
         self.prms.adaptiveThreshConstant    = 7
         # Contour filtering
         self.prms.minMarkerPerimeterRate      = 0.02
@@ -79,7 +80,7 @@ class Aruco(object):
 
         gray = cv.resize(gray_orig, None, fx=self.scale, fy=self.scale, interpolation=cv.INTER_CUBIC)
         #gray = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray)
-        #gray = cv.GaussianBlur(gray, (5,5), 0)
+        gray = cv.GaussianBlur(gray, (3, 3), 0)
 
         corners_up, ids, rejected_up = cv.aruco.detectMarkers(gray, self.dictionary, parameters=self.prms)
 
@@ -141,7 +142,7 @@ class Aruco(object):
             if t_alt[2] > 0:
                 err_cur = reproj_err(rvecs[i], tvecs[i], obj_cw)
                 err_alt = reproj_err(r_alt,     t_alt,     obj_ccw)
-                if err_alt <= err_cur:
+                if err_alt < err_cur - 1e-6:
                     rvecs[i], tvecs[i] = r_alt, t_alt
 
         return rvecs, tvecs, corners, ids, gray
@@ -295,7 +296,7 @@ class Charuco(object):
             interpolation=cv.INTER_CUBIC
         )
         #gray_up = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray_up)
-        #gray_up = cv.GaussianBlur(gray_up, (5,5), 0)
+        gray_up = cv.GaussianBlur(gray_up, (5,5), 0)
 
         # 3) scale your marker corners *back up* to match gray_up coords
         mk_up = [ (c * self.scale).astype(np.float32) for c in marker_corners ]

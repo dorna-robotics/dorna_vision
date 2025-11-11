@@ -3,7 +3,247 @@ import numpy as np
 from dorna_vision.board import Aruco, Charuco
 import zxingcpp
 
+def elp_fit(
+    img,
+    *,
+    use_otsu=True,
+    area_range=(300, 500000),
+    aspect_ratio_tol=0.1,
+    circularity_min=0.7,
+    convexity_min=0.9,
+    visualize=False,
+    **kwargs
+):
+    vis = img.copy() if visualize else None
 
+    # --- Convert to grayscale and denoise ---
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    gray = cv.GaussianBlur(gray, (3, 3), 0.6)
+
+    # --- Equalize histogram for better contrast ---
+    gray_eq = cv.equalizeHist(gray)
+
+    # --- Threshold (Otsu or Adaptive) ---
+    if use_otsu:
+        _, bw = cv.threshold(gray_eq, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+    else:
+        bw = cv.adaptiveThreshold(
+            gray_eq, 255,
+            cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 31, 5
+        )
+
+    # --- Automatically invert if needed (dark object on light background) ---
+    if np.mean(gray_eq[bw == 255]) > np.mean(gray_eq[bw == 0]):
+        bw = cv.bitwise_not(bw)
+
+    # --- Morphological cleanup ---
+    bw = cv.morphologyEx(bw, cv.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
+    bw = cv.morphologyEx(bw, cv.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=2)
+
+    # --- Find contours ---
+    cnts, _ = cv.findContours(bw, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    results = []
+
+    for c in cnts:
+        area = cv.contourArea(c)
+        if not (area_range[0] < area < area_range[1]):
+            continue
+        if len(c) < 5:
+            continue
+
+        (x, y), (MA, ma), angle = cv.fitEllipse(c)
+        if ma == 0 or MA == 0:
+            continue
+
+        aspect_ratio = min(MA, ma) / max(MA, ma)
+        if aspect_ratio < (1 - aspect_ratio_tol):
+            continue
+
+        perim = cv.arcLength(c, True)
+        circularity = 4 * np.pi * area / (perim * perim + 1e-6)
+        if circularity < circularity_min:
+            continue
+
+        hull = cv.convexHull(c)
+        hull_area = cv.contourArea(hull)
+        if hull_area == 0:
+            continue
+        convexity = area / hull_area
+        if convexity < convexity_min:
+            continue
+
+        rect = cv.minAreaRect(c)
+        box = cv.boxPoints(rect)
+        bbox_corners = [tuple(map(float, pt)) for pt in box]
+
+        results.append({
+            "center": (float(x), float(y)),
+            "corners": bbox_corners,
+            "ellipse": ((float(x), float(y)), (float(MA), float(ma)), float(angle)),
+            "aspect_ratio": aspect_ratio,
+            "circularity": circularity,
+            "convexity": convexity,
+        })
+
+        if visualize:
+            cv.drawContours(vis, [c], -1, (0, 255, 255), 1)
+            for i in range(4):
+                p1 = tuple(map(int, box[i]))
+                p2 = tuple(map(int, box[(i + 1) % 4]))
+                cv.line(vis, p1, p2, (255, 255, 0), 1)
+            cv.ellipse(vis, (int(x), int(y)),
+                       (int(MA / 2), int(ma / 2)),
+                       angle, 0, 360, (255, 0, 0), 1)
+            cv.circle(vis, (int(round(x)), int(round(y))), 3, (0, 255, 0), -1)
+
+    if visualize:
+        cv.imshow("Detected Ellipses", vis)
+        cv.waitKey(0)
+        cv.destroyAllWindows()
+
+    return results
+
+
+def blob(
+    img,
+    *,
+    roi=None,
+    visualize=False,
+
+    # --- Blob detector ---
+    minThreshold=10,
+    maxThreshold=400,
+    minArea=100,
+    maxArea=5000,
+    minCircularity=0.30,
+
+    # --- Ellipse refinement ---
+    pad=10,
+    morph_open=1,
+    use_subpix=True,
+    win=(3,3),
+
+    # --- Preprocessing ---
+    use_gaussian=True,
+    use_clahe=False,
+    clahe_clip=2.0,
+    clahe_grid=(8,8),
+
+    # --- Blob polarity ---
+    blob_is_dark=True,
+    **kwargs,
+):
+    """
+    Returns list of dicts:
+      {'center': (cx, cy),
+       'corners': [(x0,y0),(x1,y0),(x1,y1),(x0,y1)]}
+    """
+
+    # --- grayscale + vis ---
+    if img.ndim == 3 and img.shape[2] == 3:
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        vis  = img.copy()
+    else:
+        gray = img.copy()
+        vis  = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+    H, W = gray.shape[:2]
+
+    if use_gaussian:
+        gray = cv.GaussianBlur(gray, (3,3), 0.6)
+    if use_clahe:
+        clahe = cv.createCLAHE(clipLimit=clahe_clip, tileGridSize=clahe_grid)
+        gray = clahe.apply(gray)
+
+    # --- ROI ---
+    x_min, y_min, x_max, y_max = 0, 0, W, H
+    if roi is not None:
+        (x1, y1), (x2, y2) = roi
+        x_min, x_max = sorted([int(round(x1)), int(round(x2))])
+        y_min, y_max = sorted([int(round(y1)), int(round(y2))])
+        x_min = max(0, min(W-1, x_min)); x_max = max(1, min(W, x_max))
+        y_min = max(0, min(H-1, y_min)); y_max = max(1, min(H, y_max))
+    gray_roi = gray[y_min:y_max, x_min:x_max]
+
+    # --- blob detector ---
+    p = cv.SimpleBlobDetector_Params()
+    p.minThreshold = float(minThreshold)
+    p.maxThreshold = float(maxThreshold)
+    p.filterByArea = True
+    p.minArea = float(minArea)
+    p.maxArea = float(maxArea)
+    p.filterByCircularity = True
+    p.minCircularity = float(minCircularity)
+    p.filterByColor = True
+    p.blobColor = 0 if blob_is_dark else 255
+
+    detector = cv.SimpleBlobDetector_create(p)
+    kps = detector.detect(gray_roi)
+
+    results = []
+    if not kps:
+        return results
+
+    # --- refinement per blob ---
+    for i, kp in enumerate(kps):
+        bx, by = kp.pt
+        bx += x_min; by += y_min
+        br = max(2, int(round(kp.size/2.0)) + int(pad))
+
+        x0 = max(0, int(round(bx - br)))
+        x1 = min(W, int(round(bx + br)))
+        y0 = max(0, int(round(by - br)))
+        y1 = min(H, int(round(by + br)))
+
+        roi_local = gray[y0:y1, x0:x1]
+        _, bw = cv.threshold(roi_local, 0, 255,
+                             cv.THRESH_BINARY_INV + cv.THRESH_OTSU)
+        if morph_open > 0:
+            bw = cv.morphologyEx(bw, cv.MORPH_OPEN,
+                                 np.ones((3,3), np.uint8),
+                                 iterations=morph_open)
+
+        cnts, _ = cv.findContours(bw, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        if cnts and len(max(cnts, key=cv.contourArea)) >= 5:
+            largest = max(cnts, key=cv.contourArea)
+            (ex, ey), (MA, ma), angle = cv.fitEllipse(largest)
+            cx, cy = ex + x0, ey + y0
+        else:
+            cx, cy = bx, by
+            MA = ma = 2*br; angle = 0.0
+
+        if use_subpix:
+            pt = np.array([[[cx, cy]]], np.float32)
+            term = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.01)
+            sub = cv.cornerSubPix(gray, pt, win, (-1,-1), term)
+            cx, cy = sub[0,0,0], sub[0,0,1]
+
+        corners = [(x0,y0),(x1,y0),(x1,y1),(x0,y1)]
+        results.append({"center": (float(cx), float(cy)), "corners": corners})
+
+        if visualize:
+            # ROI box
+            cv.rectangle(vis, (x0,y0), (x1,y1), (0,255,255), 1)
+            # blob circle (red)
+            cv.circle(vis, (int(round(bx)), int(round(by))),
+                      int(round(kp.size/2.0)), (0,0,255), 1)
+            cv.circle(vis, (int(round(bx)), int(round(by))), 2, (0,0,255), -1)
+            # ellipse (blue)
+            cv.ellipse(vis, (int(round(cx)), int(round(cy))),
+                       (max(1,int(round(MA/2.0))), max(1,int(round(ma/2.0)))),
+                       angle, 0, 360, (255,0,0), 1)
+            cv.circle(vis, (int(round(cx)), int(round(cy))), 2, (255,0,0), -1)
+            # shift vector (orange)
+            cv.line(vis, (int(round(bx)), int(round(by))),
+                    (int(round(cx)), int(round(cy))), (0,200,255), 1)
+            # index
+            cv.putText(vis, f"{i}", (int(round(cx))+6, int(round(cy))-6),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1, cv.LINE_AA)
+
+    if visualize:
+        cv.imshow("blobs/ellipse", vis)
+        cv.waitKey(0)
+        cv.destroyAllWindows()
+    return results
 
 def barcode(img, **kwargs):
     # format, text, corners, center
@@ -37,7 +277,7 @@ def barcode(img, **kwargs):
     return retval
 
 # [[pxl, corners, cnt], ...]
-def contour(thr_img, **kwargs):
+def contour_orig(thr_img, **kwargs):
     retval = []
     
     # find contours 
@@ -72,6 +312,99 @@ def contour(thr_img, **kwargs):
                 
         retval.append([pxl, corners, cnt])
         
+    return retval
+
+
+
+def contour(
+    thr_img,
+    *,
+    elp=False,
+    subpix=False,
+    visualize=False,
+    circularity_min=0,
+    convexity_min=0,
+    **kwargs
+):
+    retval = []
+
+    # find contours 
+    cnts, _ = cv.findContours(thr_img, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+
+    vis = cv.cvtColor(thr_img, cv.COLOR_GRAY2BGR) if visualize else None
+
+    for cnt in cnts:
+        # optional polygon side filter
+        if "side" in kwargs and kwargs["side"] is not None:
+            approx = cv.approxPolyDP(cnt, 0.05 * cv.arcLength(cnt, True), True)
+            if len(approx) != kwargs["side"]:
+                continue
+
+        # skip very small contours
+        if len(cnt) < 5:
+            continue
+
+        # circularity filter
+        area = cv.contourArea(cnt)
+        perim = cv.arcLength(cnt, True)
+        if perim == 0:
+            continue
+        circularity = 4 * np.pi * area / (perim * perim)
+        if circularity < circularity_min:
+            continue
+
+        # convexity filter
+        hull = cv.convexHull(cnt)
+        hull_area = cv.contourArea(hull)
+        if hull_area == 0:
+            continue
+        convexity = area / hull_area
+        if convexity < convexity_min:
+            continue
+
+        # optional sub-pixel refinement
+        if subpix:
+            cnt_f = cnt.astype(np.float32)
+            gray = thr_img if len(thr_img.shape) == 2 else cv.cvtColor(thr_img, cv.COLOR_BGR2GRAY)
+            term_crit = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.01)
+            cv.cornerSubPix(gray, cnt_f, (3, 3), (-1, -1), term_crit)
+            cnt = cnt_f.astype(np.int32)
+
+        # fit ellipse (for elp center)
+        (x, y), (MA, ma), angle = cv.fitEllipse(cnt)
+
+        # pixel center via moments
+        M = cv.moments(cnt)
+        if M["m00"] == 0:
+            continue
+
+        if elp:
+            pxl = [float(x), float(y)]  # use ellipse center
+        else:
+            pxl = [int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])]  # use moment center
+
+        # bounding rectangle corners
+        rect = cv.minAreaRect(cnt)
+        box = cv.boxPoints(rect).astype(int)
+        corners = [[p[0], p[1]] for p in box]
+
+        retval.append([pxl, corners, cnt])
+
+        # visualization
+        if visualize:
+            cv.drawContours(vis, [cnt], -1, (0, 255, 255), 1)
+            cv.circle(vis, (int(round(pxl[0])), int(round(pxl[1]))), 3, (0, 255, 0), -1)
+            if elp:
+                cv.ellipse(vis, (int(x), int(y)),
+                           (int(MA / 2), int(ma / 2)),
+                           angle, 0, 360, (255, 0, 0), 1)
+                cv.circle(vis, (int(round(x)), int(round(y))), 2, (0, 0, 255), -1)
+
+    if visualize:
+        cv.imshow("Contours", vis)
+        cv.waitKey(0)
+        cv.destroyAllWindows()
+
     return retval
 
 
