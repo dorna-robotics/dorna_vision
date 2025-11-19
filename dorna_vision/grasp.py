@@ -231,7 +231,15 @@ def find_grasp_candidates_3d(target_id, detections,
     return cands
 
 
-def collision_free_rvec(target_id, target_rvec, gripper_opening, finger_wdith, finger_location, detection_obj, mask_type="bb", prune_factor=2, num_steps=360, search_angle=(0, 360)):        
+def collision_free_rvec(target_id,
+                    target_rvec, 
+                    gripper_opening, 
+                    finger_wdith, finger_location, 
+                    detection_obj, 
+                    mask_type="bb", 
+                    prune_factor=2, 
+                    num_steps=360, 
+                    search_angle=(0, 360)):        
     best_rvec = None
 
     try:
@@ -244,7 +252,6 @@ def collision_free_rvec(target_id, target_rvec, gripper_opening, finger_wdith, f
         frame_mat_inv = detection_obj.retval["frame_mat_inv"]
         camera_matrix = detection_obj.camera.camera_matrix(detection_obj.retval["camera_data"]["depth_int"])
         dist_coeffs = detection_obj.camera.dist_coeffs(detection_obj.retval["camera_data"]["depth_int"])
-        depth_frme = detection_obj.retval["camera_data"]["depth_frame"]
         img_bgr = detection_obj.retval["camera_data"]["img"]
 
         

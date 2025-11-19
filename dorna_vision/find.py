@@ -331,8 +331,6 @@ def contour(
     # find contours 
     cnts, _ = cv.findContours(thr_img, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
-    vis = cv.cvtColor(thr_img, cv.COLOR_GRAY2BGR) if visualize else None
-
     for cnt in cnts:
         # optional polygon side filter
         if "side" in kwargs and kwargs["side"] is not None:
@@ -370,17 +368,15 @@ def contour(
             cv.cornerSubPix(gray, cnt_f, (3, 3), (-1, -1), term_crit)
             cnt = cnt_f.astype(np.int32)
 
-        # fit ellipse (for elp center)
-        (x, y), (MA, ma), angle = cv.fitEllipse(cnt)
-
-        # pixel center via moments
-        M = cv.moments(cnt)
-        if M["m00"] == 0:
-            continue
-
         if elp:
+            # fit ellipse (for elp center)
+            (x, y), (MA, ma), angle = cv.fitEllipse(cnt)
             pxl = [float(x), float(y)]  # use ellipse center
         else:
+            # pixel center via moments
+            M = cv.moments(cnt)
+            if M["m00"] == 0:
+                continue
             pxl = [int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])]  # use moment center
 
         # bounding rectangle corners
@@ -392,6 +388,7 @@ def contour(
 
         # visualization
         if visualize:
+            vis = cv.cvtColor(thr_img, cv.COLOR_GRAY2BGR)
             cv.drawContours(vis, [cnt], -1, (0, 255, 255), 1)
             cv.circle(vis, (int(round(pxl[0])), int(round(pxl[1]))), 3, (0, 255, 0), -1)
             if elp:
