@@ -1,11 +1,10 @@
-# 🧠 ML Training Guide (Detection, Classification & Keypoints)
+# 🧠 ML Training Guide (Detection, Classification)
 
 This guide walks you step-by-step through:
 
 - 📷 Creating and labeling datasets in **Roboflow**
 - 📊 Training **Object Detection** models
 - 🎓 Training **Classification** models
-- 🧑‍🔧 Training **Keypoint Detection** models
 
 You can jump directly to any section:
 
@@ -13,7 +12,6 @@ You can jump directly to any section:
 - [📷 Data Collection & Roboflow Setup](#data-collection-roboflow)
 - [📊 Object Detection Training ](#object-detection-training)
 - [🎓 Classification Training](#classification-training)
-- [🧑‍🔧 Keypoint Detection Workflow ](#keypoint-detection-training)
 
 ---
 
@@ -38,7 +36,7 @@ To follow this guide you'll need two free accounts. Create them now.
 <details>
 <summary><strong>📷 Data Collection & Roboflow Setup</strong></summary>
 
-This section applies to **all three** task types: **classification**, **object detection**, and **keypoint detection**.
+This section applies to **all three** task types: **classification** and **object detection**.
 
 ---
 
@@ -55,10 +53,6 @@ Examples:
   - Empty vs filled container
   - Good vs bad product
   - Small / medium / large items
-
-- **Keypoint Detection:**
-  - Tip and base of a tube
-  - Corners of a box
 
 Try to define **clear, non-overlapping categories** so labeling is easy and consistent.
 
@@ -107,7 +101,6 @@ You can see an example image set here:
 
    - **Classification** – each image belongs to one class (e.g., *good* or *bad*)
    - **Object Detection** – you draw **boxes** around objects
-   - **Keypoint Detection** – you mark **points** (e.g., joints, tips)
 
 You can create separate projects for different tasks (e.g., one for detection, another for classification).
 
@@ -326,7 +319,3 @@ dataset = version.download("folder")
 </details>
 
 ---
-
-<a id="keypoint-detection-training"></a>
-<details>
-<summary><strong>🧑‍🔧 Keypoint Detection Workflow</strong></summary>
