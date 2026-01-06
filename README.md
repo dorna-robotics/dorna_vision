@@ -228,6 +228,8 @@ When the camera is fixed in space (not on the robot), the frame must be defined 
 
 
 ### AI Models
+> **Note:** For details on model training, see the [ML training guide](docs/ml_training_guide.md).
+
 AI Models allows us to use AI to identify features, patterns, or objects of interest in images. This can be useful when you need to identify complex things within an image, such as scene context, specific objects, or text, and use that information to make decisions. To enable this feature, select either `Object detection` or `Image classification` from the `Detection method` dropdown, and provide the path to your AI model in the `Model path` field.
 
 </p>
