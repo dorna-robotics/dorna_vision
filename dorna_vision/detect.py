@@ -93,7 +93,7 @@ class Detection(object):
         elif type(camera_mount) == dict and "type" in camera_mount and "T" in camera_mount and "ej" in camera_mount:
             retval = {
                 "type": camera_mount["type"],
-                "T": self.robot.kinematic.xyzabc_to_mat(np.array(camera_mount["T"])),
+                "T": dorna_pose.xyzabc_to_T(np.array(camera_mount["T"])),
                 "ej": camera_mount["ej"]
             }
         elif type(camera_mount) == str:
@@ -102,7 +102,7 @@ class Detection(object):
                     tmp =dict(self.robot.config["camera_mount"][i])
                     retval = {
                         "type": tmp["type"],
-                        "T": self.robot.kinematic.xyzabc_to_mat(np.array(tmp["T"])),
+                        "T": dorna_pose.xyzabc_to_T(np.array(tmp["T"])),
                         "ej": tmp["ej"]
                     }
                     break
@@ -145,7 +145,7 @@ class Detection(object):
             K = self.camera.camera_matrix(depth_int)
             D = self.camera.dist_coeffs(depth_int)
             try:
-                joint = self.robot.get_all_joint()
+                joint = self.robot.joint()
                 if "ej" in self.camera_mount:
                     for i in range(min(len(self.camera_mount["ej"]), len(joint))):
                         joint[i] += self.camera_mount["ej"][i]
@@ -185,11 +185,11 @@ class Detection(object):
 
             # xyz_target_2_cam
             xyz_target_to_cam = self.camera.xyz(_pxl, self.camera_data["depth_frame"], self.camera_data["depth_int"])[0].tolist()
-            T_target_to_cam = self.kinematic.xyzabc_to_mat(np.concatenate((np.array(xyz_target_to_cam), np.array([0, 0, 0]))))
+            T_target_to_cam = np.array(dorna_pose.xyzabc_to_T(np.concatenate((np.array(xyz_target_to_cam), np.array([0, 0, 0])))))
             
             # apply frame
             T_target_to_frame = np.matmul(self.frame_mat_inv, T_target_to_cam)
-            xyz_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
+            xyz_target_to_frame = dorna_pose.T_to_xyzabc(T_target_to_frame)
             xyz = xyz_target_to_frame[0:3]
             
         except:
@@ -204,10 +204,10 @@ class Detection(object):
         try:
             # 1) Build transform from frame → camera (same as before)
             xyzabc = np.hstack((xyz, [0.0, 0.0, 0.0]))
-            T_tgt_to_frame = self.kinematic.xyzabc_to_mat(xyzabc)
+            T_tgt_to_frame = np.array(dorna_pose.xyzabc_to_T(xyzabc))
             frame_mat    = np.linalg.inv(self.frame_mat_inv)
             T_tgt_to_cam = frame_mat @ T_tgt_to_frame
-            xyz_cam      = self.kinematic.mat_to_xyzabc(T_tgt_to_cam)[:3]
+            xyz_cam      = dorna_pose.T_to_xyz(T_tgt_to_cam)[:3]
 
             # 2) Project with your pure function
             u, v = self.camera.pixel(xyz_cam, self.camera_data["depth_int"])
@@ -255,7 +255,7 @@ class Detection(object):
                 _img = rotate_and_flip(_img, rotate=self.rot)
             
             # frame
-            self.frame_mat_inv = np.linalg.inv(self.kinematic.xyzabc_to_mat(np.array(self.frame)))
+            self.frame_mat_inv = np.linalg.inv(dorna_pose.xyzabc_to_T(np.array(self.frame)))
             if self.robot is not None and camera_data["joint"] is not None:
                 joint = camera_data["joint"][0:6]
                 if "type" in self.camera_mount and "T" in self.camera_mount and self.camera_mount["type"].startswith("dorna_ta_j4"):
@@ -339,7 +339,7 @@ class Detection(object):
 
                         # --- frame application (unchanged logic, but now r["tvec"]/r["rvec"] are clean 3-lists) ---
                         for r in retval:
-                            T_target_to_cam = self.kinematic.xyzabc_to_mat(np.array(r["tvec"] + r["rvec"]))
+                            T_target_to_cam = np.array(dorna_pose.xyzabc_to_T(np.array(r["tvec"] + r["rvec"])))
                             T_target_to_frame = self.frame_mat_inv @ T_target_to_cam
                             xyzabc = dorna_pose.T_to_xyzabc(T_target_to_frame)
                             r["tvec"], r["rvec"] = xyzabc[:3], xyzabc[3:]
@@ -364,7 +364,7 @@ class Detection(object):
 
                                 # apply frame
                                 T_target_to_frame = np.matmul(self.frame_mat_inv, T_target_to_cam)
-                                xyzabc_target_to_frame = self.kinematic.mat_to_xyzabc(T_target_to_frame).tolist()
+                                xyzabc_target_to_frame = dorna_pose.T_to_xyzabc(T_target_to_frame)
                                 r["tvec"] = xyzabc_target_to_frame[0:3]
                                 r["rvec"] = xyzabc_target_to_frame[3:6]
                     except Exception as ex:
