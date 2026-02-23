@@ -235,12 +235,13 @@ class default_widget(object):
             "color_picker": widgets.ColorPicker(concise=False, description='Color picker', value='blue', disabled=False, style={'text_width': '0'}),
             "color_hsv": widgets.Text(value='Hue = 119, Saturation = 255, Value = 255', placeholder='', description='', disabled=True,),            
 
-            "source_value": widgets.Dropdown(value=0, options=[('Stereo camera', 0), ('File', 1)], description='Image source', continuous_update=continuous_update, style=style),
+            "source_value": widgets.Dropdown(value=0, options=[('0: File', 0)], description='Image source', continuous_update=continuous_update, style=style),
             "source_feed": widgets.Dropdown(value="color_img", options=[('Color image', "color_img")], description='Feed', continuous_update=continuous_update, style=style, layout={'visible': 'none'}),
 
             "s_file_value": widgets.Text(value='', placeholder='Path to the file (*.jpg, *.jpeg, *.png, *.tiff, ...).Ex: img/test.jpg', description='File path', disabled=False, layout={'width': '99%'}, style=style),            
+            "s_camera_info": widgets.Text(value='', placeholder='', description='Serial number', disabled=True, layout={'width': '99%'}, style=style),            
+
             "s_apply": widgets.Button( description='Capture Image', disabled=True, button_style="success", tooltip='Capture Image', style=style),
-            #"s_update": widgets.Button( description='', disabled=False, button_style="", tooltip='Update source list', icon='refresh', layout={'width': '50px'}),
             "s_save_path": widgets.Text(value='', placeholder='*.jpg', description='Save image as', disabled=False, layout={'width': '99%'}),            
             "s_save": widgets.Button( description='Save', disabled=False, button_style="", tooltip='Save as'),
 
@@ -334,7 +335,7 @@ class Detection_app(object):
         color_picker_box = widgets.HBox([self.widget_tr[k] for k in [key for key in self.widget_tr.keys() if key.startswith('color_')]])
         acc_adjust_img = widgets.Accordion()
         acc_adjust_img.children = [
-            widgets.VBox([self.widget_tr["source_value"], self.widget_tr["s_file_value"]]),
+            widgets.VBox([self.widget_tr["source_value"], self.widget_tr["s_file_value"], self.widget_tr["s_camera_info"]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('ori_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('roi_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('intensity_')]]),
@@ -460,12 +461,12 @@ class Detection_app(object):
         
         # header
         header = widgets.HBox([
-            self.widget_tr["s_apply"],
+            #self.widget_tr["s_apply"],
             self.widget_tr["close"],
         ])
 
         # display
-        display(widgets.VBox([header, self.tab, self.plt_out]))
+        display(widgets.VBox([header, self.tab, self.widget_tr["s_apply"], self.plt_out]))
         
         # init parameters
         self.widget_init["init"].on_click(self.init_parameter)
@@ -492,9 +493,6 @@ class Detection_app(object):
         
         # capture
         self.widget_tr["s_apply"].on_click(self.capture_camera_data)
-
-        # capture
-        #self.widget_tr["s_update"].on_click(self.update_source_list)
 
         # save
         self.widget_tr["s_save"].on_click(self.save_as_source)
@@ -524,7 +522,8 @@ class Detection_app(object):
         self.widget_tr["s_apply"].layout.display = "none"
 
         try:
-            self.d.camera.close()
+            for c in self.camera_list:
+                c.close()
         except Exception as ex:
             pass
 
@@ -576,24 +575,21 @@ class Detection_app(object):
         except Exception as ex:
             frame = [0, 0, 0, 0, 0, 0]
 
-        # camera
-        camera_connected = False
-        camera = Camera()
-        try:
-            if camera.connect():
-                camera_connected = True
-        except Exception as ex:
-            pass
+        # camera list
+        all_device = Camera().all_device()
         
-        # calobrate
-        self.clb = None
-        if robot and camera_connected:
-            clb_prm = {'detection': {'cmd': 'aruco', 'dictionary': "DICT_4X4_100", 'marker_length': 20, 'refine': "CORNER_REFINE_APRILTAG", 'subpix': True}}
-            clb_detection = Detection(camera=camera, robot=None, **clb_prm)
-            self.clb = Calibration(robot, clb_detection)
+        # cmera list
+        self.camera_list = []
+        for c in all_device:
+            _camera = Camera()
+            _camera.connect(serial_number=c["serial_number"])
+            self.camera_list.append(_camera)
 
+        # source info
+        self.widget_tr["source_value"].options += tuple(((f"{i+1}: Camera", i+1) for i in range(len(all_device)))) 
+        
         # detect
-        self.d = Detection(camera=camera, robot=robot, camera_mount=camera_mount, frame=frame)
+        self.d = Detection(camera=None, robot=robot, camera_mount=camera_mount, frame=frame)
         
         # ocr
         self.d.init_ocr()
@@ -761,44 +757,41 @@ class Detection_app(object):
 
 
     def capture_camera_data(self, b):
+        index = self.widget_tr["source_value"].value
         self.data = None
-        if self.widget_tr["source_value"].value == 1: # read from file
+        if index == 0: # read from file
             # file_path
             self.data = self.widget_tr["s_file_value"].value
+        else: # data comes from the camera
 
+            self.d.camera = self.camera_list[index-1]
         # call detect pattern
         kwargs = {k:self.widget_in[k].value for k in self.widget_in.keys()}
         self._detect_pattern(**kwargs)
 
 
-    def update_source_list(self, b):
-        all_device = self.d.camera.all_device()
-        
-        i = 0
-        options = []
-        for device in all_device:
-            options.append((device["name"] +" (S/N: "+device["serial_number"], ")", i))
-            i += 1
-        options.append(('Image file', i))
-        self.widget_tr["source_value"].options = options
-
-
     def hide_show_source(self, **kwargs):
-        if kwargs["source_value"] == 1:
+        # index
+        index = kwargs["source_value"]
+        if index == 0:
             self.widget_tr["s_file_value"].layout.display = "flex"
-            #self.widget_tr["source_feed"].layout.display = "none"
-        elif kwargs["source_value"] == 0:
+            self.widget_tr["s_camera_info"].layout.display = "none"
+        else:
+            # hide file path
             self.widget_tr["s_file_value"].layout.display = "none"
-            #self.widget_tr["source_feed"].layout.display = "flex"
+
+            # camera info
+            self.widget_tr["s_camera_info"].value = f"{self.camera_list[index-1].serial_number}"
+            self.widget_tr["s_camera_info"].layout.display = "flex"
 
 
     def hide_show_ip(self, **kwargs):
-        if kwargs["source_value"] == 0:
+        if kwargs["source_value"] != 0:
             self.widget_init["camera_setup_robot_ip"].layout.display = "flex"
             self.widget_init["camera_clb_apply"].layout.display = "flex"
             self.widget_init["camera_clb_T"].layout.display = "flex"
             self.widget_init["camera_clb_ej"].layout.display = "flex"
-        elif kwargs["source_value"] == 1:
+        elif kwargs["source_value"] == 0:
             self.widget_init["camera_setup_robot_ip"].layout.display = "none"
             self.widget_init["camera_clb_apply"].layout.display = "none"
             self.widget_init["camera_clb_T"].layout.display = "none"
