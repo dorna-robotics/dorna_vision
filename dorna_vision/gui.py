@@ -239,7 +239,7 @@ class default_widget(object):
             "source_feed": widgets.Dropdown(value="color_img", options=[('Color image', "color_img")], description='Feed', continuous_update=continuous_update, style=style, layout={'visible': 'none'}),
 
             "s_file_value": widgets.Text(value='', placeholder='Path to the file (*.jpg, *.jpeg, *.png, *.tiff, ...).Ex: img/test.jpg', description='File path', disabled=False, layout={'width': '99%'}, style=style),            
-            "s_camera_info": widgets.Text(value='', placeholder='', description='Serial number', disabled=True, layout={'width': '99%'}, style=style),            
+            "s_camera_info": widgets.Textarea(value='', placeholder='', description='Camera info', disabled=True, rows=5, layout={'width': '99%'}, style=style),
 
             "s_apply": widgets.Button( description='Capture Image', disabled=True, button_style="success", tooltip='Capture Image', style=style),
             "s_save_path": widgets.Text(value='', placeholder='*.jpg', description='Save image as', disabled=False, layout={'width': '99%'}),            
@@ -577,16 +577,24 @@ class Detection_app(object):
 
         # camera list
         all_device = Camera().all_device()
-        
+
         # cmera list
         self.camera_list = []
+        self.camera_info_list = []
         for c in all_device:
             _camera = Camera()
             _camera.connect(serial_number=c["serial_number"])
             self.camera_list.append(_camera)
+            self.camera_info_list.append(c)
 
-        # source info
-        self.widget_tr["source_value"].options += tuple(((f"{i+1}: Camera", i+1) for i in range(len(all_device)))) 
+        # source info — show name + serial in dropdown so users can tell cameras apart
+        dropdown_options = []
+        for i, c in enumerate(all_device):
+            name = c.get("name", "Camera")
+            serial = c.get("serial_number", "")
+            label = f"{i+1}: {name} ({serial})" if serial else f"{i+1}: {name}"
+            dropdown_options.append((label, i+1))
+        self.widget_tr["source_value"].options += tuple(dropdown_options)
         
         # detect
         self.d = Detection(camera=None, robot=robot, camera_mount=camera_mount, frame=frame)
@@ -780,8 +788,17 @@ class Detection_app(object):
             # hide file path
             self.widget_tr["s_file_value"].layout.display = "none"
 
-            # camera info
-            self.widget_tr["s_camera_info"].value = f"{self.camera_list[index-1].serial_number}"
+            # camera info — show fields from Camera.all_device()
+            c_info = self.camera_info_list[index - 1]
+
+            info_lines = [
+                f"Name:          {c_info['name']}",
+                f"Serial number: {c_info['serial_number']}",
+                f"USB type:      {c_info['usb_type']}",
+                f"USB port:      {c_info['usb_port']}",
+            ]
+
+            self.widget_tr["s_camera_info"].value = "\n".join(info_lines)
             self.widget_tr["s_camera_info"].layout.display = "flex"
 
 
