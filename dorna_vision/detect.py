@@ -30,13 +30,16 @@ class Detection(object):
             roi={"corners": [], "inv": 0, "crop": 0},
             detection={},
             limit = {#"area":[], "aspect_ratio":[], "inv":0,
-                     #"xyz":{"x":[], "y":[], "z":[], "inv":0}, 
+                     #"xyz":{"x":[], "y":[], "z":[], "inv":0},
                      #"bb":{"area":[], "aspect_ratio":[], "inv":0},
                      #"center":{"width":[], "height":[], "inv":0},
-                     #"rvec":{"rvec_base":[], "x_angle":[], "y_angle":[], "z_angle":[], "inv":0}, 
-                     #"tvec":{"x": [], "y": [], "z": [], "inv":0}
+                     # rvec/tvec limits no longer live in `limit`; call
+                     # detection.filter_rvec(...) / filter_tvec(...) on
+                     # the result list instead.
                      },
-            pose = {}, # {"cmd":"kp", "kp":{"plate": {"o":[0, 0, 0], ...}}}
+            # 6D pose used to be a stage configured here as `pose`.
+            # Moved to opt-in helpers: detection.pose_plane(...) /
+            # pose_kp(...) called after run() on the result you want.
             sort={"cmd": None, "max_det":100}, # {"cmd":"conf", "ascending":False, "max_det":100}, {"cmd":"pxl", "pxl":[w,h], "ascending":True, "max_det":100}, {"cmd":"xyz", "xyz":[x,y,z], "ascending":True, "max_det":100}
             display={"label":0, "save_img":0, "save_img_roi":0},
             **kwargs
@@ -55,7 +58,6 @@ class Detection(object):
         self.roi = roi
         self.detection = detection
         self.limit = limit
-        self.pose = pose
         self.sort = sort
         self.display = display
         self.kwargs = kwargs
@@ -80,6 +82,10 @@ class Detection(object):
             self.init_cls(self.detection["path"])
         if "cmd" in self.detection and self.detection["cmd"] == "od":
             self.init_od(self.detection["path"])
+        if "cmd" in self.detection and self.detection["cmd"] == "rod":
+            self.init_rod(self.detection["path"])
+        if "cmd" in self.detection and self.detection["cmd"] == "anom":
+            self.init_anom(self.detection["path"])
         if "cmd" in self.detection and self.detection["cmd"] == "kp":
             self.init_kp(self.detection["path"])
         elif "cmd" in self.detection and self.detection["cmd"] == "ocr":
@@ -123,8 +129,56 @@ class Detection(object):
         self.od = OD(path)
 
 
+    def init_rod(self, path):
+        self.rod = ROD(path)
+
+
+    def init_anom(self, path):
+        self.anom = ANOM(path)
+
+
     def init_ocr(self):
         self.ocr = OCR()
+
+
+    def threshold(self):
+        """
+        Trained anomaly threshold for the loaded ANOM model. Used by the
+        playground to prefill the threshold slider with a sensible default
+        — anomaly scores have no natural [0, 1] bound, so without this the
+        user is just guessing. Returns None for non-ANOM cmds.
+        """
+        cmd = (self.detection or {}).get("cmd")
+        if cmd == "anom" and getattr(self, "anom", None):
+            v = getattr(self.anom, "threshold", None)
+            return float(v) if v is not None else None
+        return None
+
+
+    def classes(self):
+        """
+        Return the list of class names known to whichever ML model is
+        loaded for the current detection cmd. Used by the playground to
+        pre-fill the per-method `cls` filter field after Initialize, so
+        users see which classes are available rather than guessing them.
+
+        Returns an empty list when no ML model is loaded (or when the
+        current cmd is a non-ML detector like cnt / poly / aruco / ocr).
+
+        NOTE: not named `cls()` because `self.cls` is already used as the
+        CLS classifier instance set by init_cls — that instance attribute
+        shadows class methods in Python, so the proxy call would end up
+        invoking the classifier's inference instead.
+        """
+        cmd = (self.detection or {}).get("cmd")
+        if cmd == "od"   and getattr(self, "od",   None):  return list(self.od.cls)
+        if cmd == "rod"  and getattr(self, "rod",  None):  return list(self.rod.cls)
+        if cmd == "cls"  and getattr(self, "cls",  None) and hasattr(self.cls, "cls"):
+            return list(self.cls.cls)
+        if cmd == "anom" and getattr(self, "anom", None):  return list(self.anom.cls)
+        if cmd == "kp"   and getattr(self, "kp",   None):
+            return list(getattr(self.kp, "keypoint_names", []) or [])
+        return []
 
 
     def get_camera_data(self, data=None):
@@ -301,15 +355,46 @@ class Detection(object):
                     "corners": [_roi.pxl_to_orig(x) for x in r[2]]} for r in result]
 
                 elif self.detection["cmd"] == "blob":
+                    # The schema exposes `threshold` and `area` as range
+                    # pairs (lo, hi) so the GUI can't put min > max. Split
+                    # them back into the {min,max}Threshold / {min,max}Area
+                    # kwargs that find.blob() (and OpenCV) actually expect.
+                    blob_args = dict(self.detection)
+                    thr_pair = blob_args.pop("threshold", None)
+                    if isinstance(thr_pair, (list, tuple)) and len(thr_pair) == 2:
+                        lo, hi = thr_pair
+                        # OpenCV's SimpleBlobDetector defaults minRepeatability=2
+                        # — it needs at least 2 distinct threshold steps to
+                        # validate a blob. If the user collapses the range to
+                        # a single value, push max up by 1 so we still produce
+                        # results (and avoid the noisy "incompatible" warning).
+                        if hi <= lo:
+                            hi = lo + 1
+                        blob_args["minThreshold"], blob_args["maxThreshold"] = lo, hi
+                    area_pair = blob_args.pop("area", None)
+                    if isinstance(area_pair, (list, tuple)) and len(area_pair) == 2:
+                        blob_args["minArea"], blob_args["maxArea"] = area_pair
                     # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
-                    result = blob(img_roi, **self.detection)
-                    retval = [{"timestamp": camera_data["timestamp"], "cls": "blob", "conf": 1, "center": _roi.pxl_to_orig(r["center"]), 
+                    result = blob(img_roi, **blob_args)
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": "blob", "conf": 1, "center": _roi.pxl_to_orig(r["center"]),
+                    "corners": [_roi.pxl_to_orig(x) for x in r["corners"]]} for r in result]
+
+                elif self.detection["cmd"] == "mser":
+                    # Schema exposes `area` as a (lo, hi) range pair so the
+                    # GUI can't put min > max — split it back into the
+                    # min_area / max_area kwargs MSER expects.
+                    mser_args = dict(self.detection)
+                    area_pair = mser_args.pop("area", None)
+                    if isinstance(area_pair, (list, tuple)) and len(area_pair) == 2:
+                        mser_args["min_area"], mser_args["max_area"] = area_pair
+                    result = mser(img_roi, **mser_args)
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": "mser", "conf": 1, "center": _roi.pxl_to_orig(r["center"]),
                     "corners": [_roi.pxl_to_orig(x) for x in r["corners"]]} for r in result]
 
                 elif self.detection["cmd"] == "elp_fit":
                     # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
                     result = elp_fit(img_roi, **self.detection)
-                    retval = [{"timestamp": camera_data["timestamp"], "cls": "elp_fit", "conf": 1, "center": _roi.pxl_to_orig(r["center"]), 
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": "elp_fit", "conf": 1, "center": _roi.pxl_to_orig(r["center"]),
                     "corners": [_roi.pxl_to_orig(x) for x in r["corners"]]} for r in result]
 
 
@@ -370,35 +455,120 @@ class Detection(object):
                     except Exception as ex:
                         pass
                 elif self.detection["cmd"] == "ocr":
+                    # Lazy-init: OCR ships its own bundled models, so it
+                    # doesn't need to be wired at __init__ time. We only
+                    # pay the OpenVINO compile cost on first OCR run.
+                    if not hasattr(self, "ocr") or self.ocr is None:
+                        self.init_ocr()
                     result = self.ocr.ocr(img_roi, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": r[1][0], "conf": r[1][1], "center": _roi.pxl_to_orig([(sum([p[0] for p in r[0]])/len(r[0])), sum([p[1] for p in r[0]])/len(r[0])]), 
                     "corners": [_roi.pxl_to_orig(sublist) for sublist in r[0]]} for r in result]
                 elif self.detection["cmd"] == "od":
                     result = self.od(img_roi, **self.detection)
-                    retval = [{"timestamp": camera_data["timestamp"], "cls": r.cls, "conf": r.prob, "center": _roi.pxl_to_orig([r.rect.x+r.rect.w/2, r.rect.y+r.rect.h/2]), 
-                    "corners": [_roi.pxl_to_orig(pxl) for pxl in [[r.rect.x, r.rect.y], [r.rect.x+r.rect.w, r.rect.y], [r.rect.x+r.rect.w, r.rect.y+r.rect.h], [r.rect.x, r.rect.y+r.rect.h]]],"color": r.color} for r in result]
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": r.cls, "conf": r.prob, "center": _roi.pxl_to_orig([r.rect.x+r.rect.w/2, r.rect.y+r.rect.h/2]),
+                    "corners": [_roi.pxl_to_orig(pxl) for pxl in [[r.rect.x, r.rect.y], [r.rect.x+r.rect.w, r.rect.y], [r.rect.x+r.rect.w, r.rect.y+r.rect.h], [r.rect.x, r.rect.y+r.rect.h]]]} for r in result]
+                elif self.detection["cmd"] == "rod":
+                    # Rotated detection: corners come from the ROD class as
+                    # the four (already rotated) rectangle vertices, and the
+                    # center is `rect.cx, rect.cy` rather than a midpoint of
+                    # an axis-aligned box. The corners themselves encode
+                    # orientation — no separate `angle` field needed.
+                    result = self.rod(img_roi, **self.detection)
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": r.cls, "conf": r.prob,
+                    "center": _roi.pxl_to_orig([r.rect.cx, r.rect.cy]),
+                    "corners": [_roi.pxl_to_orig(pxl) for pxl in r.corners]} for r in result]
+                elif self.detection["cmd"] == "anom":
+                    # Anomaly: one verdict (pass/fail) per image. Same
+                    # ROI-wide rectangle treatment as cls, with 25-px
+                    # inset so the label drawn above the top edge stays
+                    # inside the frame. No localization / hot-spots —
+                    # anomaly is a one-class problem; per-pixel info is
+                    # diagnostic and intentionally not surfaced here.
+                    roi_height, roi_width = img_roi.shape[0:2]
+                    result = self.anom(img_roi, **self.detection)
+                    pad = 25
+                    x0 = min(pad, max(0, roi_width  - 1))
+                    y0 = min(pad, max(0, roi_height - 1))
+                    x1 = max(0,  roi_width  - 1 - pad)
+                    y1 = max(0,  roi_height - 1 - pad)
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": result.cls, "conf": float(result.score),
+                    "center": [int(width/2), int(height/2)],
+                    "corners": [_roi.pxl_to_orig([x0, y0]),
+                                _roi.pxl_to_orig([x1, y0]),
+                                _roi.pxl_to_orig([x1, y1]),
+                                _roi.pxl_to_orig([x0, y1])]}]
                 elif self.detection["cmd"] == "cls":
                     roi_height, roi_width = img_roi.shape[0:2]
 
+                    # Inset the per-image classification rectangle so the
+                    # label text drawn above its top edge stays inside the
+                    # frame (cv.getTextSize for our default font is ~14px,
+                    # plus a 5px gap → 25 covers it with breathing room).
+                    pad = 25
+                    x0 = min(pad, max(0, roi_width  - 1))
+                    y0 = min(pad, max(0, roi_height - 1))
+                    x1 = max(0,  roi_width  - 1 - pad)
+                    y1 = max(0,  roi_height - 1 - pad)
+
                     result = self.cls(img_roi, **self.detection)
-                    retval = [{"timestamp": camera_data["timestamp"], "cls": r[0], "conf": r[1], "center": [int(width/2), int(height/2)], 
-                    "corners": [_roi.pxl_to_orig([min(5,roi_width-1), min(5,roi_height-1)]), 
-                                _roi.pxl_to_orig([max(0,roi_width-6), min(5,roi_height-1)]), 
-                                _roi.pxl_to_orig([max(0,roi_width-6), max(0,roi_height-6)]), 
-                                _roi.pxl_to_orig([min(5,roi_width-1), max(0,roi_height-6)])],"color": r[2]} for r in result]
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": r[0], "conf": r[1], "center": [int(width/2), int(height/2)],
+                    "corners": [_roi.pxl_to_orig([x0, y0]),
+                                _roi.pxl_to_orig([x1, y0]),
+                                _roi.pxl_to_orig([x1, y1]),
+                                _roi.pxl_to_orig([x0, y1])]} for r in result]
                 elif self.detection["cmd"] == "kp":
-                    # kp parameters
-                    kp_prm={}
+                    # New KP flow: ONE keypoint set per image (no OD
+                    # first-stage iteration). The new KP class runs
+                    # top-down on the supplied bbox; passing bbox=None
+                    # uses the whole img_roi, with `padding` controlling
+                    # the affine crop margin (defaults to 1.25× = 25%
+                    # scale-up over the bbox, matching training).
+                    kp_prm = {}
                     if "conf" in self.detection:
                         kp_prm["conf"] = self.detection["conf"]
-                    if "cls" in self.detection and  isinstance(self.detection["cls"], dict):
-                        kp_prm["cls"] = list(self.detection["cls"].keys())
+                    if "padding" in self.detection:
+                        kp_prm["padding"] = self.detection["padding"]
 
+                    # bbox is exposed in the API as 4 corner points
+                    # (same shape as ROI), so it's pickable with the
+                    # polygon UI. Convert to (x, y, w, h) axis-aligned
+                    # rect and remap from original-image coords to
+                    # img_roi coords before handing to KP.
+                    bbox_xywh = None
+                    bbox_corners = self.detection.get("bbox")
+                    if isinstance(bbox_corners, (list, tuple)) and len(bbox_corners) >= 3:
+                        roi_pts = [_roi.pxl_orig_to_roi(pxl) for pxl in bbox_corners]
+                        xs = [float(p[0]) for p in roi_pts]
+                        ys = [float(p[1]) for p in roi_pts]
+                        x_min, x_max = min(xs), max(xs)
+                        y_min, y_max = min(ys), max(ys)
+                        bbox_xywh = (x_min, y_min, x_max - x_min, y_max - y_min)
 
-                    result = self.kp.od(img_roi, **kp_prm)
-                    retval = [{"timestamp": camera_data["timestamp"], "cls": r.cls, "conf": r.prob, "center": _roi.pxl_to_orig([r.rect.x+r.rect.w/2, r.rect.y+r.rect.h/2]), 
-                    "corners": [_roi.pxl_to_orig(pxl) for pxl in [[r.rect.x, r.rect.y], [r.rect.x+r.rect.w, r.rect.y], [r.rect.x+r.rect.w, r.rect.y+r.rect.h], [r.rect.x, r.rect.y+r.rect.h]]],
-                    "color": r.color} for r in result]
+                    kp_out = self.kp(img_roi, bbox=bbox_xywh, **kp_prm)
+
+                    # Flatten: one result entry per keypoint, matching
+                    # the shape of every other detection method (od,
+                    # rod, blob, cnt, ...). Each entry's `cls` is the
+                    # keypoint's name; `corners` is a small axis-aligned
+                    # box around its center so the standard draw / bb
+                    # filter / sort code keeps working uniformly. `xyz`
+                    # gets attached later by the depth-mapping loop.
+                    KP_PAD = 5  # px on each side of the center
+                    retval = []
+                    for kp in kp_out.keypoints:
+                        cx, cy = _roi.pxl_to_orig([kp.x, kp.y])
+                        retval.append({
+                            "timestamp": camera_data["timestamp"],
+                            "cls":     kp.name,
+                            "conf":    kp.conf,
+                            "center":  [cx, cy],
+                            "corners": [
+                                [cx - KP_PAD, cy - KP_PAD],
+                                [cx + KP_PAD, cy - KP_PAD],
+                                [cx + KP_PAD, cy + KP_PAD],
+                                [cx - KP_PAD, cy + KP_PAD],
+                            ],
+                        })
 
             # add id
             for i in range(len(retval)):
@@ -431,10 +601,6 @@ class Detection(object):
                 # max det
                 if len(self.retval["valid"]) >= self.sort["max_det"]:
                     break
-                
-                # init
-                pose_result = []
-                kp_pxl = []
 
                 # valid area, aspect ratio
                 if "bb" in self.limit:
@@ -448,109 +614,28 @@ class Detection(object):
 
                 # draw bb
                 if "cmd" in self.detection and self.detection["cmd"] not in ["aruco", "charuco"] and "label" in self.display and self.display["label"]>=0:
-                    color_label = (0,255,0)
-                    if "color" in r:
-                        color_label = r["color"]
+                    color_label = self._color_for(r.get("cls"))
                     draw_corners(img_adjust, r["cls"], r["conf"], r["corners"], color=color_label, label=self.display["label"])
 
-                # find keypoints
-                if "cmd" in self.detection and self.detection["cmd"] == "kp":
-                    # init
-                    r["kp"] = []
-
-                    # kp parameters
-                    kp_prm={}
-                    if "conf" in self.detection:
-                        kp_prm["conf"] = self.detection["conf"]
-                    if r["cls"] in self.detection["cls"]:
-                        kp_prm["cls"] = self.detection["cls"][r["cls"]]
-                    
-                    # run
-                    kps = self.kp.kp(img_roi, label=r["cls"], bb=[_roi.pxl_orig_to_roi(pxl) for pxl in r["corners"]], **kp_prm)
-                    for kp in kps:
-                        r["kp"].append({
-                            "cls": kp.cls,
-                            "conf": kp.prob,
-                            "center": _roi.pxl_to_orig(kp.center)
-                        })
-                    
-                    kp_pxl = [[k["cls"], k["center"]] for k in r["kp"]]
-
-                # draw kp
-                if kp_pxl and "label" in self.display and self.display["label"]>=0:
-                    # draw template
-                    for pxl in kp_pxl:
-                        draw_point(img_adjust, pxl[1], pxl[0], display_label=self.display["label"])
-
-
-                # assign xyz and filter if the data comes from camera
+                # assign xyz if the data comes from camera
                 if camera_data["depth_frame"] is not None and camera_data["K"] is not None:
-                    # assign xyz
                     r["xyz"] = self.xyz(r["center"])
-
-                    # assign xyz for kps
-                    if "kp" in r:
-                        for i in range(len(r["kp"])):
-                            r["kp"][i]["xyz"] = self.xyz(r["kp"][i]["center"])
 
                 # xyz limit
                 if "xyz" in self.limit:
                     if "xyz" not in r or not Valid().xyz(r["xyz"], **self.limit["xyz"]):
                         continue
 
-                # plane: rvec, tvec
-                if "cmd" in self.detection and self.detection["cmd"] not in ["aruco", "charuco"] and "cmd" in self.pose and self.pose["cmd"] == "plane" and "plane" in self.pose and len(self.pose["plane"]) > 2 and camera_data["depth_frame"] is not None:
-                    pose_result = Plane().pose(r["corners"], self.pose["plane"], self.camera, camera_data["depth_frame"], camera_data["depth_int"], self.frame_mat_inv)
-                    if not pose_result:
-                        continue
-                    r["rvec"] = pose_result[0]
-                    r["tvec"] = pose_result[1]
-                    kp_pxl = [[i, pose_result[4][i]] for i in range(len(pose_result[4]))]
-                
-                # kp pose: rvec, tvec
-                if "cmd" in self.detection and self.detection["cmd"] == "kp" and "cmd" in self.pose and self.pose["cmd"] == "kp" and "kp" in self.pose and r["cls"] in self.pose["kp"] and camera_data["depth_frame"] is not None:
-                    pose_kp_prm = {}
-                    if "thr" in self.pose:
-                        pose_kp_prm["thr"] = self.pose["thr"]
-                    
-                    # number of keypoints
-                    if len(self.pose["kp"][r["cls"]]) == 2:
-                        pose_result = Pose_two_point().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], camera_matrix=camera_data["K"], dist_coeffs=camera_data["D"], frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
-                    if len(self.pose["kp"][r["cls"]]) >= 4:
-                        pose_result = PNP().pose(kp_list=r["kp"], kp_geometry=self.pose["kp"][r["cls"]], camera_matrix=camera_data["K"], dist_coeffs=camera_data["D"], frame_mat_inv=self.frame_mat_inv, **pose_kp_prm)
-
-                    if not pose_result:
-                        continue
-                    r["rvec"] = pose_result[0]
-                    r["tvec"] = pose_result[1]
-
-                # assign pose meta
-                if pose_result:
-                    try:
-                        pose_center = frame_center_pixel(
-                                                        rvec=pose_result[2], 
-                                                        tvec=pose_result[3], 
-                                                        camera_matrix=camera_data["K"], 
-                                                        dist_coeffs=camera_data["D"])
-                        pose_xyz = self.xyz(pose_center)
-                        r["pose"] = {"center": pose_center, "xyz":pose_xyz}
-                    except:
-                        pass
-                    
-                # draw rvec
-                if pose_result and "label" in self.display and self.display["label"]>=0:
-                    # draw template
-                    draw_3d_axis(img_adjust, rvec=pose_result[2], tvec=pose_result[3], camera_matrix=camera_data["K"], dist_coeffs=camera_data["D"])
-                    
-                # rvec valid
-                if "rvec" in self.limit:
-                    if "rvec" not in r or not Valid().rvec(r["rvec"], **self.limit["rvec"]):
-                        continue
-
-                # tvec valid
-                if "tvec" in self.limit:
-                    if "tvec" not in r or not Valid().tvec(r["tvec"], **self.limit["tvec"]):
-                        continue
+                # 6D pose (plane / kp / PNP) and rvec/tvec limits used to
+                # run here as a stage inside Detection.run(). They moved
+                # to opt-in helper methods on this class:
+                #   self.pose_plane(detection, plane)
+                #   self.pose_kp(kp_list, kp_geometry)
+                #   self.filter_rvec(results, **limits)
+                #   self.filter_tvec(results, **limits)
+                # Call them on the result list after run(). ArUco /
+                # ChArUco still emit rvec/tvec from their cmd branches
+                # because pose is intrinsic to those detectors.
 
                 # append
                 self.retval["valid"].append(dict(r))
@@ -588,22 +673,183 @@ class Detection(object):
             # img
             self.img = img_adjust
 
-            # retval
-            self.retval["camera_data"] = camera_data
-            self.retval["camera_data"]["img"] = img_adjust.copy()
-            self.retval["camera_data"]["img_roi"] = img_roi.copy()
+            # retval — build a single dict and assign atomically so nothing
+            # can observe `self.retval["camera_data"]` as None mid-update.
+            cd_out = dict(camera_data) if isinstance(camera_data, dict) else {}
+            cd_out["img"] = img_adjust.copy()
+            cd_out["img_roi"] = img_roi.copy()
+            self.retval["camera_data"] = cd_out
             self.retval["frame_mat_inv"] = self.frame_mat_inv.copy()
         except Exception as ex:
-            print("Exception: ", ex)    
-        
+            import traceback
+            traceback.print_exc()
+
         return list(self.retval["valid"])
+
+
+    # ── Draw-time color resolution ──────────────────────────────────
+    # Color is a presentation concern (annotated overlay), not result
+    # data — so it lives here, not in the result dicts. Looks up the
+    # color the active ML model assigned to this class name; falls
+    # back to green for classical detectors (no class palette) or
+    # when the model wasn't loaded.
+    def _color_for(self, cls_name):
+        cmd   = (self.detection or {}).get("cmd")
+        model = getattr(self, cmd, None) if cmd in ("od", "rod", "cls", "kp", "anom") else None
+        if model is None or cls_name is None:
+            return (0, 255, 0)
+        # KP keeps a flat list of keypoint names + per-index palette.
+        if cmd == "kp":
+            try:
+                idx = list(model.keypoint_names).index(cls_name)
+                return model._kp_color(idx)
+            except (ValueError, AttributeError):
+                return (0, 255, 0)
+        # OD / ROD / CLS / ANOM share the (cls list, colors map) shape.
+        try:
+            idx = list(model.cls).index(cls_name)
+            return _color_for_class(idx, model.cls, model.colors)
+        except (ValueError, AttributeError):
+            return (0, 255, 0)
+
+
+    def grasp(self, target_id, target_rvec, gripper_opening,
+              finger_wdith, finger_location,
+              mask_type="bb", prune_factor=2,
+              num_steps=360, search_angle=(0, 360)):
+        from dorna_vision.grasp import collision_free_rvec
+        return collision_free_rvec(
+            target_id=target_id,
+            target_rvec=target_rvec,
+            gripper_opening=gripper_opening,
+            finger_wdith=finger_wdith,
+            finger_location=finger_location,
+            detection_obj=self,
+            mask_type=mask_type,
+            prune_factor=prune_factor,
+            num_steps=num_steps,
+            search_angle=search_angle,
+        )
+
+
+    # ── 6D pose helpers ─────────────────────────────────────────────
+    # Replace the old self.pose["cmd"] stage that ran inside Detection.run().
+    # The user calls these AFTER detection on a result they care about,
+    # which (a) keeps detection results free of conditionally-attached
+    # rvec/tvec fields, (b) lets the user pick which method to apply
+    # without baking it into the detection config, and (c) mirrors how
+    # `grasp()` already works as an opt-in post-processing step.
+    #
+    # Both helpers read camera state from self.camera_data and the user
+    # frame from self.frame_mat_inv — both are populated by the most
+    # recent `run()`. Calling a pose helper before any run() yields no
+    # camera context and the underlying pose function will raise.
+    #
+    # ArUco / ChArUco detections still carry rvec/tvec directly in their
+    # result dicts (pose is intrinsic to those detectors); these helpers
+    # are for the methods that aren't.
+
+    def pose_plane(self, detection, plane, **kwargs):
+        """
+        Fit a plane to the depth points inside the detection's bounding
+        box. Requires a depth frame from the most recent run().
+
+        plane: list of at least 3 [x, y, z] points defining the plane
+               geometry in the user's frame.
+
+        Returns (rvec, tvec) in the user frame, or None if the fit
+        failed (e.g. degenerate depth, fewer than 3 plane points).
+        """
+        cd = self.camera_data
+        if (cd is None or cd.get("depth_frame") is None
+                or not isinstance(plane, (list, tuple)) or len(plane) < 3):
+            return None
+        result = Plane().pose(
+            detection["corners"], plane, self.camera,
+            cd["depth_frame"], cd["depth_int"], self.frame_mat_inv,
+            **kwargs,
+        )
+        if not result:
+            return None
+        return result[0], result[1]
+
+
+    def pose_kp(self, kp_list, kp_geometry, **kwargs):
+        """
+        Compute 6D pose from a keypoint list. Picks the underlying
+        method by geometry length:
+          2 points  → Pose_two_point (depth-anchored 2-point pose)
+          ≥4 points → PNP (perspective-n-point with RANSAC)
+          (3 pts)   → not supported, returns None.
+
+        kp_list:     the flat list returned by `detection.run()` when
+                     cmd=="kp" — each entry is one keypoint with
+                     {cls, conf, center, corners, xyz?}. Just pass the
+                     `results` list directly.
+        kp_geometry: dict mapping keypoint name → [x, y, z] in the
+                     object's reference frame. Names not in kp_list
+                     are ignored; extra kp_list entries with names
+                     not in kp_geometry are also ignored.
+
+        Returns (rvec, tvec) in the user frame, or None if pose failed.
+        """
+        cd = self.camera_data
+        if cd is None or cd.get("K") is None or not kp_list or not kp_geometry:
+            return None
+        n = len(kp_geometry)
+        if n == 2:
+            result = Pose_two_point().pose(
+                kp_list=kp_list, kp_geometry=kp_geometry,
+                camera_matrix=cd["K"], dist_coeffs=cd["D"],
+                frame_mat_inv=self.frame_mat_inv, **kwargs,
+            )
+        elif n >= 4:
+            result = PNP().pose(
+                kp_list=kp_list, kp_geometry=kp_geometry,
+                camera_matrix=cd["K"], dist_coeffs=cd["D"],
+                frame_mat_inv=self.frame_mat_inv, **kwargs,
+            )
+        else:
+            return None
+        if not result:
+            return None
+        return result[0], result[1]
+
+
+    # ── Pose-based filters ──────────────────────────────────────────
+    # Returns a NEW filtered list — never mutates the input. Entries
+    # without rvec/tvec are dropped (they obviously can't pass an
+    # rvec/tvec constraint). Pair these with the pose helpers above:
+    # compute pose first, attach to results, then filter.
+
+    def filter_rvec(self, detections, **limits):
+        """
+        Keep detections whose rvec satisfies the angle constraints.
+        See Valid().rvec for accepted kwargs (rvec_base, x_angle,
+        y_angle, z_angle, inv).
+        """
+        return [
+            d for d in detections
+            if "rvec" in d and Valid().rvec(d["rvec"], **limits)
+        ]
+
+
+    def filter_tvec(self, detections, **limits):
+        """
+        Keep detections whose tvec lies inside the x/y/z range. See
+        Valid().tvec for accepted kwargs (x, y, z, inv).
+        """
+        return [
+            d for d in detections
+            if "tvec" in d and Valid().tvec(d["tvec"], **limits)
+        ]
 
 
     def close(self):
         # save image
         for thread in self.thread_list:
             thread.join()
-        
+
         # object detection
         if hasattr(self, "od"):
             self.od.__del__()

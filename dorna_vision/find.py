@@ -3,6 +3,81 @@ import numpy as np
 from dorna_vision.board import Aruco, Charuco
 import zxingcpp
 
+
+def _ransac_fit_ellipse(contour, iters=40, inlier_tol=2.0, sample=8, rng=None):
+    """
+    RANSAC-wrapped ellipse fit. cv.fitEllipse uses least-squares over
+    every contour point, so a single noisy/spurious vertex (specular
+    glints, sub-pixel artifacts, bordering objects) skews the fit. This
+    samples small subsets, fits each, and scores by how many *contour*
+    points lie within `inlier_tol` pixels of the resulting ellipse —
+    then refits on the inlier set. The fit returned is biased toward
+    the dominant elliptic structure rather than the noise tail.
+
+    Returns ((cx, cy), (MA, ma), angle) like cv.fitEllipse, or None if
+    no fit was found.
+    """
+    n = len(contour)
+    if n < 5:
+        return None
+    pts = contour.reshape(-1, 2).astype(np.float32)
+    if n < sample:
+        # Too few points to subsample meaningfully; just use direct fit.
+        try:
+            return cv.fitEllipse(contour)
+        except cv.error:
+            return None
+
+    rng = rng if rng is not None else np.random.default_rng(0)
+    best_inliers = None
+    best_count = 0
+    best_fit = None
+
+    for _ in range(int(iters)):
+        idx = rng.choice(n, size=sample, replace=False)
+        sub = pts[idx].reshape(-1, 1, 2)
+        try:
+            fit = cv.fitEllipse(sub)
+        except cv.error:
+            continue
+        (cx, cy), (MA, ma), angle = fit
+        if MA <= 0 or ma <= 0:
+            continue
+        a = MA / 2.0
+        b = ma / 2.0
+        # Distance proxy: |x'^2/a^2 + y'^2/b^2 - 1| in the ellipse's
+        # local frame. Scaled by min(a,b) so the tolerance stays in
+        # pixels regardless of the ellipse's size.
+        theta = np.deg2rad(angle)
+        c, s = np.cos(theta), np.sin(theta)
+        dx = pts[:, 0] - cx
+        dy = pts[:, 1] - cy
+        # cv.fitEllipse uses the angle convention where the major axis
+        # points along (sin(angle), -cos(angle)), so the rotation that
+        # brings the ellipse axis-aligned is the inverse of that.
+        xp =  s * dx - c * dy
+        yp =  c * dx + s * dy
+        residual = np.abs((xp * xp) / (a * a) + (yp * yp) / (b * b) - 1.0)
+        scaled = residual * min(a, b)
+        inliers = scaled < float(inlier_tol)
+        count = int(inliers.sum())
+        if count > best_count:
+            best_count = count
+            best_inliers = inliers
+            best_fit = fit
+
+    if best_fit is None:
+        return None
+    # Refit on the inlier set for sub-pixel polish.
+    if best_inliers is not None and best_count >= 5:
+        inlier_pts = pts[best_inliers].reshape(-1, 1, 2)
+        try:
+            return cv.fitEllipse(inlier_pts)
+        except cv.error:
+            return best_fit
+    return best_fit
+
+
 def elp_fit(
     img,
     *,
@@ -11,6 +86,9 @@ def elp_fit(
     aspect_ratio_tol=0.1,
     circularity_min=0.7,
     convexity_min=0.9,
+    use_ransac=True,
+    ransac_iters=40,
+    ransac_tol=2.0,
     visualize=False,
     **kwargs
 ):
@@ -44,6 +122,7 @@ def elp_fit(
     cnts, _ = cv.findContours(bw, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     results = []
 
+    rng = np.random.default_rng(0)
     for c in cnts:
         area = cv.contourArea(c)
         if not (area_range[0] < area < area_range[1]):
@@ -51,7 +130,22 @@ def elp_fit(
         if len(c) < 5:
             continue
 
-        (x, y), (MA, ma), angle = cv.fitEllipse(c)
+        # RANSAC fit is more robust to noisy contour points (e.g. specular
+        # highlights, jagged edges from imperfect thresholding) than the
+        # plain least-squares fit. Falls back to direct fit on tiny
+        # contours where subsampling is meaningless.
+        if use_ransac:
+            fit = _ransac_fit_ellipse(
+                c, iters=int(ransac_iters), inlier_tol=float(ransac_tol), rng=rng,
+            )
+        else:
+            try:
+                fit = cv.fitEllipse(c)
+            except cv.error:
+                fit = None
+        if fit is None:
+            continue
+        (x, y), (MA, ma), angle = fit
         if ma == 0 or MA == 0:
             continue
 
@@ -187,12 +281,25 @@ def blob(
     for i, kp in enumerate(kps):
         bx, by = kp.pt
         bx += x_min; by += y_min
-        br = max(2, int(round(kp.size/2.0)) + int(pad))
+        # SimpleBlobDetector reports kp.size as the equivalent-circle
+        # diameter, which underestimates the major axis of elongated
+        # ellipses (e.g. a 200×80 blob → kp.size ≈ 127). Using
+        # kp.size/2 + pad as the search radius would clip the contour
+        # at the crop edges and the bounding rect would come out
+        # smaller than the actual blob. Start with a generous radius
+        # (kp.size = 2× the original) and re-expand once if the
+        # threshold result still touches the ROI border.
+        base_r = max(2, int(round(kp.size)) + int(pad))
 
-        x0 = max(0, int(round(bx - br)))
-        x1 = min(W, int(round(bx + br)))
-        y0 = max(0, int(round(by - br)))
-        y1 = min(H, int(round(by + br)))
+        def _crop(r):
+            xa = max(0, int(round(bx - r)))
+            xb = min(W, int(round(bx + r)))
+            ya = max(0, int(round(by - r)))
+            yb = min(H, int(round(by + r)))
+            return xa, xb, ya, yb
+
+        br = base_r
+        x0, x1, y0, y1 = _crop(br)
 
         roi_local = gray[y0:y1, x0:x1]
         _, bw = cv.threshold(roi_local, 0, 255,
@@ -202,14 +309,50 @@ def blob(
                                  np.ones((3,3), np.uint8),
                                  iterations=morph_open)
 
+        # If the foreground touches any border of the local crop, the
+        # blob extends outside our search window — re-crop with double
+        # the radius and re-threshold so boundingRect captures the
+        # full silhouette.
+        h_l, w_l = bw.shape[:2]
+        if w_l > 1 and h_l > 1:
+            touches_border = (
+                bw[0, :].any() or bw[-1, :].any() or
+                bw[:, 0].any() or bw[:, -1].any()
+            )
+            if touches_border:
+                br = base_r * 2
+                x0, x1, y0, y1 = _crop(br)
+                roi_local = gray[y0:y1, x0:x1]
+                _, bw = cv.threshold(roi_local, 0, 255,
+                                     cv.THRESH_BINARY_INV + cv.THRESH_OTSU)
+                if morph_open > 0:
+                    bw = cv.morphologyEx(bw, cv.MORPH_OPEN,
+                                         np.ones((3,3), np.uint8),
+                                         iterations=morph_open)
+
         cnts, _ = cv.findContours(bw, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         if cnts and len(max(cnts, key=cv.contourArea)) >= 5:
             largest = max(cnts, key=cv.contourArea)
             (ex, ey), (MA, ma), angle = cv.fitEllipse(largest)
             cx, cy = ex + x0, ey + y0
+            # Tight axis-aligned box around the actual blob contour, in
+            # image coords. The search crop above used a `pad`-inflated
+            # ROI to give the threshold/morph step room to recover the
+            # full silhouette — but that's a search box, not a result
+            # box, so don't return it as `corners`.
+            bx_l, by_l, bw_l, bh_l = cv.boundingRect(largest)
+            tx0, ty0 = bx_l + x0, by_l + y0
+            tx1, ty1 = tx0 + bw_l, ty0 + bh_l
         else:
             cx, cy = bx, by
             MA = ma = 2*br; angle = 0.0
+            # Fallback: contour fit failed, so the best estimate of blob
+            # extent is the detector's keypoint size (diameter).
+            r = max(1, int(round(kp.size/2.0)))
+            tx0 = max(0, int(round(bx - r)))
+            tx1 = min(W, int(round(bx + r)))
+            ty0 = max(0, int(round(by - r)))
+            ty1 = min(H, int(round(by + r)))
 
         if use_subpix:
             pt = np.array([[[cx, cy]]], np.float32)
@@ -217,7 +360,7 @@ def blob(
             sub = cv.cornerSubPix(gray, pt, win, (-1,-1), term)
             cx, cy = sub[0,0,0], sub[0,0,1]
 
-        corners = [(x0,y0),(x1,y0),(x1,y1),(x0,y1)]
+        corners = [(tx0,ty0),(tx1,ty0),(tx1,ty1),(tx0,ty1)]
         results.append({"center": (float(cx), float(cy)), "corners": corners})
 
         if visualize:
@@ -244,6 +387,97 @@ def blob(
         cv.waitKey(0)
         cv.destroyAllWindows()
     return results
+
+def mser(
+    img,
+    *,
+    delta=5,
+    min_area=60,
+    max_area=14400,
+    max_variation=0.25,
+    min_diversity=0.2,
+    blob_is_dark=True,
+    nms_iou=0.5,
+    **kwargs,
+):
+    """
+    MSER (Maximally Stable Extremal Regions): finds blob-like regions that
+    stay coherent across a sweep of binarization thresholds. The big win
+    over `blob`/`cnt` is that there's no threshold value to tune — the
+    algorithm itself is threshold-invariant — so the same parameters
+    survive lighting changes that would break Otsu/SimpleBlobDetector.
+
+    Polarity is filtered post-hoc: MSER intrinsically detects both bright
+    and dark extremal regions, but `blob_is_dark` (matching find.blob's
+    knob) keeps only the side the user asked for, by comparing each
+    region's mean intensity to the image median.
+
+    Returns a list shaped like find.blob():
+      [{'center': (cx, cy),
+        'corners': [(x0,y0),(x1,y0),(x1,y1),(x0,y1)]}, ...]
+    """
+    if img.ndim == 3 and img.shape[2] == 3:
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    else:
+        gray = img
+
+    detector = cv.MSER_create(
+        delta=int(delta),
+        min_area=int(min_area),
+        max_area=int(max_area),
+        max_variation=float(max_variation),
+        min_diversity=float(min_diversity),
+    )
+    regions, bboxes = detector.detectRegions(gray)
+
+    if len(regions) == 0:
+        return []
+
+    # MSER returns nested regions (same blob detected at multiple scales),
+    # so filter both by polarity and overlap before returning.
+    median_intensity = float(np.median(gray))
+    raw = []
+    for region, bbox in zip(regions, bboxes):
+        x, y, w, h = bbox
+        if w <= 0 or h <= 0 or len(region) == 0:
+            continue
+        region_mean = float(gray[region[:, 1], region[:, 0]].mean())
+        is_dark = region_mean < median_intensity
+        if blob_is_dark and not is_dark:
+            continue
+        if (not blob_is_dark) and is_dark:
+            continue
+        cx = float(region[:, 0].mean())
+        cy = float(region[:, 1].mean())
+        raw.append({
+            "center": (cx, cy),
+            "bbox":   (int(x), int(y), int(w), int(h)),
+            # Larger regions are usually preferred when nested duplicates
+            # collide in NMS — area becomes the score.
+            "score":  float(w * h),
+        })
+
+    if not raw:
+        return []
+
+    boxes  = [r["bbox"]  for r in raw]
+    scores = [r["score"] for r in raw]
+    keep   = cv.dnn.NMSBoxes(boxes, scores, 0.0, float(nms_iou))
+    if len(keep) == 0:
+        return []
+    keep_idx = keep.flatten() if hasattr(keep, "flatten") else list(keep)
+
+    results = []
+    for i in keep_idx:
+        x, y, w, h = raw[i]["bbox"]
+        x0, y0 = x, y
+        x1, y1 = x + w, y + h
+        results.append({
+            "center": raw[i]["center"],
+            "corners": [(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
+        })
+    return results
+
 
 def barcode(img, **kwargs):
     # format, text, corners, center

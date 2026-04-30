@@ -1,0 +1,1212 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   dorna_vision GUI — page-specific styles on top of vendor base.css/nav.css
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.topbar-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+  margin: 0;
+}
+
+/* connection pill — uses existing .pill / .dot variants */
+.conn-pill {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.conn-pill .dot { margin-right: 4px; }
+
+/* ── Main layout ────────────────────────────────────────────────── */
+.main {
+  padding: 20px;
+  height: calc(100vh - 54px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.main-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ── Pages (only one visible at a time) ─────────────────────────── */
+.page { display: none; }
+.page.active { display: block; }
+
+/* ── Home landing — Workspace-style "Select a section" cards ───── */
+/* IMPORTANT: scoped to `.active` so this rule doesn't override the
+   `.page { display: none }` baseline on the other pages. Without
+   `.active`, `section[data-page="home"]` (specificity 011) beats
+   `.page` (010) and home would render on every route. */
+section[data-page="home"].active {
+  /* Center the landing column vertically + horizontally inside the
+     scroll area. min-height instead of height so the page doesn't
+     clip on small viewports. */
+  min-height: calc(100vh - 120px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+.home-landing {
+  text-align: center;
+  max-width: 640px;
+  width: 100%;
+}
+/* Title + subtitle: only override margin-bottom so the default
+   browser top margins still apply — that's what gives the title
+   the breathing room from the top, matching the Workspace landing. */
+.home-title {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  margin-bottom: 6px;
+}
+.home-subtitle {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 40px;
+}
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  text-align: left;
+}
+.home-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border2, var(--border, rgba(255,255,255,0.08)));
+  border-radius: 14px;
+  text-decoration: none;
+  color: var(--text);
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.home-card:hover {
+  background: var(--surface2);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.home-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.home-card-icon svg { opacity: 0.9; }
+.home-card-text { min-width: 0; }
+.home-card-label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.home-card-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Per-card accent colors — same palette as the Workspace landing. */
+.home-card-cameras    .home-card-icon { background: rgba(10,132,255,0.12); color: var(--accent); }
+.home-card-playground .home-card-icon { background: rgba(52,199,89,0.12);  color: var(--green); }
+[data-theme="light"] .home-card-cameras    .home-card-icon { background: rgba(0,122,255,0.08); }
+[data-theme="light"] .home-card-playground .home-card-icon { background: rgba(36,138,61,0.08); }
+
+@media (max-width: 520px) {
+  .home-cards { grid-template-columns: 1fr; }
+}
+
+/* Quiet meta line under the cards — host · version. Muted so it
+   doesn't compete with the main nav cards above. */
+.home-footer {
+  margin-top: 24px;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+  letter-spacing: 0.02em;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+.home-footer-sep { opacity: 0.5; }
+.stat-value.ok   { color: var(--green); }
+.stat-value.warn { color: var(--amber); }
+.stat-value.bad  { color: var(--red); }
+.stat-value.off  { color: var(--muted); }
+
+/* ── Section actions row ────────────────────────────────────────── */
+.section-actions {
+  display: flex; align-items: center; gap: 10px;
+  margin: 16px 0 8px;
+}
+
+/* ── Section header (label + count chip + search), mirrors the
+   orchestrator's Workspaces UI for visual consistency. ────────── */
+.section-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+}
+.section-header h2 {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+  /* Match the count chip's box height so they sit on the same baseline. */
+  line-height: 22px;
+}
+.section-header .count {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface2);
+  border: none;
+  border-radius: 20px;
+  padding: 0 10px;
+  height: 22px;
+  font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+  line-height: 1;
+}
+
+/* Camera search box — same shape as workspace search. */
+.cam-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.cam-search-wrap svg {
+  position: absolute;
+  left: 10px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.cam-search {
+  background: var(--surface2);
+  border: none;
+  border-radius: 10px;
+  color: var(--text);
+  font-family: var(--font, system-ui, sans-serif);
+  font-size: 13px;
+  padding: 7px 12px 7px 30px;
+  outline: none;
+  width: 200px;
+  transition: box-shadow 0.15s, width 0.2s;
+}
+.cam-search:focus { box-shadow: var(--glow, 0 0 0 3px rgba(10,132,255,0.25)); width: 260px; }
+.cam-search::placeholder { color: var(--muted); }
+[data-theme="light"] .cam-search { background: rgba(0,0,0,0.04); }
+
+@media (max-width: 600px) {
+  .cam-search { width: 140px; }
+  .cam-search:focus { width: 160px; }
+}
+
+/* ── Empty state (no cameras yet) ───────────────────────────────── */
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--muted);
+}
+.empty-icon {
+  font-size: 40px;
+  margin-bottom: 16px;
+  opacity: 0.2;
+}
+.empty-state h3 {
+  color: var(--text);
+  margin: 0 0 6px 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.empty-state p {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* tighter spacing on small screens */
+@media (max-width: 600px) {
+  .main { padding: 12px; }
+  .stats-bar { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+}
+
+/* ── Playground ─────────────────────────────────────────────────── */
+.pg-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pg-field-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pg-field-inline[hidden] { display: none; }
+.pg-field-inline label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.pg-field-inline .input { width: auto; min-width: 180px; }
+/* Source picker only has two options — no need for the wider min-width */
+#pgSource.input { min-width: 110px; }
+
+.pg-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.pg-fps {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--green);
+  margin-left: 4px;
+}
+
+.pg-output {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* tabs */
+.pg-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border2);
+}
+.pg-tab {
+  background: none;
+  border: none;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s, border-color 0.12s;
+}
+.pg-tab:hover { color: var(--text); }
+.pg-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* image */
+.pg-imgwrap {
+  position: relative;
+  background: var(--surface2);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  max-height: 50vh;
+}
+.pg-imgwrap img {
+  display: none;
+  max-width: 100%;
+  max-height: 50vh;
+  object-fit: contain;
+}
+.pg-img-empty { color: var(--muted); font-size: 13px; padding: 60px 20px; text-align: center; }
+.pg-results-wrap { margin-top: 8px; max-height: 32vh; overflow-y: auto; }
+
+/* ── ROI polygon overlay ─────────────────────────────────────────── */
+/* Persistent — shows the saved polygon on the image; switches to an
+   interactive editor when the user clicks Edit/Pick. */
+.pg-imgwrap.is-roi-editing {
+  box-shadow: 0 0 0 3px var(--accent), 0 0 24px rgba(10,132,255,0.4);
+  transition: box-shadow 0.18s;
+  /* Default wrap clips with overflow:hidden so the rounded corners
+     trim the image. During ROI edit, that same clip hides any vertex
+     handle whose position lands outside the wrap rect (e.g. saved
+     polygons from a previous larger image), making them un-grabbable.
+     Allow overflow only while editing. */
+  overflow: visible;
+}
+.pg-roi-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+/* Edit-mode overlay catches clicks; read-only overlay stays click-through */
+.is-roi-editing .pg-roi-overlay {
+  cursor: crosshair;
+}
+.is-roi-shown .pg-roi-overlay { pointer-events: none; }
+.pg-roi-overlay svg { pointer-events: none; }
+.pg-roi-poly {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.pg-roi-mask {
+  fill: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.pg-roi-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+/* Bbox picker variant — same shape primitives, greenish stroke to
+   visually distinguish from the blue ROI polygon. Applied to
+   .pg-roi-overlay when _roiEdit.mode === "bbox" or when the saved
+   target is in bbox mode. */
+.pg-roi-overlay.is-bbox .pg-roi-poly,
+.pg-roi-overlay.is-bbox .pg-roi-line {
+  stroke: #22c55e;
+}
+.pg-roi-overlay.is-bbox .pg-roi-pt circle {
+  fill: #22c55e;
+}
+.pg-roi-overlay.is-bbox .pg-roi-pt:hover circle {
+  fill: #fff;
+  stroke: #22c55e;
+}
+/* point handles — interactive, draggable */
+.pg-roi-pt {
+  pointer-events: auto;
+  cursor: grab;
+}
+.pg-roi-pt:active { cursor: grabbing; }
+.pg-roi-pt circle {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transition: r 0.1s;
+}
+.pg-roi-pt:hover circle { fill: #fff; stroke: var(--accent); stroke-width: 3; }
+.pg-roi-pt text {
+  fill: #fff;
+  font-size: 10px;
+  font-family: var(--font);
+  font-weight: 700;
+  pointer-events: none;
+  user-select: none;
+}
+.pg-roi-pt:hover text { fill: var(--accent); }
+/* Form action row under the corners textarea — Pick / Edit / Remove,
+   or while editing: Save / Cancel / Clear all. */
+.pg-roi-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+.pg-roi-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* results table */
+.pg-results-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 18px 0 8px;
+}
+.pg-results-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.pg-results-count {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pg-results {
+  margin-top: 10px;
+  overflow-x: auto;
+}
+.pg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.pg-table th,
+.pg-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border2);
+  color: var(--text);
+  white-space: nowrap;
+}
+.pg-table th {
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+  background: var(--surface2);
+  position: sticky;
+  top: 0;
+}
+.pg-table tr:hover td { background: var(--surface2); }
+.pg-table td:first-child,
+.pg-table th:first-child { padding-left: 14px; }
+
+/* ── Playground two-column grid ─────────────────────────────────── */
+.pg-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.pg-left  { min-width: 0; }
+.pg-right {
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  align-self: start;
+}
+@media (max-width: 1100px) {
+  .pg-grid { grid-template-columns: 1fr; }
+  .pg-right { position: static; }
+}
+
+/* ── Builder: tabbed layout ─────────────────────────────────────── */
+.pg-builder {
+  background: var(--surface);
+  border-radius: 14px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.pg-build-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border2);
+  padding: 0 14px;
+  background: var(--surface2);
+}
+.pg-build-tab {
+  background: none;
+  border: none;
+  padding: 12px 18px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s, border-color 0.12s;
+}
+.pg-build-tab:hover { color: var(--text); }
+.pg-build-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.pg-build-pane { display: none; padding: 22px 28px; }
+.pg-build-pane.active { display: block; }
+
+/* Pre-init gate — only Initialization tab + its content visible. The
+   right column's Run/Live/Promote actions hide too. */
+/* Runtime tabs stay visible even pre-init so users can browse Source
+   (in Image) and other settings; the gate is on Run, not navigation. */
+body.is-pre-init .pg-actions { visibility: hidden; }
+/* Locked init cards — visual-only after Initialize is clicked. The
+   user clicks Re-initialize to unlock. */
+.pg-group.is-locked .pg-fields { opacity: 0.55; pointer-events: none; user-select: none; }
+.pg-group.is-locked .pg-group-head { color: var(--muted); }
+
+/* Initialize / Re-initialize action row */
+.pg-init-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 18px;
+  padding-top: 4px;
+}
+.btn.btn-lg { padding: 9px 18px; font-size: 14px; }
+/* `.btn` uses inline-flex, which would otherwise override [hidden]'s
+   display:none — without this rule, hidden buttons stay visible. */
+.btn[hidden] { display: none; }
+
+/* Collapsible section group inside a builder pane */
+.pg-group {
+  border-bottom: 1px solid var(--border2);
+}
+.pg-group[hidden] { display: none; }
+/* Note: previously dropped border-bottom on :last-child, but that hid
+   the divider between schema-rendered sections (e.g. Frame) and the
+   static cards that come after them (AI Models). Keep the border on
+   every group — the bottom padding of the pane absorbs the trailing line. */
+.pg-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 12px 4px;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 6px;
+  transition: background 0.12s, color 0.12s;
+}
+.pg-group-head:hover { background: var(--surface2); }
+.pg-group-title { flex: 1; }
+.pg-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+  width: 14px; height: 14px;
+}
+.pg-group:not(.is-collapsed) .pg-chevron { transform: rotate(90deg); color: var(--accent); }
+.pg-group:not(.is-collapsed) .pg-group-head { color: var(--accent); }
+.pg-group .pg-fields { padding: 6px 6px 18px; }
+
+/* Force collapse — overrides .pg-fields { display: grid } */
+.pg-fields[hidden],
+.pg-group.is-collapsed .pg-fields { display: none; }
+
+.pg-fields-row { display: flex; align-items: center; }
+.pg-method { width: auto; min-width: 240px; }
+
+.pg-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px 16px;
+  padding-top: 10px;
+}
+
+/* Section description — small italic muted line above the fields */
+.pg-desc {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin: 0 0 6px;
+  padding: 0;
+  font-style: italic;
+}
+
+/* Tab dot — accent indicator on tabs that have any active config */
+.pg-tab-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Section header acts: Apply checkbox + Reset link */
+.pg-section-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.pg-section-reset {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 6px;
+  transition: background 0.12s, color 0.12s;
+}
+.pg-section-reset:hover { background: var(--surface2); color: var(--text); }
+
+/* Reconnect banner above the output */
+.pg-banner {
+  background: rgba(255, 159, 10, 0.15);
+  border: 1px solid rgba(255, 159, 10, 0.3);
+  color: var(--amber);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+/* Detection-highlight overlay — sits between img and ROI overlay */
+.pg-hi-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+}
+.pg-hi-poly {
+  fill: rgba(255, 159, 10, 0.18);
+  stroke: var(--amber);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+/* selected row in results table */
+.pg-table tr[data-det-id] { cursor: pointer; }
+.pg-table tr.is-selected td {
+  background: rgba(255, 159, 10, 0.12);
+  color: var(--amber);
+}
+
+/* Image stage (zoom/pan target) */
+.pg-img-stage {
+  position: relative;
+  display: inline-block;
+  transform-origin: 0 0;
+  transition: transform 0.06s linear;
+  max-width: 100%;
+  max-height: 50vh;
+  line-height: 0;
+}
+.pg-imgwrap.is-panning { cursor: grabbing; user-select: none; }
+.pg-imgwrap.is-eyedrop { cursor: crosshair; }
+.pg-imgwrap.is-eyedrop .pg-img-stage { box-shadow: 0 0 0 3px var(--amber), 0 0 24px rgba(255,159,10,0.4); }
+
+/* Eyedrop / extra row inside Color Mask section fields */
+.pg-extra-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.pg-flabel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.pg-field[hidden] { display: none; }
+.pg-flabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+}
+.pg-input { padding: 6px 10px; font-size: 12px; }
+
+/* sliders */
+.pg-slider-row { display: flex; align-items: center; gap: 8px; }
+.pg-code-block { margin-bottom: 16px; }
+.pg-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.pg-code-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.pg-code-pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre;
+  overflow: auto;
+  max-height: 360px;
+  user-select: text;
+}
+.pg-savepath-row { display: flex; align-items: center; gap: 10px; }
+.pg-upload-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pg-upload-name {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pg-upload-row.is-uploaded .pg-upload-name { color: var(--text); }
+.pg-savepath-row .pg-savepath-in { flex: 1; min-width: 0; }
+.pg-savepath-row .pg-savepath-in:disabled { opacity: 0.45; }
+.pg-slider {
+  flex: 1;
+  -webkit-appearance: none; appearance: none;
+  height: 4px;
+  background: var(--surface3);
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+.pg-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+}
+.pg-slider::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+}
+.pg-slider-num { width: 70px; padding: 4px 8px; font-size: 11px; font-family: var(--mono); }
+
+/* vec rows (vec3, vec6) */
+.pg-vec-row { display: grid; gap: 6px; }
+.pg-vec3 { grid-template-columns: repeat(3, 1fr); }
+.pg-vec6 { grid-template-columns: repeat(6, 1fr); }
+.pg-vec-cell { padding: 4px 8px; font-size: 11px; font-family: var(--mono); text-align: center; }
+
+/* dual-handle range slider — gui.py IntRangeSlider equivalent */
+.pg-rs {
+  position: relative;
+  height: 30px;
+}
+.pg-rs-track {
+  position: absolute;
+  top: 13px;
+  left: 0; right: 0;
+  height: 4px;
+  background: var(--surface3);
+  border-radius: 2px;
+}
+.pg-rs-fill {
+  position: absolute;
+  top: 13px;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.pg-rs input[type="range"] {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 100%;
+  height: 22px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+  pointer-events: none;
+  outline: none;
+  margin: 0;
+}
+.pg-rs input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  pointer-events: auto;
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  margin-top: 0;
+}
+.pg-rs input[type="range"]::-moz-range-thumb {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  pointer-events: auto;
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+}
+.pg-rs input[type="range"]::-webkit-slider-runnable-track,
+.pg-rs input[type="range"]::-moz-range-track { background: transparent; height: 4px; }
+/* [number] [─── slider ───] [number]   on one line */
+.pg-rs-wrap {
+  display: grid;
+  grid-template-columns: 72px 1fr 72px;
+  align-items: center;
+  gap: 10px;
+}
+.pg-rs-num {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  text-align: center;
+}
+
+/* Detection-tab flat method layout */
+.pg-detection-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0 16px;
+  border-bottom: 1px solid var(--border2);
+  margin-bottom: 14px;
+}
+.pg-detection-head .pg-flabel { margin: 0; }
+.pg-detection-head .input { flex: 1; }
+.pg-method-fields { padding: 0 0 14px; }
+
+/* "Apply" toggle inside section header — uses .pg-switch for the control */
+.pg-enable {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  margin-left: auto;
+  user-select: none;
+}
+.pg-enable:hover .pg-enable-text { color: var(--text); }
+
+/* mini json textarea */
+.pg-json-mini {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+/* iOS-style toggle for booleans */
+.pg-switch {
+  position: relative;
+  display: inline-block;
+  width: 38px; height: 22px;
+  flex-shrink: 0;
+}
+.pg-switch input { opacity: 0; width: 0; height: 0; }
+.pg-switch span {
+  position: absolute; cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--surface3);
+  border-radius: 22px;
+  transition: background 0.15s;
+}
+.pg-switch span::before {
+  content: "";
+  position: absolute;
+  height: 16px; width: 16px;
+  left: 3px; bottom: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+.pg-switch input:checked + span { background: var(--accent); }
+.pg-switch input:checked + span::before { transform: translateX(16px); }
+
+/* ── Field / Modal (same look as orchestrator) ──────────────────── */
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label {
+  font-size: 12px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;
+}
+.hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: none;
+  align-items: center; justify-content: center;
+  padding: 20px;
+  z-index: 50000;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  width: min(540px, 100%);
+  max-height: calc(100vh - 40px);
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  animation: attachModalIn 0.25s cubic-bezier(0.2,0.9,0.3,1) forwards;
+}
+[data-theme="light"] .modal { box-shadow: 0 8px 40px rgba(0,0,0,0.18); }
+.modal-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+}
+.modal-head h3 { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
+.modal-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; flex: 1; min-height: 0; }
+.modal-foot {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border2);
+  display: flex; gap: 8px; justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+@keyframes attachModalIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Camera grid + cards ────────────────────────────────────────── */
+.cam-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+.cam-card {
+  background: var(--surface);
+  border-radius: 16px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+.cam-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
+.cam-card.is-added {
+  background: linear-gradient(135deg, var(--surface) 0%, rgba(52,199,89,0.08) 100%);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(52,199,89,0.30);
+}
+[data-theme="light"] .cam-card { box-shadow: 0 1px 6px rgba(0,0,0,0.06), 0 0 1px rgba(0,0,0,0.08); }
+[data-theme="light"] .cam-card.is-added {
+  background: linear-gradient(135deg, #fff 0%, #f0fdf4 100%);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.06), 0 0 0 1.5px rgba(36,138,61,0.30);
+}
+
+.cc-head {
+  padding: 14px 16px 10px;
+  display: flex; align-items: center; gap: 10px;
+}
+.cc-info { flex: 1; min-width: 0; }
+.cc-name {
+  font-size: 14px; font-weight: 600; letter-spacing: -0.2px;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.cc-body { padding: 0 16px 8px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Two-line mono meta — identity (sn / usb), then live params (type / fps / temp) */
+.cc-meta-lines {
+  padding: 0 16px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cc-meta-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-mk { opacity: 0.6; }
+.cc-sep { opacity: 0.35; margin: 0 2px; }
+.cc-meta-line strong { color: var(--text); font-weight: 500; }
+
+/* Dimension overlay on the bottom-right of the captured image */
+.cc-dim-overlay {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 3px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.cc-thumb {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface2);
+  aspect-ratio: 16 / 9;
+  display: flex; align-items: center; justify-content: center;
+}
+.cc-thumb img { width: 100%; height: 100%; object-fit: cover; display: none; }
+.cc-thumb-empty { color: var(--muted); font-size: 12px; }
+
+/* Disconnected state — contextual placeholder inside the thumbnail area */
+.cc-thumb-warn {
+  background: rgba(255,69,58,0.06);
+  color: var(--red);
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  text-align: center;
+}
+[data-theme="light"] .cc-thumb-warn { background: rgba(215,0,21,0.05); }
+.cc-thumb-warn-title { font-size: 13px; font-weight: 600; }
+.cc-thumb-warn-sub { font-size: 11px; color: var(--muted); }
+.cam-card.is-missing { box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255,69,58,0.25); }
+[data-theme="light"] .cam-card.is-missing { box-shadow: 0 1px 6px rgba(0,0,0,0.06), 0 0 0 1.5px rgba(215,0,21,0.20); }
+
+/* Expand button overlay on the thumbnail */
+.cc-expand {
+  position: absolute;
+  top: 8px; right: 8px;
+  display: none;
+  align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: background 0.12s;
+}
+.cc-expand:hover { background: rgba(0,0,0,0.7); }
+/* Playground variant — always visible (the camera card hides it until a
+   frame is captured; here the user always has at least the empty stage). */
+.pg-expand-overlay { display: inline-flex; z-index: 11; }
+
+/* Subtle silent connected indicator (no text) */
+.cc-status.connected {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+}
+.cc-status.connected .dot { width: 9px; height: 9px; }
+
+.cc-meta { font-size: 12px; }
+
+.cc-foot {
+  margin-top: auto;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border2);
+  display: flex; gap: 6px; align-items: center;
+}
+
+/* ── Image lightbox ─────────────────────────────────────────────── */
+.img-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 60000;
+  padding: 32px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.img-lightbox.show { display: flex; }
+.img-lightbox img {
+  max-width: 100%;
+  max-height: calc(100% - 60px);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+.img-lightbox-caption {
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 12px;
+  opacity: 0.7;
+}
+.img-lightbox-actions {
+  position: absolute;
+  top: 18px; right: 18px;
+  display: flex;
+  gap: 8px;
+}
+.img-lightbox-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.12);
+  border: none;
+  border-radius: 10px;
+  color: #fff;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.img-lightbox-btn:hover { background: rgba(255,255,255,0.22); }
+.img-lightbox-btn[hidden] { display: none; }
+
+/* ── Textarea (kwargs) ──────────────────────────────────────────── */
+.kw-textarea {
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  min-height: 130px;
+}
+.input-error { border-color: var(--red) !important; box-shadow: 0 0 0 3px rgba(255,69,58,0.15) !important; }
+.kw-error { font-size: 11px; color: var(--red); font-weight: 600; }
+.hint code {
+  font-family: var(--mono);
+  background: var(--surface2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text);
+}

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dorna_vision"
+version = "2.4.0"
+description = "Dorna vision package — detection pipeline and WebSocket server"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Dorna Robotics", email = "info@dorna.ai"}]
+requires-python = ">=3.9"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "zxing-cpp",
+    "scikit-learn",
+    "shapely",
+    "torch",
+    "openvino",
+    "tornado",
+]
+
+[project.urls]
+GitHub = "https://github.com/dorna-robotics/dorna_vision"
+Homepage = "https://dorna.ai/"
+
+[project.scripts]
+dorna-vision-server = "dorna_vision.server.__main__:cli"
+
+[tool.setuptools.packages.find]
+include = ["dorna_vision*"]
+
+[tool.setuptools.package-data]
+dorna_vision = [
+    "model/ocr/*",
+    "server/web/index.html",
+    "server/web/static/*",
+    "server/web/static/**/*",
+]

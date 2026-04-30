@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dorna_vision_client"
+version = "0.1.0"
+description = "Lightweight client for the Dorna vision server"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Dorna Robotics", email = "info@dorna.ai"}]
+requires-python = ">=3.8"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "websocket-client",
+]
+
+[project.urls]
+GitHub = "https://github.com/dorna-robotics/dorna_vision"
+Homepage = "https://dorna.ai/"
+
+[tool.setuptools.packages.find]
+include = ["dorna_vision_client*"]

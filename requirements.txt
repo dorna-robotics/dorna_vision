@@ -1,5 +1,0 @@
-zxing-cpp
-scikit-learn
-shapely
-torch
-openvino

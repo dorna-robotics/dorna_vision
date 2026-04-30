@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Dorna Vision</title>
+  <script>(function(){ document.documentElement.setAttribute("data-theme", localStorage.getItem("orch_theme")||"dark"); if(localStorage.getItem("nav_expanded")==="1")document.documentElement.classList.add("nav-expanded"); })();</script>
+  <link rel="icon" type="image/png" href="/static/vendor/favicon.png"/>
+  <link rel="stylesheet" href="/static/vendor/base.css"/>
+  <link rel="stylesheet" href="/static/vendor/nav.css"/>
+  <link rel="stylesheet" href="/static/style.css?v=56"/>
+</head>
+<body class="is-pre-init">
+
+<nav class="app-nav">
+  <div class="app-nav-header">
+    <button class="app-nav-collapse" title="Toggle sidebar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+  </div>
+  <div class="app-nav-links">
+    <a href="/home" class="app-nav-link active" data-route="home">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span>Home</span>
+    </a>
+    <a href="/cameras" class="app-nav-link" data-route="cameras">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      <span>Cameras</span>
+    </a>
+    <a href="/playground" class="app-nav-link" data-route="playground">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+      <span>Playground</span>
+    </a>
+  </div>
+</nav>
+<div class="app-nav-overlay"></div>
+
+<header class="topbar">
+  <button class="burger-btn" id="btnBurger" title="Menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+  <h1 class="topbar-title" id="pageTitle">Home</h1>
+  <div class="spacer"></div>
+  <div class="topbar-actions">
+    <span class="conn-pill pill off" id="connPill"><span class="dot" id="connDot"></span><span id="connLabel">connecting…</span></span>
+    <button class="btn btn-ghost btn-sm btn-icon" id="btnFullscreen" title="Fullscreen"></button>
+    <button class="btn btn-ghost btn-sm btn-icon" id="btnTheme" title="Toggle theme"></button>
+  </div>
+</header>
+
+<main class="main">
+  <div class="main-inner">
+    <section data-page="home" class="page active">
+      <!-- Landing card grid — same pattern as the Dorna Workspace
+           home (title + subtitle + clickable cards). The previous
+           stats / quick-action buttons / Server card are folded into
+           the cards themselves: each one shows its live count as a
+           hint and guides the user into that section on click. -->
+      <div class="home-landing">
+        <h1 class="home-title">Dorna Vision</h1>
+        <p class="home-subtitle">Select a section</p>
+        <div class="home-cards">
+          <a class="home-card home-card-cameras" href="/cameras" data-route="cameras">
+            <div class="home-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </div>
+            <div class="home-card-text">
+              <div class="home-card-label">Cameras</div>
+              <div class="home-card-hint" id="homeCardCameras">Manage camera connections</div>
+            </div>
+          </a>
+          <a class="home-card home-card-playground" href="/playground" data-route="playground">
+            <div class="home-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+            </div>
+            <div class="home-card-text">
+              <div class="home-card-label">Playground</div>
+              <div class="home-card-hint" id="homeCardPlayground">Build and test detections</div>
+            </div>
+          </a>
+        </div>
+        <!-- Subtle version footer — quiet line under the cards. -->
+        <div class="home-footer">
+          <span id="srvVersion">—</span>
+        </div>
+      </div>
+    </section>
+
+    <section data-page="cameras" class="page">
+      <div class="section-actions">
+        <button class="btn btn-primary btn-lg" id="camAddBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Camera
+        </button>
+      </div>
+      <div class="section-header">
+        <h2>Cameras</h2>
+        <span class="count" id="camCount"></span>
+        <div class="spacer"></div>
+        <div class="cam-search-wrap">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="cam-search" id="camSearch" type="text" placeholder="Search cameras…" autocomplete="off" spellcheck="false"/>
+        </div>
+      </div>
+      <div class="cam-grid" id="camGrid"></div>
+    </section>
+
+    <section data-page="playground" class="page">
+      <div class="pg-grid">
+
+        <!-- ── Left column: builder ─────────────────────────────────── -->
+        <div class="pg-left">
+          <div class="pg-toolbar">
+            <div class="spacer"></div>
+            <input type="file" id="pgLoadFile" accept=".json" hidden/>
+            <button class="btn btn-ghost btn-sm" id="pgLoadBtn" title="Load config from .json">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Load
+            </button>
+            <button class="btn btn-ghost btn-sm" id="pgSaveBtn" title="Save config to .json">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              Save
+            </button>
+            <button class="btn btn-ghost btn-sm" id="pgClearAll" title="Wipe all config back to defaults">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+              Clear
+            </button>
+          </div>
+
+          <div class="pg-builder">
+            <div class="pg-build-tabs">
+              <button class="pg-build-tab active" data-tab="init">Initialization</button>
+              <button class="pg-build-tab" data-tab="image">Image</button>
+              <button class="pg-build-tab" data-tab="detection">Detection</button>
+              <button class="pg-build-tab" data-tab="setting">Setting</button>
+              <button class="pg-build-tab" data-tab="json">Result</button>
+            </div>
+
+            <div class="pg-build-pane active" data-pane="init">
+              <!-- Camera Mounting -->
+              <div class="pg-group is-collapsed" data-section-key="__mounting">
+                <div class="pg-group-head" data-toggle role="button" tabindex="0" aria-expanded="false">
+                  <span class="pg-chevron">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </span>
+                  <span class="pg-group-title">Camera Mounting</span>
+                </div>
+                <div class="pg-fields" hidden>
+                  <p class="pg-desc">
+                    <strong>Eye-in-hand</strong>: camera is mounted on the robot — provide the robot's IP address to synchronize 3D data with the robot.<br/>
+                    <strong>Eye-to-hand</strong>: camera is stationary — no robot needed.
+                  </p>
+                  <div class="pg-field">
+                    <label class="pg-flabel" for="pgMountSetup">Mounting setup</label>
+                    <select class="input pg-input" id="pgMountSetup">
+                      <option value="to_hand">Eye-to-hand</option>
+                      <option value="in_hand">Eye-in-hand</option>
+                    </select>
+                  </div>
+                  <div class="pg-field" id="pgMountIpField" hidden>
+                    <label class="pg-flabel" for="pgMountIp">Robot IP address</label>
+                    <input class="input pg-input" id="pgMountIp" type="text" placeholder="localhost" autocomplete="off"/>
+                  </div>
+                  <div class="pg-field" id="pgMountUseCalField" hidden>
+                    <label class="pg-flabel pg-flabel-row">
+                      <span>Use custom calibration data</span>
+                      <span class="pg-switch"><input type="checkbox" id="pgMountUseCal"/><span></span></span>
+                    </label>
+                    <p class="pg-desc" style="margin-top:4px">Override the default mount with your own camera-to-robot transform <code>T</code> and joint-error vector <code>ej</code>.</p>
+                  </div>
+                  <div class="pg-field" id="pgMountTField" hidden>
+                    <label class="pg-flabel" for="pgMountT">T — camera-to-robot transform <span style="font-weight:400;color:var(--muted)">[x, y, z, a, b, c]</span></label>
+                    <div class="pg-vec-row pg-vec6" id="pgMountT">
+                      <input class="input pg-input pg-vec-cell" type="number" data-mount-t="0" value="0" placeholder="x"/>
+                      <input class="input pg-input pg-vec-cell" type="number" data-mount-t="1" value="0" placeholder="y"/>
+                      <input class="input pg-input pg-vec-cell" type="number" data-mount-t="2" value="0" placeholder="z"/>
+                      <input class="input pg-input pg-vec-cell" type="number" data-mount-t="3" value="0" placeholder="a"/>
+                      <input class="input pg-input pg-vec-cell" type="number" data-mount-t="4" value="0" placeholder="b"/>
+                      <input class="input pg-input pg-vec-cell" type="number" data-mount-t="5" value="0" placeholder="c"/>
+                    </div>
+                  </div>
+                  <div class="pg-field" id="pgMountEjField" hidden>
+                    <label class="pg-flabel" for="pgMountEj">ej — joint error <span style="font-weight:400;color:var(--muted)">(8-element JSON list)</span></label>
+                    <textarea class="input pg-input pg-json-mini" id="pgMountEj" rows="2" spellcheck="false">[0, 0, 0, 0, 0, 0, 0, 0]</textarea>
+                  </div>
+                </div>
+              </div>
+              <div id="pgSectionsInit"></div>
+
+              <!-- AI Models -->
+              <div class="pg-group is-collapsed" data-section-key="__aimodels">
+                <div class="pg-group-head" data-toggle role="button" tabindex="0" aria-expanded="false">
+                  <span class="pg-chevron">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </span>
+                  <span class="pg-group-title">AI Models</span>
+                </div>
+                <div class="pg-fields" hidden>
+                  <p class="pg-desc">Pick a model pickle. The detection type (object detection, rotated, classification, keypoint, anomaly) is read from the file itself — no need to choose it manually.</p>
+                  <div class="pg-field" id="pgMlPathField">
+                    <label class="pg-flabel" for="pgMlFile">Model file</label>
+                    <div class="pg-upload-row">
+                      <input type="file" id="pgMlFile" accept=".pkl,.xml,.bin,.onnx" hidden/>
+                      <button type="button" class="btn btn-sm" id="pgMlFilePick">Choose file…</button>
+                      <span class="pg-upload-name" id="pgMlFileName">No file selected</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Initialize / Re-initialize button — gates the rest of the UI -->
+              <div class="pg-init-actions">
+                <button class="btn btn-primary btn-lg" id="pgInitBtn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Initialize Parameters
+                </button>
+                <button class="btn btn-ghost btn-sm" id="pgReinitBtn" hidden>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+                  Re-initialize
+                </button>
+              </div>
+            </div>
+            <div class="pg-build-pane" data-pane="image">
+              <!-- Source — picks the runtime data source (camera frame
+                   or local file). Switchable any time without
+                   re-initialising: the Detection is always camera-bound
+                   at init when a camera is picked, and run(data=bytes)
+                   overrides the camera capture for file-mode runs. -->
+              <div class="pg-group" data-section-key="__source">
+                <div class="pg-group-head" data-toggle role="button" tabindex="0" aria-expanded="true">
+                  <span class="pg-chevron">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </span>
+                  <span class="pg-group-title">Source</span>
+                </div>
+                <div class="pg-fields">
+                  <p class="pg-desc">Where the image comes from each time you Run. The Camera dropdown picks which camera the Detection binds to and is locked once you Initialize.</p>
+                  <div class="pg-field">
+                    <label class="pg-flabel" for="pgSource">Source</label>
+                    <select class="input pg-input" id="pgSource">
+                      <option value="file">File path</option>
+                      <option value="camera">Camera</option>
+                    </select>
+                  </div>
+                  <div class="pg-field" id="pgCameraField">
+                    <label class="pg-flabel" for="pgCamera">Camera</label>
+                    <select class="input pg-input" id="pgCamera"></select>
+                  </div>
+                  <div class="pg-field" id="pgChannelField">
+                    <label class="pg-flabel" for="pgChannel">Channel</label>
+                    <select class="input pg-input" id="pgChannel">
+                      <option value="color_img">Color</option>
+                      <option value="depth_img">Depth</option>
+                      <option value="ir_img">IR</option>
+                    </select>
+                  </div>
+                  <div class="pg-field" id="pgFileField" hidden>
+                    <label class="pg-flabel" for="pgImgFile">Image file</label>
+                    <div class="pg-upload-row">
+                      <input type="file" id="pgImgFile" accept="image/*" hidden/>
+                      <button type="button" class="btn btn-sm" id="pgImgFilePick">Choose file…</button>
+                      <span class="pg-upload-name" id="pgImgFileName">No file selected</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="pgSectionsImage"></div>
+            </div>
+            <div class="pg-build-pane" data-pane="detection">
+              <div class="pg-detection-head">
+                <label class="pg-flabel">Detection method</label>
+                <select class="input pg-method" id="pgMethod"></select>
+              </div>
+              <div class="pg-fields pg-method-fields" id="pgMethodFields"></div>
+            </div>
+            <div class="pg-build-pane" data-pane="setting">
+              <div id="pgSectionsSetting"></div>
+            </div>
+            <div class="pg-build-pane" data-pane="json">
+              <div class="pg-code-block">
+                <div class="pg-code-head">
+                  <span class="pg-code-title">Detection config (JSON)</span>
+                  <button class="btn btn-ghost btn-sm btn-icon" data-copy-target="pgConfig" title="Copy JSON">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
+                </div>
+                <pre class="pg-code-pre" id="pgConfig"></pre>
+              </div>
+              <div class="pg-code-block">
+                <div class="pg-code-head">
+                  <span class="pg-code-title">API call (Python)</span>
+                  <button class="btn btn-ghost btn-sm btn-icon" data-copy-target="pgPySnippet" title="Copy Python">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
+                </div>
+                <pre class="pg-code-pre" id="pgPySnippet"></pre>
+              </div>
+              <div class="pg-code-block">
+                <div class="pg-code-head">
+                  <span class="pg-code-title">Last result (JSON)</span>
+                  <button class="btn btn-ghost btn-sm btn-icon" data-copy-target="pgRawResult" title="Copy result JSON">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
+                </div>
+                <pre class="pg-code-pre" id="pgRawResult">[]</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Right column: output (sticky) ────────────────────────── -->
+        <div class="pg-right">
+          <div class="pg-actions">
+            <button class="btn btn-primary" id="pgRunBtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Run once
+            </button>
+            <button class="btn" id="pgLiveBtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/></svg>
+              Live
+            </button>
+            <button class="btn btn-danger" id="pgStopBtn" style="display:none">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+              Stop
+            </button>
+            <span class="pg-fps" id="pgFps"></span>
+            <div class="spacer"></div>
+            <button class="btn btn-ghost btn-sm" id="pgPromoteBtn" title="Register the current config as a named detection">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              Promote
+            </button>
+          </div>
+
+          <!-- Reconnect / connection-state banner -->
+          <div class="pg-banner" id="pgReconnect" hidden>
+            <span>Connection lost — trying to reach the server…</span>
+          </div>
+
+          <div class="pg-output">
+            <div class="pg-tabs" id="pgTabs">
+              <button class="pg-tab active" data-tab="img">Annotated</button>
+              <button class="pg-tab" data-tab="img_thr" hidden>Threshold</button>
+              <div class="spacer"></div>
+              <button class="btn btn-ghost btn-sm btn-icon" id="pgZoomReset" title="Reset zoom" hidden>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+              </button>
+            </div>
+            <div class="pg-imgwrap" id="pgImgWrap">
+              <button class="cc-expand pg-expand-overlay" id="pgExpand" title="Expand">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+              </button>
+              <div class="pg-img-stage" id="pgImgStage">
+                <img id="pgImg" alt="output"/>
+                <!-- Detection-highlight overlay (selected row) -->
+                <svg class="pg-hi-overlay" id="pgHiSvg" preserveAspectRatio="none"></svg>
+                <!-- ROI polygon overlay -->
+                <div class="pg-roi-overlay" id="pgRoiOverlay" hidden>
+                  <svg id="pgRoiSvg" preserveAspectRatio="none"></svg>
+                </div>
+              </div>
+              <div class="pg-img-empty" id="pgImgEmpty">Click <strong>Run once</strong> to see output</div>
+            </div>
+          </div>
+
+          <div class="pg-results-wrap">
+            <div class="pg-results-head">
+              <span class="pg-results-title">Detections</span>
+              <span class="pg-results-count" id="pgValidCount">0</span>
+            </div>
+            <div class="pg-results" id="pgResults"></div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </div>
+</main>
+
+<div class="toast-area" id="toastArea"></div>
+
+<!-- Image lightbox -->
+<div class="img-lightbox" id="imgLightbox">
+  <div class="img-lightbox-actions">
+    <button class="img-lightbox-btn" id="imgLightboxCapture" title="Capture again">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Capture
+    </button>
+    <button class="img-lightbox-btn" id="imgLightboxClose" title="Close">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <img id="imgLightboxImg" alt="captured frame"/>
+  <div class="img-lightbox-caption" id="imgLightboxCap"></div>
+</div>
+
+<!-- Add Camera modal -->
+<div class="modal-overlay" id="camModalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Add Camera</h3>
+      <div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" id="camModalRefresh" title="Refresh device list">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.13-9.36L23 10"/></svg>
+        Refresh
+      </button>
+      <button class="btn btn-ghost btn-sm btn-icon" id="camModalClose" title="Close"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Serial number *</label>
+        <select class="input" id="camFieldSn"></select>
+        <div class="hint">Lists USB-attached devices that aren't already added.</div>
+      </div>
+      <div class="field">
+        <label>Connect parameters (JSON)</label>
+        <textarea class="input kw-textarea" id="camFieldKwargs" rows="8" spellcheck="false" autocomplete="off"></textarea>
+        <div class="hint">Forwarded as <code>**kwargs</code> to <code>Camera.connect()</code>. Must be valid JSON.</div>
+        <div class="kw-error" id="camFieldKwargsErr" style="display:none"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="camModalCancel">Cancel</button>
+      <button class="btn btn-primary" id="camModalConfirm">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Promote modal -->
+<div class="modal-overlay" id="pgPromoteOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Promote to named detection</h3>
+      <div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm btn-icon" id="pgPromoteClose" title="Close">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Detection name *</label>
+        <input class="input" id="pgPromoteName" type="text" placeholder="my_detection" autocomplete="off"/>
+        <div class="hint">Will register the current config under this name. Use it from your code as <code>vc.detection("name")...</code>.</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="pgPromoteCancel">Cancel</button>
+      <button class="btn btn-primary" id="pgPromoteConfirm">Promote</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/vendor/theme.js"></script>
+<script src="/static/vendor/confirm.js"></script>
+<script src="/static/vendor/nav.js"></script>
+<script type="module" src="/static/js/api.js"></script>
+<script type="module" src="/static/js/cameras.js"></script>
+<script type="module" src="/static/js/playground.js"></script>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

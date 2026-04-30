@@ -149,7 +149,7 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0), thickness=1, label=T
         font_scale = 0.6
 
         # Get the size of the text to calculate the background
-        (text_width, text_height), _ = cv.getTextSize(text, font, font_scale, thickness=thickness, lineType=cv.LINE_AA)
+        (text_width, text_height), _ = cv.getTextSize(text, font, font_scale, thickness=thickness)
 
         # Define rectangle position and size (background)
         background_rect = (int(x), int(y) - text_height - 5, text_width + 10, text_height + 5)

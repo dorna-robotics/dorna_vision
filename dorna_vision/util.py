@@ -3,7 +3,17 @@ import numpy as np
 import colorsys
 
 # bgr_img -> binary
-def binary_thr(bgr_img, type=0, inv=True, blur=3, thr=127, mean_sub=2, **kwargs):    
+#
+# `type` selects the binarization strategy used by cnt/poly:
+#   0 = Otsu (auto)             — global, picks threshold from image histogram
+#   1 = Binary (fixed)          — global, uses `thr` value directly
+#   2 = Adaptive (Gaussian)     — local, robust to uneven lighting/vignetting
+#   3 = Adaptive (Mean)         — local, simpler/cheaper than Gaussian variant
+#
+# In adaptive modes, `thr` doubles as half the (odd) blockSize, and
+# `mean_sub` is the C constant subtracted from the local mean. Same
+# parameter overload as before — kept for backward compatibility.
+def binary_thr(bgr_img, type=0, inv=True, blur=3, thr=127, mean_sub=2, **kwargs):
     # gray image
     gray_img = cv.cvtColor(bgr_img, cv.COLOR_BGR2GRAY)
 
@@ -11,10 +21,10 @@ def binary_thr(bgr_img, type=0, inv=True, blur=3, thr=127, mean_sub=2, **kwargs)
     #blur_img = cv.bilateralFilter(gray_img,90,75,75)
     #blur_img = cv.GaussianBlur(gray_img, (5, 5), 0)
     blur_img = cv.blur(gray_img,(blur,blur))
-    
+
     # set the mode
     mode = 2*type + inv
-    
+
     if mode < 1:
         _, thr_img = cv.threshold(blur_img, thr, 255, cv.THRESH_BINARY+cv.THRESH_OTSU)
     elif mode == 1:
@@ -24,9 +34,13 @@ def binary_thr(bgr_img, type=0, inv=True, blur=3, thr=127, mean_sub=2, **kwargs)
     elif mode == 3:
         _, thr_img = cv.threshold(blur_img, thr, 255, cv.THRESH_BINARY_INV)
     elif mode == 4:
-        thr_img = cv.adaptiveThreshold(blur_img,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY,2*thr+3,mean_sub) 
-    else:
+        thr_img = cv.adaptiveThreshold(blur_img,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY,2*thr+3,mean_sub)
+    elif mode == 5:
         thr_img = cv.adaptiveThreshold(blur_img,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV,2*thr+3,mean_sub)
+    elif mode == 6:
+        thr_img = cv.adaptiveThreshold(blur_img,255,cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY,2*thr+3,mean_sub)
+    else:
+        thr_img = cv.adaptiveThreshold(blur_img,255,cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY_INV,2*thr+3,mean_sub)
 
     return thr_img
 

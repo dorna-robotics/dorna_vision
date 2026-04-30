@@ -1,0 +1,132 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   App Navigation Sidebar — shared across all pages
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
+.app-nav {
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  width: 48px;
+  background: var(--surface);
+  border-right: 1px solid var(--border2);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  z-index: 200;
+  transition: width 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  overflow: hidden;
+}
+.app-nav.expanded { width: 200px; }
+/* Instant expand on page load (no animation) when saved state is expanded */
+html.nav-expanded .app-nav { width: 200px; transition: none; }
+html.nav-expanded .app-nav-link span { opacity: 1; width: auto; transition: none; }
+html.nav-expanded .app-nav ~ * { margin-left: 200px; transition: none; }
+[data-theme="light"] .app-nav { background: #fff; }
+
+/* ── Header (collapse toggle) ─────────────────────────────────────────── */
+.app-nav-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 6px 4px;
+  flex-shrink: 0;
+}
+
+.app-nav-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.app-nav-collapse:hover { background: var(--surface2); color: var(--text); }
+
+/* ── Nav Links ────────────────────────────────────────────────────────── */
+.app-nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 6px;
+  flex: 1;
+}
+.app-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: color 0.12s, background 0.12s;
+}
+.app-nav-link:hover {
+  color: var(--text);
+  background: var(--surface2);
+}
+.app-nav-link.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  font-weight: 600;
+}
+[data-theme="light"] .app-nav-link.active {
+  background: rgba(0,122,255,0.08);
+}
+.app-nav-link svg { flex-shrink: 0; width: 18px; height: 18px; }
+.app-nav-link span {
+  transition: opacity 0.15s;
+}
+.app-nav-link span { opacity: 0; width: 0; }
+.app-nav.expanded .app-nav-link span { opacity: 1; width: auto; }
+
+/* ── Layout offset ────────────────────────────────────────────────────── */
+.app-nav ~ * { margin-left: 48px; transition: margin-left 0.2s cubic-bezier(0.25, 0.8, 0.25, 1); }
+.app-nav ~ .app-nav-overlay { margin-left: 0; }
+.app-nav.expanded ~ * { margin-left: 200px; }
+.app-nav.expanded ~ .app-nav-overlay { margin-left: 0; }
+
+/* ── Overlay (mobile only) ────────────────────────────────────────────── */
+.app-nav-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 199;
+}
+.app-nav-overlay.show { display: block; }
+
+/* ── Burger button (topbar, mobile only) ──────────────────────────────── */
+.burger-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+.burger-btn:hover { background: var(--surface2); color: var(--text); }
+
+/* ── Mobile / Touch ────────────────────────────────────────────────────── */
+@media (max-width: 1024px) and (hover: none), (max-width: 768px) {
+  .app-nav { width: 0 !important; border-right: none; }
+  .app-nav.mobile-open { width: 220px !important; border-right: 1px solid var(--border2); }
+  .app-nav.mobile-open .app-nav-link span { opacity: 1 !important; width: auto !important; }
+  .app-nav.mobile-open .app-nav-collapse { opacity: 1; width: 28px; pointer-events: auto; }
+  .app-nav ~ * { margin-left: 0 !important; }
+  .burger-btn { display: flex !important; }
+  .app-nav-collapse { display: none; }
+}
