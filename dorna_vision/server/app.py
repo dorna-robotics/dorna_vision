@@ -8,6 +8,7 @@ import tornado.web
 
 from .pools import CameraPool, RobotPool
 from .ws_handler import VisionWSHandler
+from .mqtt_relay import MQTTDeviceObserver
 
 
 DEFAULT_PORT = 80
@@ -24,6 +25,14 @@ class IndexHandler(tornado.web.RequestHandler):
             self.write(fh.read())
 
 
+class NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
+    """Static files served with no-cache headers — keeps the browser
+    from holding onto stale JS during dev. Negligible overhead at our
+    scale (a handful of small files)."""
+    def set_extra_headers(self, path):
+        self.set_header("Cache-Control", "no-store")
+
+
 def make_app(camera_pool, robot_pool, default_executor):
     return tornado.web.Application([
         (r"/ws", VisionWSHandler, {
@@ -31,7 +40,7 @@ def make_app(camera_pool, robot_pool, default_executor):
             "robot_pool": robot_pool,
             "default_executor": default_executor,
         }),
-        (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": STATIC_DIR}),
+        (r"/static/(.*)", NoCacheStaticFileHandler, {"path": STATIC_DIR}),
         # SPA fallback: any path that isn't /ws or /static/* serves index.html
         # so /, /cameras, /robots, /playground all render the same shell and
         # the client-side router picks the section.
@@ -39,10 +48,32 @@ def make_app(camera_pool, robot_pool, default_executor):
     ])
 
 
-async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8):
-    camera_pool = CameraPool()
+async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
+                     mqtt_enabled=True, mqtt_broker_host=None, mqtt_broker_port=None):
+    # Capture the running loop so cross-thread broadcasts can schedule on it.
+    VisionWSHandler.set_ioloop(asyncio.get_running_loop())
+
+    camera_pool = CameraPool(
+        mqtt_enabled=mqtt_enabled,
+        mqtt_broker_host=mqtt_broker_host,
+        mqtt_broker_port=mqtt_broker_port,
+    )
     robot_pool = RobotPool()
     default_executor = ThreadPoolExecutor(max_workers=max_workers)
+
+    # Web UI feed: subscribe to the same MQTT bus the orchestrator reads
+    # from. Single source of truth — every consumer (this server's UI,
+    # workspace orchestrator UI, future dashboards) sees identical data.
+    # Falls back gracefully if the broker is unreachable: the local UI
+    # will go blind for now and recover when the broker comes back.
+    observer = None
+    if mqtt_enabled:
+        observer = MQTTDeviceObserver(
+            broadcast=VisionWSHandler.broadcast,
+            broker_host=mqtt_broker_host,
+            broker_port=mqtt_broker_port,
+        )
+    VisionWSHandler.set_observer(observer)
 
     app = make_app(camera_pool, robot_pool, default_executor)
     try:
@@ -76,10 +107,21 @@ async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8):
         default_executor.shutdown(wait=True)
         camera_pool.shutdown()
         robot_pool.shutdown()
+        if observer is not None:
+            try:
+                observer.close()
+            except Exception:
+                pass
 
 
-def main(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8):
+def main(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
+         mqtt_enabled=True, mqtt_broker_host=None, mqtt_broker_port=None):
     try:
-        asyncio.run(run_server(host=host, port=port, max_workers=max_workers))
+        asyncio.run(run_server(
+            host=host, port=port, max_workers=max_workers,
+            mqtt_enabled=mqtt_enabled,
+            mqtt_broker_host=mqtt_broker_host,
+            mqtt_broker_port=mqtt_broker_port,
+        ))
     except KeyboardInterrupt:
         pass

@@ -1121,15 +1121,21 @@ select.input {
    frame is captured; here the user always has at least the empty stage). */
 .pg-expand-overlay { display: inline-flex; z-index: 11; }
 
-/* Subtle silent connected indicator (no text) */
-.cc-status.connected {
+/* Subtle silent connected indicator (no text). Three variants: connected
+   (ok / green pulse), recovering (yellow pulse), missing (red dot). */
+.cc-status {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px; height: 22px;
   flex-shrink: 0;
 }
-.cc-status.connected .dot { width: 9px; height: 9px; }
+.cc-status .dot { width: 9px; height: 9px; }
+@keyframes pulse-dot-warn {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,159,10,0.55); }
+  50%      { box-shadow: 0 0 0 5px rgba(255,159,10,0); }
+}
+.dot.warn.pulse { animation: pulse-dot-warn 1.2s ease-in-out infinite; }
 
 .cc-meta { font-size: 12px; }
 

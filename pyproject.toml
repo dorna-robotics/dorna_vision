@@ -23,6 +23,7 @@ dependencies = [
     "torch",
     "openvino",
     "tornado",
+    "paho-mqtt>=2.0",  # device health publishing per docs/device-mqtt-spec.md
 ]
 
 [project.urls]

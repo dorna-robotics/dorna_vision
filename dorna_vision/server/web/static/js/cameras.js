@@ -12,6 +12,18 @@ let _vc = null;
 let _devices = [];
 const _capturedUrls = new Map();   // sn -> object URL (revoked on next swap)
 const _prevAttached = new Map();   // sn -> last seen `attached` boolean (for transition detection on manual refresh)
+const _health     = new Map();     // sn -> { state, msg, ts }   live device-protocol state pushed by the server
+
+
+// Combined "is the camera usable right now?" check. Prefers the
+// device-protocol health pushed by the bus when known; falls back to the
+// USB-attached flag from camera_list when the bus hasn't said anything
+// yet (e.g. when --no-mqtt or before the first WS event arrives).
+function _isUsable(d) {
+  const h = _health.get(d.serial_number);
+  if (h && h.state) return h.state === "ok";
+  return !!d.attached;
+}
 
 // ── helpers ─────────────────────────────────────────────────────────
 
@@ -40,10 +52,21 @@ function toast(msg, kind = "ok") {
 // ── render ──────────────────────────────────────────────────────────
 
 function statusPill(d) {
-  // Symmetric silent dots — green pulse for connected, red dot for missing.
-  // The disconnect explanation lives inside the thumbnail area, not here.
-  if (d.attached)  return `<span class="cc-status connected" title="Connected"><span class="dot ok pulse"></span></span>`;
-  return `<span class="cc-status missing" title="Disconnected"><span class="dot bad"></span></span>`;
+  // Health badge driven by Camera's device-protocol state ("ok" | "down" |
+  // "recovering"), pushed by the server over the WS device_state event.
+  // Falls back to the USB-attached flag when no live state has been seen
+  // yet (--no-mqtt mode, or the brief window before the first WS push).
+  const h = _health.get(d.serial_number);
+  const state = (h && h.state) ? h.state : (d.attached ? "ok" : "down");
+  let klass, dotClass, title;
+  if (state === "ok") {
+    klass = "connected"; dotClass = "ok pulse"; title = "OK";
+  } else if (state === "recovering") {
+    klass = "recovering"; dotClass = "warn pulse"; title = "Recovering";
+  } else {
+    klass = "missing"; dotClass = "bad"; title = (h && h.msg) || "Down";
+  }
+  return `<span class="cc-status ${klass}" title="${escHtml(title)}"><span class="dot ${dotClass}"></span></span>`;
 }
 
 function cardHTML(d) {
@@ -55,8 +78,9 @@ function cardHTML(d) {
   // don't flicker. Without this, innerHTML rebuilds an empty <img> and the
   // browser paints one blank frame before src is reassigned.
   const cached = _capturedUrls.get(sn);
+  const usable = _isUsable(d);
 
-  const thumb = d.attached ? `
+  const thumb = usable ? `
     <div class="cc-thumb">
       <img alt="capture" data-cam-thumb="${escHtml(sn)}"
            ${cached ? `src="${cached}" style="display:block"` : `style="display:none"`}/>
@@ -68,8 +92,8 @@ function cardHTML(d) {
     </div>` : `
     <div class="cc-thumb cc-thumb-warn">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      <div class="cc-thumb-warn-title">Camera disconnected</div>
-      <div class="cc-thumb-warn-sub">Reconnect the USB cable to resume.</div>
+      <div class="cc-thumb-warn-title">Camera ${escHtml((_health.get(sn) || {}).state || "down")}</div>
+      <div class="cc-thumb-warn-sub">${escHtml((_health.get(sn) || {}).msg || "Reconnect the USB cable to resume.")}</div>
     </div>`;
 
   const k  = (key) => `<span class="cc-mk">${key}</span>`;
@@ -86,7 +110,7 @@ function cardHTML(d) {
     </div>`;
 
   return `
-    <div class="cam-card is-added ${d.attached ? "" : "is-missing"}" data-sn="${escHtml(sn)}">
+    <div class="cam-card is-added ${usable ? "" : "is-missing"}" data-sn="${escHtml(sn)}">
       <div class="cc-head">
         <div class="cc-info">
           <div class="cc-name">${escHtml(name)}</div>
@@ -96,10 +120,18 @@ function cardHTML(d) {
       ${meta}
       <div class="cc-body">${thumb}</div>
       <div class="cc-foot">
-        <button class="btn btn-sm" data-act="capture" ${d.attached ? "" : "disabled"}>
+        <button class="btn btn-sm" data-act="capture" ${usable ? "" : "disabled"}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
           Capture
         </button>
+        ${(() => {
+          if (usable) return "";
+          const busy = (_health.get(sn) || {}).state === "recovering";
+          return `<button class="btn btn-sm btn-primary" data-act="recover" ${busy ? "disabled" : ""}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            ${busy ? "Recovering…" : "Recover"}
+          </button>`;
+        })()}
         <div class="spacer"></div>
         <button class="btn btn-danger btn-sm" data-act="remove">Remove</button>
       </div>
@@ -153,10 +185,8 @@ function render() {
   $$(".cam-card", grid).forEach(card => {
     const sn = card.dataset.sn;
     const d = visible.find(x => x.serial_number === sn);
-    card.querySelector('[data-act="remove"]')?.addEventListener("click", () => removeCamera(sn));
-    card.querySelector('[data-act="capture"]')?.addEventListener("click", () => captureFrame(sn, card));
-    card.querySelector('[data-act="expand"]')?.addEventListener("click", () => expandCapture(sn));
-    if (d?.attached) {
+    _bindCardHandlers(card, sn);
+    if (d && _isUsable(d)) {
       refreshMeta(sn, card);   // one-shot on render; mode/fps don't change after connect
     }
   });
@@ -402,6 +432,7 @@ async function submitAddModal() {
 
 export function init(vc) {
   _vc = vc;
+  _wireDeviceStateChannel();
   $("#camAddBtn")?.addEventListener("click", () => openAddModal());
 
   // Header search — re-render on every keystroke. Trim + lowercase
@@ -427,6 +458,71 @@ export function init(vc) {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") $("#imgLightbox")?.classList.remove("show");
   });
+}
+
+async function recoverCamera(sn) {
+  if (!_vc?.isConnected()) return;
+  try {
+    toast(`Recovering ${sn}…`, "ok");
+    const r = await _vc.cameraRecover(sn, { timeout: 60000 });
+    if (r?.ok) toast(`Recovered ${sn}`, "ok");
+    else      toast(`Recover failed: ${r?.msg || "unknown"}`, "bad");
+    // The server pushes device_state events as the recovery progresses, so
+    // the badge updates automatically. Refresh attached/added flags too.
+    await refreshList();
+  } catch (e) {
+    toast(`Recover failed: ${e.message || e}`, "bad");
+  }
+}
+
+// ── live device-state subscription ──────────────────────────────────
+// Called once during init() — wires the api.js event channel into the
+// per-card UI. Server pushes one event per state transition; we update
+// _health, then rebuild the card so badge / thumbnail / footer / class
+// all reflect the new health together. The cached blob URL is re-inlined
+// by cardHTML, so the captured frame doesn't flicker.
+function _wireDeviceStateChannel() {
+  if (!_vc) return;
+  _vc.onEvent("device_state", (evt) => {
+    const sn = evt.serial_number;
+    if (!sn) return;
+    _health.set(sn, { state: evt.state, msg: evt.msg, ts: evt.ts });
+
+    // When a camera goes down, the previously captured thumbnail no
+    // longer represents reality (the pipeline will be torn down and
+    // rebuilt, possibly with a different view). Invalidate the cache so
+    // the disconnected-warning thumbnail shows immediately and, after
+    // recovery, the user sees a clean "Click Capture" prompt instead of
+    // the stale frame from before the drop.
+    if (evt.state === "down") {
+      const cached = _capturedUrls.get(sn);
+      if (cached) {
+        try { URL.revokeObjectURL(cached); } catch {}
+        _capturedUrls.delete(sn);
+      }
+    }
+
+    if (!isPageActive()) return;
+    const card = document.querySelector(`.cam-card[data-sn="${CSS.escape(sn)}"]`);
+    if (!card) return;
+    const d = _devices.find(x => x.serial_number === sn);
+    if (!d) return;
+
+    const tmp = document.createElement("div");
+    tmp.innerHTML = cardHTML(d);
+    const newCard = tmp.firstElementChild;
+    if (!newCard) return;
+    card.replaceWith(newCard);
+    _bindCardHandlers(newCard, sn);
+  });
+}
+
+// Per-card handler binding, used by render() and the live event channel.
+function _bindCardHandlers(card, sn) {
+  card.querySelector('[data-act="remove"]')?.addEventListener("click", () => removeCamera(sn));
+  card.querySelector('[data-act="capture"]')?.addEventListener("click", () => captureFrame(sn, card));
+  card.querySelector('[data-act="expand"]')?.addEventListener("click", () => expandCapture(sn));
+  card.querySelector('[data-act="recover"]')?.addEventListener("click", () => recoverCamera(sn));
 }
 
 export function onShow() {

@@ -62,6 +62,24 @@ def camera_remove(session, args):
     return {"serial_number": serial_number, "removed": ok}
 
 
+def camera_recover(session, args):
+    """Trigger Camera.recover() on the pooled camera with the given serial.
+
+    The Recover button in the GUI calls this. State transitions emitted
+    by the camera (recovering → ok or recovering → down) are pushed to
+    every connected client through VisionWSHandler.broadcast and (if
+    enabled) published to MQTT by the camera's adapter.
+    """
+    sn = args.get("serial_number")
+    if not sn:
+        raise ValueError("serial_number is required")
+    cam = session.camera_pool.get(sn)
+    if cam is None:
+        raise ValueError("camera not found: %s" % sn)
+    ok = bool(cam.recover())
+    return {"serial_number": sn, "ok": ok, "state": cam.state, "msg": cam.msg}
+
+
 def camera_get_img(session, args):
     """
     Grab a fresh frame directly from a pooled Camera and return it as JPEG.
@@ -393,6 +411,7 @@ HANDLERS = {
     "camera_list": camera_list,
     "camera_add": camera_add,
     "camera_remove": camera_remove,
+    "camera_recover": camera_recover,
     "camera_get_img": camera_get_img,
     "robot_add": robot_add,
     "robot_remove": robot_remove,
@@ -427,6 +446,7 @@ CAMERA_BOUND = {
     "detection_pixel",
     "detection_grasp",
     "camera_get_img",
+    "camera_recover",
 }
 
 

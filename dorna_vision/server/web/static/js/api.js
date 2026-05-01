@@ -91,20 +91,33 @@ export class VisionClient {
   _onMessage(ev) {
     if (typeof ev.data === "string") {
       let payload; try { payload = JSON.parse(ev.data); } catch { return; }
+      // Route to a pending request reply FIRST. Server replies always
+      // carry a numeric `id` that matches a request we sent — even when
+      // they also carry a `type` field (e.g. camera_get_img's binary
+      // envelope echoes the image type). Falling back to event dispatch
+      // only when no pending request matches keeps the two channels
+      // (request/reply vs server-initiated events) properly separated.
       const id = payload.id;
-      if (id == null) return;
-      const p = this._pending.get(id);
-      if (!p) return;
-
-      if (payload.binary_follows) {
-        p.json = payload;
-        p.needsBinary = true;
-        this._lastBinaryHolder = p;
+      if (id != null && this._pending.has(id)) {
+        const p = this._pending.get(id);
+        if (payload.binary_follows) {
+          p.json = payload;
+          p.needsBinary = true;
+          this._lastBinaryHolder = p;
+          return;
+        }
+        this._pending.delete(id);
+        p.resolve(payload);
         return;
       }
-
-      this._pending.delete(id);
-      p.resolve(payload);
+      // Server-initiated event — dispatch by type.
+      if (payload.type && this._eventListeners) {
+        const subs = this._eventListeners[payload.type];
+        if (subs) for (const cb of subs.slice()) {
+          try { cb(payload); } catch (e) { console.error("event listener", e); }
+        }
+      }
+      return;
     } else {
       // binary frame — pair with last pending that asked for one
       const p = this._lastBinaryHolder;
@@ -166,6 +179,22 @@ export class VisionClient {
   cameraList(opts)         { return this._send("camera_list", {}, opts).then(r => r.devices || []); }
   cameraAdd(serial_number, connectKwargs = {}, opts) { return this._send("camera_add", { serial_number, ...connectKwargs }, opts); }
   cameraRemove(serial_number, opts) { return this._send("camera_remove", { serial_number }, opts); }
+  cameraRecover(serial_number, opts) { return this._send("camera_recover", { serial_number }, opts); }
+
+  /** Register a listener for server-initiated events (JSON frames with a
+   * "type" field and no "id"). Distinct from on(fn), which is for
+   * connection lifecycle events ("close", etc.).
+   * Returns an unsubscribe function. */
+  onEvent(type, callback) {
+    if (!this._eventListeners) this._eventListeners = {};
+    (this._eventListeners[type] ||= []).push(callback);
+    return () => {
+      const subs = this._eventListeners[type];
+      if (!subs) return;
+      const i = subs.indexOf(callback);
+      if (i >= 0) subs.splice(i, 1);
+    };
+  }
   cameraGetImg(serial_number, type = "color_img", quality = 75, opts) {
     return this._send("camera_get_img", { serial_number, type, quality }, opts);  // {json, binary}
   }
