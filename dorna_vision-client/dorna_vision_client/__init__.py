@@ -346,6 +346,31 @@ class VisionClient(object):
         reply = self._send("detection_run", args, timeout=timeout)
         return reply.get("valid", [])
 
+    def detection_capture(self, name, data=None, timeout=None):
+        """Capture a fresh atomic snapshot (camera frames + robot joint
+        angles) for ``name`` and cache it on the server. Returns the
+        full reply dict so callers can branch on ``ok`` without raising:
+
+            {"name": ..., "ok": True,  "ts": <float>, "has_joint": bool}
+            {"name": ..., "ok": False, "msg": "<error description>"}
+
+        Pair with ``detection_run(name, use_last=True)`` so detection
+        runs ONLY on a confirmed-fresh frame — no silent fallback to a
+        stale cache. The orchestrator decides whether to retry / pause
+        / surface to operator on ``ok=False``.
+
+        ``data`` mirrors ``Detection.get_camera_data``:
+          * ``None`` — live camera (default).
+          * ``dict`` — pre-fetched payload (replay / cross-detection).
+          * ``str``  — server-local image path. (File-shipping from the
+            client uses the binary follow-frame path on ``call`` —
+            distinct from this method.)
+        """
+        args = {"name": name}
+        if data is not None:
+            args["data"] = data
+        return self._send("detection_capture", args, timeout=timeout)
+
     def camera_get_img(self, serial_number, type="color_img", quality=75, timeout=None):
         reply, binary = self._send(
             "camera_get_img",

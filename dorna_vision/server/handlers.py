@@ -227,6 +227,47 @@ def detection_run(session, args):
     return {"name": name, "valid": _to_jsonable(valid)}
 
 
+def detection_capture(session, args):
+    """Server-side: capture a fresh atomic snapshot (camera frames + robot
+    joint angles) for the named detection and cache it on ``det.camera_data``.
+
+    This is the capture half of the bulletproof capture→run pattern: the
+    orchestrator calls this first, and only on ``ok=true`` proceeds to
+    ``detection_run(name, use_last=True)``. Detection therefore *only*
+    runs on a confirmed-fresh frame — no silent fallback to a stale
+    cache, no half-data.
+
+    The optional ``data`` arg passes straight through to
+    ``Detection.get_camera_data`` and accepts:
+      * ``None`` (default) — live camera; raises on hardware failure.
+      * ``dict``           — pre-fetched payload (replay / cross-detection).
+      * ``str``            — server-local image path (file replay).
+
+    Failures (camera USB unavailable, missing file, etc.) propagate as
+    ``ok=false`` with a human message; the caller decides whether to
+    retry / pause. ``robot.joint()`` inside ``get_camera_data`` is
+    already wrapped in its own try/except (joint stays None on failure)
+    — we only fail the whole capture if the camera itself can't deliver
+    frames, which is the semantic the orchestrator cares about.
+    """
+    name = args.get("name")
+    if not name:
+        raise ValueError("name is required")
+    data = args.get("data")
+    det = session.detection_get(name)
+    try:
+        det.get_camera_data(data=data)   # populates det.camera_data; raises on failure
+    except Exception as ex:
+        return {"name": name, "ok": False, "msg": f"{type(ex).__name__}: {ex}"}
+    cam = det.camera_data or {}
+    return {
+        "name": name,
+        "ok": True,
+        "ts": cam.get("timestamp"),
+        "has_joint": cam.get("joint") is not None,
+    }
+
+
 def detection_get_img(session, args):
     name = args.get("name")
     if not name:
@@ -418,6 +459,7 @@ HANDLERS = {
     "detection_add": detection_add,
     "detection_list": detection_list,
     "detection_run": detection_run,
+    "detection_capture": detection_capture,
     "detection_get_img": detection_get_img,
     "detection_xyz": detection_xyz,
     "detection_pixel": detection_pixel,
@@ -441,6 +483,7 @@ BINARY_INBOUND = {
 # camera serial number via session.detection_camera_serial_number().
 CAMERA_BOUND = {
     "detection_run",
+    "detection_capture",
     "detection_get_img",
     "detection_xyz",
     "detection_pixel",
