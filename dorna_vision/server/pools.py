@@ -6,10 +6,33 @@ from typing import Optional
 from camera import Camera
 from dorna2 import Dorna
 
-from .mqtt_adapter import MQTTDeviceAdapter
+from workspace.devices import MQTTDeviceAdapter, AutoRecover
 
 
 log = logging.getLogger(__name__)
+
+
+class _AutoRecoveringCamera:
+    """Thin wrapper that routes recover() through an AutoRecover loop.
+
+    MQTTDeviceAdapter calls ``device.recover()`` on operator-initiated
+    cmds and expects a bool back. We swap the single-attempt behavior
+    for a non-blocking trigger of the retry loop — same path as hotplug
+    recovery, so operator and automatic flows share one mechanism.
+    Returns True (queued); the actual outcome flows through state events.
+    """
+
+    def __init__(self, cam, auto_recover):
+        self._cam = cam
+        self._auto = auto_recover
+
+    def __getattr__(self, name):
+        # Delegate everything not overridden to the real Camera.
+        return getattr(self._cam, name)
+
+    def recover(self):
+        self._auto.trigger()
+        return True
 
 
 class CameraPool(object):
@@ -23,9 +46,10 @@ class CameraPool(object):
       while different cameras run in parallel
 
     Each acquired camera is also wrapped in an MQTTDeviceAdapter that
-    publishes its health (info + state) per docs/device-mqtt-spec.md.
-    Pass ``mqtt_enabled=False`` to disable (e.g. unit tests, dev boxes
-    with no broker reachable).
+    publishes its health (info + state) per docs/device-guide.md, and
+    an AutoRecover loop that auto-retries reconnection when the camera's
+    USB comes back. Pass ``mqtt_enabled=False`` to disable (e.g. unit
+    tests, dev boxes with no broker reachable).
     """
 
     def __init__(
@@ -41,6 +65,7 @@ class CameraPool(object):
         self._refs = {}         # serial_number -> int
         self._executors = {}    # serial_number -> ThreadPoolExecutor(max_workers=1)
         self._adapters = {}     # serial_number -> MQTTDeviceAdapter
+        self._recovers = {}     # serial_number -> AutoRecover
 
         self._mqtt_enabled = mqtt_enabled
         self._mqtt_broker_host = mqtt_broker_host
@@ -77,10 +102,30 @@ class CameraPool(object):
             self._refs[serial_number] = 1
             self._executors[serial_number] = ThreadPoolExecutor(max_workers=1)
 
+            # Self-healing reconnect loop. The camera SDK fires
+            # ``on_hardware_available`` from its hotplug callback when our
+            # USB serial reappears on the bus; AutoRecover.trigger() runs
+            # cam.recover() with exponential backoff and surfaces attempt
+            # counts via cam._set_state. Operator-initiated recoveries
+            # (cmd handler) re-use the same loop — see _make_recoverable
+            # below — so manual + automatic paths share one mechanism.
+            recover = AutoRecover(
+                recover_fn=cam.recover,
+                set_status=cam._set_state,
+                log_label=f"camera:{serial_number}",
+            )
+            cam.on_hardware_available(recover.trigger)
+            self._recovers[serial_number] = recover
+
             if self._mqtt_enabled:
                 try:
+                    # Wrap the camera so MQTTDeviceAdapter's cmd handler
+                    # routes recover() through the AutoRecover loop instead
+                    # of running a single blocking attempt. Same operator
+                    # UX as a hotplug-triggered recover.
+                    publishable = _AutoRecoveringCamera(cam, recover)
                     adapter = MQTTDeviceAdapter(
-                        cam,
+                        publishable,
                         kind="camera",
                         critical=self._mqtt_critical,
                         meta={"serial_number": serial_number},
@@ -111,7 +156,14 @@ class CameraPool(object):
             self._refs.pop(serial_number, None)
             executor = self._executors.pop(serial_number, None)
             adapter = self._adapters.pop(serial_number, None)
+            recover = self._recovers.pop(serial_number, None)
 
+        if recover is not None:
+            try:
+                recover.stop()
+            except Exception:
+                log.exception("CameraPool: recover.stop() failed for %s",
+                              serial_number)
         if adapter is not None:
             try:
                 adapter.close()
@@ -143,11 +195,18 @@ class CameraPool(object):
             cams = dict(self._cameras)
             execs = dict(self._executors)
             adapters = dict(self._adapters)
+            recovers = dict(self._recovers)
             self._cameras.clear()
             self._refs.clear()
             self._executors.clear()
             self._adapters.clear()
+            self._recovers.clear()
 
+        for recover in recovers.values():
+            try:
+                recover.stop()
+            except Exception:
+                pass
         for adapter in adapters.values():
             try:
                 adapter.close()

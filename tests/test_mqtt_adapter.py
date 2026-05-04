@@ -1,7 +1,10 @@
-"""Tests for dorna_vision.server.mqtt_adapter.MQTTDeviceAdapter.
+"""Tests for workspace.devices.adapter.MQTTDeviceAdapter.
 
 Uses a fake paho client (no broker required). Drives ``on_connect`` /
-``on_message`` directly to simulate broker activity.
+``on_message`` directly to simulate broker activity. The adapter moved
+from dorna_vision to workspace.devices; the dorna_vision module re-exports
+it, so the existing import path still works for callers, but tests need
+to patch the canonical module's ``mqtt`` attribute.
 """
 
 from __future__ import annotations
@@ -11,8 +14,8 @@ from typing import Any, Callable
 
 import pytest
 
-# Patch the adapter module to use a fake client BEFORE importing.
-import dorna_vision.server.mqtt_adapter as mqtt_adapter_module
+# Patch the canonical adapter module to use a fake client BEFORE importing.
+import workspace.devices.adapter as mqtt_adapter_module
 
 
 # ── Fake paho client ──────────────────────────────────────────────────────
@@ -160,6 +163,7 @@ def test_lwt_set_before_connect():
     assert topic == "device/camera:abc/state"
     body = json.loads(payload)
     assert body["state"] == "down"
+    assert body["online"] is False
     assert qos == 1 and retain is True
 
 
