@@ -6,7 +6,7 @@ from typing import Optional
 from camera import Camera
 from dorna2 import Dorna
 
-from workspace.devices import MQTTDeviceAdapter, AutoRecover
+from dorna_devices import MQTTDeviceAdapter, AutoRecover
 
 
 log = logging.getLogger(__name__)
