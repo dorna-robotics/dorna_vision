@@ -1060,8 +1060,24 @@ function renderSections() {
             }
           }
         } else {
-          if (sec.key) deletePath(_cfg, sec.key);
-          else for (const f of sec.fields) delete _cfg[f.key];
+          // Apply OFF: write the section's schema defaults into _cfg
+          // explicitly (instead of deleting), so the next Run sends a
+          // complete dict and the server's setattr replaces stale state
+          // from a prior "Apply ON → Run". Keeps the playground and the
+          // copy-pasted snippet in sync without touching the Detection
+          // class.
+          if (sec.key) {
+            const target = ensurePath(_cfg, sec.key);
+            for (const k of Object.keys(target)) delete target[k];
+            for (const f of sec.fields) {
+              if (f.default !== undefined) target[f.key] = f.default;
+            }
+          } else {
+            for (const f of sec.fields) {
+              if (f.default !== undefined) _cfg[f.key] = f.default;
+              else delete _cfg[f.key];
+            }
+          }
         }
         syncJson();
       });
@@ -1119,13 +1135,15 @@ function renderSections() {
       };
       _applyShowWhen();
       sec.fields.forEach(f => wireFieldEvents(ns, f, () => {
-        // Auto-apply: if the user edits a field in a section that has an
-        // Apply toggle but isn't applied yet, flip Apply on. Matches user
-        // expectation that "I changed it → it takes effect" — without this,
-        // editing rot/feed/etc. silently does nothing while Apply is off.
+        // Sections with an Apply toggle don't auto-apply on edit. Edits
+        // stay buffered in the DOM until the user explicitly flips Apply,
+        // at which point the apply-checkbox handler reads all fields and
+        // materializes them into _cfg. This keeps Apply as a true commit
+        // gesture and avoids the partial-section foot-gun where a single
+        // edit lands without sibling defaults.
         if (sec.enable && !_isSectionApplied(sec)) {
-          const cb = host.querySelector(`input[data-sec-enable="${sectionSlug(sec)}"]`);
-          if (cb && !cb.checked) cb.checked = true;
+          _applyShowWhen();
+          return;
         }
         const v = readField(ns, f);
         // Treat blank/undefined/null as "not provided" — drop the key.
@@ -1164,7 +1182,13 @@ function renderSections() {
 // ── Two-way binding with raw JSON ─────────────────────────────────
 
 function syncJson() {
-  $("#pgConfig").textContent    = JSON.stringify(_cfg, null, 2);
+  const cfgHost = $("#pgConfig");
+  if (cfgHost) {
+    cfgHost.innerHTML = _renderCfgTree(_cfg);
+    // Stash the canonical JSON for the copy-button handler — textContent
+    // of the collapsible tree would mash sibling rows together.
+    cfgHost.dataset.copy = JSON.stringify(_cfg, null, 2);
+  }
   $("#pgPySnippet").textContent = _buildPySnippet();
   _persistCfg();
   _refreshTabDots();
@@ -1172,6 +1196,57 @@ function syncJson() {
   refreshRoiOverlay();   // dim region depends on roi.inv — repaint on any change
   _applySourceUI();      // mount type toggles Robot card visibility
   _scheduleAutoRerun();  // live re-tune: re-run on the cached frame
+}
+
+// Render an object or array as a tree of collapsible <details> blocks —
+// one per top-level key (or array index). Object/array values become their
+// own pretty-printed JSON body inside the disclosure; scalars render
+// inline. Defaults to open so the first view looks like the old flat JSON
+// dump; users collapse what they don't care about. Copy still pulls the
+// canonical JSON via dataset.copy.
+function _renderCfgTree(obj) {
+  if (Array.isArray(obj)) {
+    if (obj.length === 0) return `<div class="pg-cfg-empty">[]</div>`;
+    return obj.map((v, i) => {
+      // Prefer the item's own `id` field for the row label so the tree
+      // lines up with the results table (which uses r.id). Server-side
+      // ids are assigned before filtering, so they can be sparse — using
+      // the array index here would silently disagree with the table.
+      const label = (v && typeof v === "object" && "id" in v) ? `[${v.id}]` : `[${i}]`;
+      return _renderCfgRow(label, v);
+    }).join("");
+  }
+  const keys = Object.keys(obj || {});
+  if (keys.length === 0) return `<div class="pg-cfg-empty">{}</div>`;
+  return keys.map(k => _renderCfgRow(k, obj[k])).join("");
+}
+
+function _renderCfgRow(label, v) {
+  const isObj = v && typeof v === "object";
+  if (!isObj) {
+    return `<div class="pg-cfg-row pg-cfg-leaf"><span class="pg-cfg-key">${escHtml(label)}</span>: <span class="pg-cfg-val">${escHtml(JSON.stringify(v))}</span></div>`;
+  }
+  const formatted = JSON.stringify(v, null, 2);
+  const preview = _cfgPreview(v);
+  return `<details class="pg-cfg-row">
+    <summary><span class="pg-cfg-key">${escHtml(label)}</span><span class="pg-cfg-preview">${escHtml(preview)}</span></summary>
+    <pre class="pg-cfg-body">${escHtml(formatted)}</pre>
+  </details>`;
+}
+
+function _cfgPreview(v) {
+  if (Array.isArray(v)) return `[ ${v.length} ]`;
+  if (v && typeof v === "object") {
+    // Detection-shaped dict ({cls, conf, ...}) gets a useful inline hint
+    // so a row like `[3] face conf=0.92` is scannable without expanding.
+    if ("cls" in v) {
+      const conf = "conf" in v ? ` conf=${Number(v.conf).toFixed(2)}` : "";
+      return ` ${v.cls}${conf}`;
+    }
+    const n = Object.keys(v).length;
+    return `{ ${n} ${n === 1 ? "field" : "fields"} }`;
+  }
+  return String(v);
 }
 
 // Render a JS value as a Python literal. Pretty-prints nested dicts/lists,
@@ -1214,12 +1289,11 @@ function _buildPySnippet() {
   lines.push(`vc = VisionClient()`);
   lines.push(`vc.connect()  # default host="127.0.0.1", port=8765`);
   lines.push(``);
+  lines.push(`# detection_config = <the dict from the "Detection config" box above>`);
   lines.push(`vc.detection_add(`);
   lines.push(`    name="my_detection",`);
   if (source === "camera" && camSn) lines.push(`    camera_serial_number=${JSON.stringify(camSn)},`);
-  for (const [k, v] of Object.entries(_cfg)) {
-    lines.push(`    ${k}=${_toPyLiteral(v, 4)},`);
-  }
+  lines.push(`    **detection_config,`);
   lines.push(`)`);
   lines.push(``);
   if (source === "file") {
@@ -1789,7 +1863,11 @@ async function refreshOutput() {
 function renderResults(valid) {
   _lastValid = Array.isArray(valid) ? valid : [];
   $("#pgValidCount").textContent = String(_lastValid.length);
-  $("#pgRawResult").textContent = JSON.stringify(_lastValid, null, 2);
+  const rawHost = $("#pgRawResult");
+  if (rawHost) {
+    rawHost.innerHTML = _renderCfgTree(_lastValid);
+    rawHost.dataset.copy = JSON.stringify(_lastValid, null, 2);
+  }
 
   const root = $("#pgResults");
   if (!_lastValid.length) {
@@ -2571,7 +2649,9 @@ export function init(vc) {
     const btn = e.target.closest("[data-copy-target]");
     if (!btn) return;
     const target = document.getElementById(btn.dataset.copyTarget);
-    const text = target?.textContent ?? "";
+    // Prefer dataset.copy when set — used by the collapsible config tree
+    // where textContent would mash sibling sections together.
+    const text = target?.dataset.copy ?? target?.textContent ?? "";
     if (!text.trim()) { toast("Nothing to copy", "warn"); return; }
     _copyToClipboard(text, btn);
   });
