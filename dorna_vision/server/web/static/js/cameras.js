@@ -317,7 +317,7 @@ function expandCapture(sn) {
   // Make sure the "Capture again" button is visible — the playground
   // expand flow hides it because the playground doesn't have a single SN.
   $("#imgLightboxCapture")?.removeAttribute("hidden");
-  overlay.classList.add("show");
+  overlay.classList.add("show");   // observer resets zoom on open
 }
 
 async function lightboxRecapture() {
@@ -465,14 +465,99 @@ export function init(vc) {
     if (e.target.id === "camModalOverlay") closeAddModal();
   });
 
-  // Lightbox close handlers (any click outside the image dismisses)
-  $("#imgLightboxClose")?.addEventListener("click", () => $("#imgLightbox")?.classList.remove("show"));
+  // Lightbox closes ONLY via the close (×) button — not backdrop clicks or
+  // Escape — so dragging/panning near the edges can't accidentally dismiss it.
+  $("#imgLightboxClose")?.addEventListener("click", () => closeLightbox());
   $("#imgLightboxCapture")?.addEventListener("click", lightboxRecapture);
-  $("#imgLightbox")?.addEventListener("click", (e) => {
-    if (e.target.id === "imgLightbox") $("#imgLightbox").classList.remove("show");
+
+  _wireLightboxZoom();
+}
+
+// ── Lightbox zoom & pan ──────────────────────────────────────────────
+// Self-contained transform on the lightbox image: wheel to zoom (cursor-
+// anchored), drag to pan, +/-/reset buttons. State is reset every time the
+// lightbox opens (lightboxResetZoom, called by every open path) and on close.
+const _lbZoom = { s: 1, tx: 0, ty: 0 };
+
+function _lbApply() {
+  const img = $("#imgLightboxImg");
+  if (!img) return;
+  img.style.transform = `translate(${_lbZoom.tx}px, ${_lbZoom.ty}px) scale(${_lbZoom.s})`;
+}
+
+function lightboxResetZoom() {
+  _lbZoom.s = 1; _lbZoom.tx = 0; _lbZoom.ty = 0;
+  _lbApply();
+}
+
+function closeLightbox() {
+  $("#imgLightbox")?.classList.remove("show");
+  lightboxResetZoom();
+}
+
+function _lbZoomAt(deltaY, clientX, clientY) {
+  const img = $("#imgLightboxImg");
+  if (!img) return;
+  // r reflects the CURRENT transform. The image point under the cursor (in
+  // pre-transform image coords) is (clientX - r.left)/s. To keep that point
+  // fixed while scaling s -> newS, shift tx by the change in that point's
+  // screen offset: tx += (clientX - r.left) * (1 - newS/s).
+  const r = img.getBoundingClientRect();
+  const factor = deltaY < 0 ? 1.15 : 1 / 1.15;
+  const newS = Math.max(1, Math.min(8, _lbZoom.s * factor));
+  const k = newS / _lbZoom.s;
+  _lbZoom.tx += (clientX - r.left) * (1 - k);
+  _lbZoom.ty += (clientY - r.top) * (1 - k);
+  _lbZoom.s = newS;
+  if (_lbZoom.s === 1) { _lbZoom.tx = 0; _lbZoom.ty = 0; }
+  _lbApply();
+}
+
+function _lbButtonZoom(inOut) {
+  // Zoom toward the stage center for button clicks.
+  const stage = $("#imgLightboxStage");
+  if (!stage) return;
+  const r = stage.getBoundingClientRect();
+  _lbZoomAt(inOut === "in" ? -1 : 1, r.left + r.width / 2, r.top + r.height / 2);
+}
+
+function _wireLightboxZoom() {
+  const stage = $("#imgLightboxStage");
+  const overlay = $("#imgLightbox");
+  if (!stage || !overlay) return;
+
+  // Reset the transform whenever the lightbox opens, regardless of which
+  // page opened it (camera card or playground). Decoupled: no caller needs
+  // to remember to reset.
+  new MutationObserver(() => {
+    if (overlay.classList.contains("show")) lightboxResetZoom();
+  }).observe(overlay, { attributes: true, attributeFilter: ["class"] });
+
+  $("#imgLightboxZoomIn")?.addEventListener("click", (e) => { e.stopPropagation(); _lbButtonZoom("in"); });
+  $("#imgLightboxZoomOut")?.addEventListener("click", (e) => { e.stopPropagation(); _lbButtonZoom("out"); });
+  $("#imgLightboxZoomReset")?.addEventListener("click", (e) => { e.stopPropagation(); lightboxResetZoom(); });
+
+  stage.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    _lbZoomAt(e.deltaY, e.clientX, e.clientY);
+  }, { passive: false });
+
+  let drag = null;
+  stage.addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || _lbZoom.s <= 1) return;   // only pan when zoomed in
+    e.preventDefault();
+    drag = { x: e.clientX, y: e.clientY, tx: _lbZoom.tx, ty: _lbZoom.ty };
+    stage.classList.add("is-panning");
   });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") $("#imgLightbox")?.classList.remove("show");
+  document.addEventListener("mousemove", (e) => {
+    if (!drag) return;
+    // Image follows the cursor (grab-and-drag), so add the delta.
+    _lbZoom.tx = drag.tx + (e.clientX - drag.x);
+    _lbZoom.ty = drag.ty + (e.clientY - drag.y);
+    _lbApply();
+  });
+  document.addEventListener("mouseup", () => {
+    if (drag) { drag = null; stage.classList.remove("is-panning"); }
   });
 }
 

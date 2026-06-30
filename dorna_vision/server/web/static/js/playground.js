@@ -481,6 +481,27 @@ let _pickedModelFile = null;
 const MAX_UPLOAD_BYTES = 120 * 1024 * 1024;
 function _fmtMB(n) { return (n / (1024 * 1024)).toFixed(1) + " MB"; }
 
+// Put a button into a busy state (spinner + label, disabled) for the
+// duration of an async action, then restore it. Makes uploads / runs
+// visibly "working" instead of looking hung. Returns a restore function;
+// also auto-restores via the finally in callers.
+function _setBtnBusy(btn, busyText) {
+  if (!btn) return () => {};
+  if (btn.dataset.busy === "1") return () => {};   // already busy
+  btn.dataset.busy = "1";
+  btn.dataset.prevHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.classList.add("is-busy");
+  btn.innerHTML = `<span class="btn-spinner"></span>${busyText}`;
+  return function restore() {
+    btn.innerHTML = btn.dataset.prevHtml || btn.innerHTML;
+    btn.disabled = false;
+    btn.classList.remove("is-busy");
+    delete btn.dataset.busy;
+    delete btn.dataset.prevHtml;
+  };
+}
+
 // Class names known to whichever ML model the user just initialized.
 // Populated from Detection.classes() on Initialize; used to seed the
 // per-method `cls` filter field in CMD_SCHEMAS so the user sees what's
@@ -2935,9 +2956,15 @@ export function init(vc) {
   // Detection without rebuilding — the ML model stays loaded.
   $("#pgInitBtn")?.addEventListener("click", async (e) => {
     const btn = e.currentTarget;
-    btn.disabled = true;
-    const ok = await initializePlayground();
-    btn.disabled = false;
+    // Uploading the model + loading it server-side can take a few seconds;
+    // show a spinner so it's clearly working, not frozen.
+    const restore = _setBtnBusy(btn, "Initializing…");
+    let ok = false;
+    try {
+      ok = await initializePlayground();
+    } finally {
+      restore();
+    }
     if (ok) {
       _setInitialized(true);
       // _loadedMlType is set inside initializePlayground() from the
@@ -2996,7 +3023,18 @@ export function init(vc) {
   });
 
   // Actions
-  $("#pgRunBtn")?.addEventListener("click", () => runOnce().catch(e => toast(`Run failed: ${e.message || e}`, "bad")));
+  $("#pgRunBtn")?.addEventListener("click", async (e) => {
+    // In file mode each Run uploads the image; show a spinner so it reads as
+    // working. Skipped in Live mode (the button is hidden then anyway).
+    const restore = _setBtnBusy(e.currentTarget, "Running…");
+    try {
+      await runOnce();
+    } catch (err) {
+      toast(`Run failed: ${err.message || err}`, "bad");
+    } finally {
+      restore();
+    }
+  });
   $("#pgLiveBtn")?.addEventListener("click", startLive);
   $("#pgStopBtn")?.addEventListener("click", stopLive);
   $("#pgPromoteBtn")?.addEventListener("click", openPromote);

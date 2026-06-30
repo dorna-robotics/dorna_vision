@@ -1241,12 +1241,29 @@ select.input,
   -webkit-backdrop-filter: blur(8px);
 }
 .img-lightbox.show { display: flex; }
-.img-lightbox img {
+/* Stage clips the zoomed/panned image and carries the pan cursor. */
+.img-lightbox-stage {
   max-width: 100%;
   max-height: calc(100% - 60px);
+  overflow: hidden;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+.img-lightbox-stage.is-panning { cursor: grabbing; }
+.img-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
   border-radius: 12px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  transform-origin: 0 0;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
 }
+.img-lightbox-btn-icon { padding: 8px; }
 .img-lightbox-caption {
   color: #fff;
   font-family: var(--mono);
@@ -1276,6 +1293,23 @@ select.input,
 }
 .img-lightbox-btn:hover { background: rgba(255,255,255,0.22); }
 .img-lightbox-btn[hidden] { display: none; }
+
+/* Busy state for action buttons (Initialize / Run while uploading or
+ * running). A small spinning ring + label makes it obvious the system is
+ * working, not hung. Button is also disabled by JS while busy. */
+.btn-spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 7px;
+  vertical-align: -2px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.6s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+.btn.is-busy { opacity: 0.85; cursor: progress; }
 
 /* ── Textarea (kwargs) ──────────────────────────────────────────── */
 .kw-textarea {
