@@ -1771,6 +1771,22 @@ function _buildRunArgs() {
     if (INIT_PARAM_KEYS.includes(k)) continue;
     args[k] = v;
   }
+  // ROI source is selected server-side by KEY PRESENCE, and corners always
+  // wins. So send exactly ONE of the two keys, matching the ROI-source mode:
+  //   - corners mode -> keep `corners`, drop `box`
+  //   - box mode     -> keep `box`,     drop `corners`
+  // (Sending both would make the server ignore the box, even in box mode.)
+  if (args.roi && (("box" in args.roi) || ("corners" in args.roi))) {
+    const roi = { ...args.roi };
+    // Read the ROI-source selector (transient UI field, id pgF_roi_mode).
+    // Fall back to inferring from a non-zero box if the control isn't found.
+    const modeEl = document.getElementById(fieldId("roi", "mode"));
+    const mode = modeEl ? modeEl.value
+      : (Array.isArray(roi.box) && roi.box.some(n => Number(n) !== 0) ? "box" : "corners");
+    if (mode === "box") delete roi.corners;
+    else                delete roi.box;
+    args.roi = roi;
+  }
   return args;
 }
 
@@ -2740,7 +2756,10 @@ export function init(vc) {
         if (f.default !== null && f.default !== undefined) detection[f.key] = f.default;
       }
       // ML methods pull their model path from the AI Models init section.
-      if (["od","cls","kp"].includes(newCmd)) {
+      // Must cover ALL ML cmds (od/rod/cls/kp/anom) — omitting rod/anom here
+      // rebuilt their detection dict without a path, so switching the method
+      // to Rotated/Anomaly dropped the model reference and the run failed.
+      if (ML_CMDS.includes(newCmd)) {
         const p = ($("#pgMlPath")?.value || "").trim();
         if (p) detection.path = p;
       }

@@ -1,6 +1,9 @@
 from dorna_vision.visual import *
 from dorna_vision.find import *
 from dorna_vision.ai import *
+# `_color_for_class` is private (leading underscore), so `import *` above skips
+# it — import it explicitly since _color_for() relies on it.
+from dorna_vision.ai import _color_for_class
 from dorna_vision.util import *
 from dorna_vision.draw import *
 from dorna_vision.pose import *
@@ -381,7 +384,7 @@ class Detection(object):
                 # Check if the attribute already exists in the class
                 if hasattr(self, key):
                     setattr(self, key, value)
-            
+
             # update camera_data
             camera_data = self.get_camera_data(data)
             feed_img = camera_data.get(self.feed)
@@ -421,13 +424,17 @@ class Detection(object):
 
             # roi
             roi_kwargs = dict(self.roi)
-            # A 3D `box` in the roi config is resolved to its outer pixel
-            # polygon here — AFTER frame_mat_inv is computed above (so it uses
-            # this frame's joints/intrinsics) and BEFORE the ROI is built (so
-            # detection runs once on the boxed region). `box` is consumed here
-            # and never reaches the ROI class, which stays purely 2D.
+            # ROI source is selected by KEY PRESENCE, and `corners` always wins:
+            #   - "corners" key present  -> use corners as-is (even if []),
+            #                               ignore box entirely.
+            #   - else "box" key present -> project the box to corners, AFTER
+            #                               frame_mat_inv (this frame's
+            #                               joints/intrinsics) and BEFORE the
+            #                               ROI is built, so detection runs once
+            #                               on the boxed region.
+            # `box` is consumed here and never reaches the ROI class (stays 2D).
             box = roi_kwargs.pop("box", None)
-            if box:
+            if "corners" not in roi_kwargs and box is not None:
                 roi_kwargs["corners"] = self.box_to_corners(box)
             _roi = ROI(img_adjust.copy(), **roi_kwargs)
             img_roi = _roi.img
@@ -783,9 +790,18 @@ class Detection(object):
             cd_out["img_roi"] = img_roi.copy()
             self.retval["camera_data"] = cd_out
             self.retval["frame_mat_inv"] = self.frame_mat_inv.copy()
-        except Exception as ex:
+        except Exception:
+            # Print the full traceback to the server log, then RE-RAISE.
+            # Swallowing here turned hard bugs (NameError, AttributeError,
+            # TypeError, ...) into a silent empty result that the caller
+            # couldn't distinguish from "nothing detected" — which is exactly
+            # how the _color_for_class NameError stayed hidden. The server's
+            # ws handler turns the raised exception into a client error
+            # message, so failures surface in the UI instead of looking like
+            # a clean zero-detection run.
             import traceback
             traceback.print_exc()
+            raise
 
         return list(self.retval["valid"])
 

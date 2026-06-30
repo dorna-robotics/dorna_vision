@@ -1,9 +1,9 @@
 // Phase 1 — skeleton wiring: connect to the WS, refresh server info + counts,
 // switch between sections via the sidebar, and surface connection state.
 
-import { VisionClient, VisionServerError } from "/static/js/api.js?v=64";
-import * as Cameras    from "/static/js/cameras.js?v=64";
-import * as Playground from "/static/js/playground.js?v=64";
+import { VisionClient, VisionServerError } from "/static/js/api.js?v=67";
+import * as Cameras    from "/static/js/cameras.js?v=67";
+import * as Playground from "/static/js/playground.js?v=67";
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
