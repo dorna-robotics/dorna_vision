@@ -473,6 +473,14 @@ let _hasRun = false;       // becomes true after first successful Run; gates ima
 let _pickedImageFile = null;
 let _pickedModelFile = null;
 
+// Max inline upload size. Kept below the server's WS frame ceiling
+// (VisionWSHandler.MAX_FRAME_BYTES = 128 MB) with headroom for the JSON
+// envelope, so we reject oversize files with a clear message BEFORE sending
+// — a frame over the server cap would otherwise make Tornado drop the
+// connection (looks like a server crash). 120 MB leaves ~8 MB headroom.
+const MAX_UPLOAD_BYTES = 120 * 1024 * 1024;
+function _fmtMB(n) { return (n / (1024 * 1024)).toFixed(1) + " MB"; }
+
 // Class names known to whichever ML model the user just initialized.
 // Populated from Detection.classes() on Initialize; used to seed the
 // per-method `cls` filter field in CMD_SCHEMAS so the user sees what's
@@ -1800,6 +1808,11 @@ async function initializePlayground() {
   // meta.type from the pickle and configures the right ML cmd.
   let modelBytes = null;
   if (_pickedModelFile) {
+    if (_pickedModelFile.size > MAX_UPLOAD_BYTES) {
+      toast(`Model file is ${_fmtMB(_pickedModelFile.size)} — exceeds the ${_fmtMB(MAX_UPLOAD_BYTES)} upload limit. `
+        + `This is usually an old-format pickle that embeds raw training weights; export an OpenVINO model from the training notebook.`, "bad");
+      return false;
+    }
     try { modelBytes = await _pickedModelFile.arrayBuffer(); }
     catch (e) { toast(`Could not read model file: ${e.message || e}`, "bad"); return false; }
   }
@@ -1831,6 +1844,10 @@ async function runOnce() {
   let runOpts = { _kwargs: args };
   if (source === "file") {
     if (!_pickedImageFile) { toast("Pick an image file first", "warn"); return; }
+    if (_pickedImageFile.size > MAX_UPLOAD_BYTES) {
+      toast(`Image is ${_fmtMB(_pickedImageFile.size)} — exceeds the ${_fmtMB(MAX_UPLOAD_BYTES)} upload limit.`, "bad");
+      return;
+    }
     try { runOpts._binary = await _pickedImageFile.arrayBuffer(); }
     catch (e) { toast(`Could not read image: ${e.message || e}`, "bad"); return; }
   }

@@ -29,8 +29,15 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
     run in parallel. Non-camera commands run on a shared thread pool.
     """
 
-    # raise the default 10 MB cap so we can comfortably ship JPEGs
-    max_message_size = 32 * 1024 * 1024
+    # WS frame ceiling. Must comfortably fit the largest thing a client ships
+    # inline: a trained model pickle (can be tens of MB; OpenVINO IR models
+    # run ~5-50 MB, legacy/large ones more) — not just JPEGs. Bounded so a
+    # runaway/garbage frame can't exhaust memory. Tornado closes the socket
+    # if a frame exceeds this; the client pre-checks size (see playground's
+    # MAX_UPLOAD_BYTES) and shows a clean error before sending, so a normal
+    # oversize upload never reaches this hard limit.
+    MAX_FRAME_BYTES = 128 * 1024 * 1024
+    max_message_size = MAX_FRAME_BYTES
 
     # ── Server-initiated push channel ────────────────────────────────────
     # Tracked across all instances so the camera pool (or anyone else) can

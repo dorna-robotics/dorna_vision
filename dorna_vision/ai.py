@@ -142,18 +142,48 @@ def _read_openvino_from_pickle(model_dict, input_shape, device_name="CPU", devic
     Build a compiled OpenVINO model from {xml, bin} pickle entries.
     `input_shape` is a list passed to model.reshape(). Returns
     (core, model, compiled_model).
+
+    Validates the pickle is the current OpenVINO format before handing the
+    blobs to the OpenVINO runtime. The old training-output format embedded a
+    raw PyTorch state_dict under meta["weight"] and lacked real IR in
+    xml/bin; passing that through could crash the native runtime. We reject it
+    with a clear, actionable message instead.
     """
-    xml_data = model_dict["xml"]
-    bin_data = model_dict["bin"]
+    # Old-format detector: a raw PyTorch checkpoint under meta.weight.
+    meta = model_dict.get("meta") or {}
+    if "weight" in meta:
+        raise ValueError(
+            "Unsupported model format: this looks like an old training-output "
+            "pickle (raw PyTorch weights under meta['weight']), not an "
+            "OpenVINO model. Re-export it from the current training notebook "
+            "to produce an OpenVINO pickle."
+        )
+
+    xml_data = model_dict.get("xml")
+    bin_data = model_dict.get("bin")
+    if xml_data is None or bin_data is None:
+        raise ValueError(
+            "Invalid model: missing OpenVINO IR ('xml'/'bin' entries). "
+            "Re-export the model from the current training notebook."
+        )
+
     core = Core()
-    model = core.read_model(
-        model=bytes(xml_data, "utf-8") if isinstance(xml_data, str) else xml_data,
-        weights=bin_data,
-    )
-    if input_shape is not None:
-        model.reshape({model.input(0): input_shape})
-    cfg = device_config if device_config is not None else _DEVICE_CONFIG
-    compiled = core.compile_model(model=model, device_name=device_name, config=cfg)
+    try:
+        model = core.read_model(
+            model=bytes(xml_data, "utf-8") if isinstance(xml_data, str) else xml_data,
+            weights=bin_data,
+        )
+        if input_shape is not None:
+            model.reshape({model.input(0): input_shape})
+        cfg = device_config if device_config is not None else _DEVICE_CONFIG
+        compiled = core.compile_model(model=model, device_name=device_name, config=cfg)
+    except ValueError:
+        raise
+    except Exception as ex:
+        # Any failure inside the OpenVINO runtime (malformed IR, bad shapes,
+        # corrupt blob) -> a clean Python error the server can report, never
+        # a native crash that drops the connection.
+        raise ValueError("Failed to load OpenVINO model: %s" % ex)
     return core, model, compiled
 
 
