@@ -16,6 +16,23 @@ import numpy as np
 
 from dorna2 import Kinematic
 
+
+class _Intrinsics(object):
+    """Minimal intrinsics shim carrying just the fields camera.pixel() reads
+    (fx, fy, ppx, ppy, coeffs), built from a camera matrix K and distortion D.
+    Lets box_to_corners project against caller-supplied K/D without a live
+    feed or a pyrealsense2 rs.intrinsics object."""
+    __slots__ = ("fx", "fy", "ppx", "ppy", "coeffs")
+
+    def __init__(self, K, D):
+        self.fx = float(K[0][0])
+        self.fy = float(K[1][1])
+        self.ppx = float(K[0][2])
+        self.ppy = float(K[1][2])
+        d = list(D) + [0.0] * 5
+        self.coeffs = [float(d[0]), float(d[1]), float(d[2]), float(d[3]), float(d[4])]
+
+
 class Detection(object):
     """docstring for Detect"""
     def __init__(self,
@@ -261,7 +278,7 @@ class Detection(object):
             T_tgt_to_frame = np.array(dorna_pose.xyzabc_to_T(xyzabc))
             frame_mat    = np.linalg.inv(self.frame_mat_inv)
             T_tgt_to_cam = frame_mat @ T_tgt_to_frame
-            xyz_cam      = dorna_pose.T_to_xyz(T_tgt_to_cam)[:3]
+            xyz_cam      = dorna_pose.T_to_xyzabc(T_tgt_to_cam)[:3]
 
             # 2) Project with your pure function
             u, v = self.camera.pixel(xyz_cam, self.camera_data["depth_int"])
@@ -275,6 +292,71 @@ class Detection(object):
         except:
             pxl = [0, 0]
         return pxl
+
+
+    def box_to_corners(self, box, K=None, D=None):
+        """
+        Project a 3D box to its outer ROI polygon.
+
+        box : [x, y, z, a, b, c, w, d, h]
+            (x, y, z)   center of the box's BOTTOM plane. Interpreted in the
+                        SAME frame as xyz_to_pixel — i.e. whatever the last
+                        run() established: the robot BASE frame when a robot
+                        is set (j4 mount + joints available), otherwise the
+                        camera-relative `self.frame`.
+            (a, b, c)   orientation of the box (Euler degrees), same convention
+                        as dorna2.pose.xyzabc_to_T
+            w, d, h     extents along the box's LOCAL X (width), Y (depth) and
+                        Z (height) axes.
+                        h > 0 : box rises from the bottom plane (sits on floor),
+                                local Z spans [0, +h]
+                        h < 0 : box hangs below the bottom plane (on ceiling),
+                                local Z spans [h, 0]
+
+        K, D : optional
+            Supply your own camera matrix K (3x3) and distortion D to project
+            against, instead of the live feed's intrinsics. Both are required
+            together; the prior camera_data intrinsics are restored afterwards
+            so a concurrent live feed is left untouched. When omitted, the
+            intrinsics currently in camera_data (set by the last run()) are
+            used.
+
+        Returns the convex hull of the 8 projected corners as a list of [u, v]
+        pixels in the unrotated image — ready to use as ROI `corners`.
+        """
+        x, y, z, a, b, c, w, d, h = box
+
+        # 8 corners in the box's local frame. X/Y centered on the bottom-plane
+        # center; Z runs 0 -> h (sign of h picks floor vs. ceiling).
+        xs, ys, zs = [-w / 2.0, w / 2.0], [-d / 2.0, d / 2.0], [0.0, h]
+        local = np.array([[lx, ly, lz, 1.0]
+                          for lx in xs for ly in ys for lz in zs], dtype=float)
+
+        # local -> user frame
+        T = np.array(dorna_pose.xyzabc_to_T([x, y, z, a, b, c]))
+        corners_frame = (T @ local.T).T[:, :3]
+
+        # Optionally project against caller-supplied K/D instead of the live
+        # feed's intrinsics. camera.pixel() reads only fx/fy/ppx/ppy/coeffs,
+        # so a light shim object is enough — no rs.intrinsics needed. Swap it
+        # into camera_data for the projection, then restore.
+        swapped = K is not None and D is not None
+        if swapped:
+            saved = self.camera_data
+            merged = dict(self.camera_data) if self.camera_data else {}
+            merged["depth_int"] = _Intrinsics(K, D)
+            self.camera_data = merged
+        try:
+            # project every corner to a pixel (uses K/D via xyz_to_pixel)
+            pxls = np.array([self.xyz_to_pixel(p.tolist()) for p in corners_frame],
+                            dtype=np.int32)
+        finally:
+            if swapped:
+                self.camera_data = saved
+
+        # outer silhouette = convex hull of all 8 projected points
+        hull = cv.convexHull(pxls).reshape(-1, 2)
+        return hull.tolist()
 
 
     def xyz(self, pxl):
@@ -302,7 +384,19 @@ class Detection(object):
             
             # update camera_data
             camera_data = self.get_camera_data(data)
-            _img = camera_data[self.feed].copy()
+            feed_img = camera_data.get(self.feed)
+            if feed_img is None:
+                # The selected feed is empty — either the channel wasn't
+                # subscribed at connect() (e.g. feed='ir_img' on a color+depth
+                # camera) or this frame grab returned nothing. Fail with a
+                # message that names the feed instead of a bare NoneType error.
+                available = [k for k in ("color_img", "depth_img", "ir_img")
+                             if camera_data.get(k) is not None]
+                raise ValueError(
+                    "feed '%s' is empty (None). Available feeds this frame: %s. "
+                    "Pick a feed whose channel was enabled at connect()."
+                    % (self.feed, available or "none"))
+            _img = feed_img.copy()
 
             # ori
             if self.rot != 0:
@@ -326,7 +420,16 @@ class Detection(object):
             height, width = img_adjust.shape[0:2]
 
             # roi
-            _roi = ROI(img_adjust.copy(), **self.roi)
+            roi_kwargs = dict(self.roi)
+            # A 3D `box` in the roi config is resolved to its outer pixel
+            # polygon here — AFTER frame_mat_inv is computed above (so it uses
+            # this frame's joints/intrinsics) and BEFORE the ROI is built (so
+            # detection runs once on the boxed region). `box` is consumed here
+            # and never reaches the ROI class, which stays purely 2D.
+            box = roi_kwargs.pop("box", None)
+            if box:
+                roi_kwargs["corners"] = self.box_to_corners(box)
+            _roi = ROI(img_adjust.copy(), **roi_kwargs)
             img_roi = _roi.img
 
             # thr

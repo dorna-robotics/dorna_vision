@@ -85,6 +85,9 @@ function cardHTML(d) {
       <img alt="capture" data-cam-thumb="${escHtml(sn)}"
            ${cached ? `src="${cached}" style="display:block"` : `style="display:none"`}/>
       <div class="cc-thumb-empty" ${cached ? `style="display:none"` : ""}>Click <strong>Capture</strong> to grab a frame</div>
+      <button class="cc-expand cc-download" data-act="download" title="Download image" ${cached ? `style="display:flex"` : `style="display:none"`}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
       <button class="cc-expand" data-act="expand" title="Expand" ${cached ? `style="display:flex"` : `style="display:none"`}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
       </button>
@@ -267,9 +270,11 @@ async function captureFrame(sn, card) {
       img.style.display = "block";
       const empty  = card.querySelector(".cc-thumb-empty");
       const expand = card.querySelector('[data-act="expand"]');
+      const dl     = card.querySelector('[data-act="download"]');
       const dim    = card.querySelector(".cc-dim-overlay");
       if (empty)  empty.style.display = "none";
       if (expand) expand.style.display = "flex";
+      if (dl)     dl.style.display = "flex";
       if (dim) {
         // Use the JPEG's actual dimensions returned by the server (from the
         // raw frame — accurate even if Camera.connect requested something else).
@@ -286,6 +291,17 @@ async function captureFrame(sn, card) {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+function downloadCapture(sn) {
+  const url = _capturedUrls.get(sn);
+  if (!url) { toast("Nothing captured yet", "warn"); return; }
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `camera_${sn}.jpg`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function expandCapture(sn) {
@@ -522,6 +538,7 @@ function _bindCardHandlers(card, sn) {
   card.querySelector('[data-act="remove"]')?.addEventListener("click", () => removeCamera(sn));
   card.querySelector('[data-act="capture"]')?.addEventListener("click", () => captureFrame(sn, card));
   card.querySelector('[data-act="expand"]')?.addEventListener("click", () => expandCapture(sn));
+  card.querySelector('[data-act="download"]')?.addEventListener("click", () => downloadCapture(sn));
   card.querySelector('[data-act="recover"]')?.addEventListener("click", () => recoverCamera(sn));
 }
 

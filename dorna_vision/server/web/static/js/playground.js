@@ -270,9 +270,17 @@ const SECTION_SCHEMAS = [
   },
   {
     tab: "image", key: "roi", label: "Region of Interest", enable: true,
-    desc: "Restrict detection to a sub-area of the image. Use the polygon selector on the output image to define the area.",
+    desc: "Restrict detection to a sub-area of the image. Pick a polygon on the output image, or give a 3D box (resolved to its outer pixel polygon at run time).",
     fields: [
-      { key: "corners", label: "Corners (polygon)", kind: "json", picker: "polygon", default: [] },
+      // `mode` is UI-only (transient): it picks which source field shows and
+      // is NOT sent to the server. corners/box are gated on it via showWhen.
+      { key: "mode", label: "ROI source", kind: "select", transient: true, default: "corners",
+        options: [{v:"corners",t:"Corners (polygon)"},{v:"box",t:"Box (3D)"}] },
+      { key: "corners", label: "Corners (polygon)", kind: "json", picker: "polygon", default: [],
+        showWhen: (v) => (v.mode || "corners") === "corners" },
+      { key: "box",     label: "Box", kind: "vec9", default: [0,0,0,0,0,0,0,0,0],
+        showWhen: (v) => v.mode === "box",
+        help: "3D box: bottom-plane center (x,y,z) + orientation (a,b,c°) + size (w,d,h). Resolved to its outer pixel polygon at run time." },
       { key: "offset",  label: "Offset (px)", kind: "slider", min: -200, max: 200, step: 1, default: 0 },
       { key: "inv",     label: "Invert region", kind: "bool", default: false, asInt: true },
       { key: "crop",    label: "Crop region",   kind: "bool", default: false, asInt: true },
@@ -500,7 +508,7 @@ function renderField(sectionKey, field, value) {
   const id = fieldId(sectionKey, field.key);
   // Compound widgets put the id on a wrapper div, not on a single form
   // element. Don't bind <label for=…> to those — browser warns otherwise.
-  const isCompound = field.kind === "vec3" || field.kind === "vec6" || field.kind === "range";
+  const isCompound = field.kind === "vec3" || field.kind === "vec6" || field.kind === "vec9" || field.kind === "range";
   const labelFor = isCompound ? "" : ` for="${id}"`;
   const lbl = `<label${labelFor} class="pg-flabel">${escHtml(field.label)}</label>`;
   let ctrl = "";
@@ -550,6 +558,25 @@ function renderField(sectionKey, field, value) {
       const v = Array.isArray(value) && value.length === 6 ? value : (Array.isArray(field.default) && field.default.length === 6 ? field.default : [0,0,0,0,0,0]);
       const mk = (i) => `<input class="input pg-input pg-vec-cell" name="${id}_${i}" type="number" value="${v[i]}" data-vec-cell="${i}" data-vec-id="${id}"/>`;
       ctrl = `<div class="pg-vec-row pg-vec6" id="${id}">${mk(0)}${mk(1)}${mk(2)}${mk(3)}${mk(4)}${mk(5)}</div>`;
+      break;
+    }
+    case "vec9": {
+      // 9 cells over TWO labelled rows: pose [x,y,z,a,b,c] on top, size
+      // [w,d,h] below. Each row gets its own caption header; w/d/h note the
+      // local axis they measure. data-vec-cell preserves flat [0..8] order.
+      const v = Array.isArray(value) && value.length === 9 ? value : (Array.isArray(field.default) && field.default.length === 9 ? field.default : [0,0,0,0,0,0,0,0,0]);
+      const ph = ["x","y","z","a","b","c","w","d","h"];
+      const tip = {
+        x:"x (mm)", y:"y (mm)", z:"z (mm)", a:"a (deg)", b:"b (deg)", c:"c (deg)",
+        w:"w — width  (local X)", d:"d — depth  (local Y)", h:"h — height (local Z)",
+      };
+      const mk = (i) => `<input class="input pg-input pg-vec-cell" name="${id}_${i}" type="number" value="${v[i]}" placeholder="${ph[i]}" title="${tip[ph[i]]}" data-vec-cell="${i}" data-vec-id="${id}"/>`;
+      ctrl = `<div class="pg-vec9" id="${id}">`
+        + `<div class="pg-vec-caption">x · y · z · a · b · c</div>`
+        + `<div class="pg-vec-row pg-vec6">${mk(0)}${mk(1)}${mk(2)}${mk(3)}${mk(4)}${mk(5)}</div>`
+        + `<div class="pg-vec-caption">w · d · h &nbsp;<span class="pg-vec-caption-note">(w = X, d = Y, h = Z)</span></div>`
+        + `<div class="pg-vec-row pg-vec3">${mk(6)}${mk(7)}${mk(8)}</div>`
+        + `</div>`;
       break;
     }
     case "range": {
@@ -625,7 +652,8 @@ function readField(sectionKey, field) {
     case "text":   return el.value;
     case "slider": return Number(el.value);
     case "vec3":
-    case "vec6": {
+    case "vec6":
+    case "vec9": {
       const cells = $$(`[data-vec-id="${id}"]`).sort((a,b) => Number(a.dataset.vecCell) - Number(b.dataset.vecCell));
       return cells.map(c => Number(c.value));
     }
@@ -661,7 +689,7 @@ function wireFieldEvents(sectionKey, field, onChange) {
     const num = document.querySelector(`[data-for="${id}"]`);
     el.addEventListener("input", () => { if (num) num.value = el.value; onChange(); });
     if (num) num.addEventListener("input", () => { el.value = num.value; onChange(); });
-  } else if (field.kind === "vec3" || field.kind === "vec6") {
+  } else if (field.kind === "vec3" || field.kind === "vec6" || field.kind === "vec9") {
     $$(`[data-vec-id="${id}"]`).forEach(c => c.addEventListener("input", onChange));
   } else if (field.kind === "range") {
     const wrap = document.getElementById(id);
@@ -1044,16 +1072,19 @@ function renderSections() {
       const ns = sec.key || "_root";
       cb.addEventListener("change", () => {
         if (cb.checked) {
-          // Re-materialize from current form values
+          // Re-materialize from current form values. Transient fields (UI-only
+          // selectors like ROI's `mode`) are never written into _cfg.
           if (sec.key) {
             const target = ensurePath(_cfg, sec.key);
             for (const f of sec.fields) {
+              if (f.transient) continue;
               const v = readField(ns, f);
               const isEmpty = v === null || v === "" || (Array.isArray(v) && v.length === 0);
               if (!isEmpty) target[f.key] = v;
             }
           } else {
             for (const f of sec.fields) {
+              if (f.transient) continue;
               const v = readField(ns, f);
               const isEmpty = v === null || v === "" || (Array.isArray(v) && v.length === 0);
               if (!isEmpty) _cfg[f.key] = v;
@@ -1070,10 +1101,12 @@ function renderSections() {
             const target = ensurePath(_cfg, sec.key);
             for (const k of Object.keys(target)) delete target[k];
             for (const f of sec.fields) {
+              if (f.transient) continue;
               if (f.default !== undefined) target[f.key] = f.default;
             }
           } else {
             for (const f of sec.fields) {
+              if (f.transient) continue;
               if (f.default !== undefined) _cfg[f.key] = f.default;
               else delete _cfg[f.key];
             }
@@ -1144,6 +1177,25 @@ function renderSections() {
         if (sec.enable && !_isSectionApplied(sec)) {
           _applyShowWhen();
           return;
+        }
+        // Transient fields (e.g. ROI's `mode`) are UI-only — they drive
+        // showWhen but must never be written into _cfg / sent to the server.
+        // When the selector flips, drop any sibling field that's now hidden
+        // so only the active source (corners XOR box) reaches the server.
+        if (f.transient) {
+          if (sec.key) {
+            const vals = _readSectionVals();
+            const parent = getPath(_cfg, sec.key);
+            if (parent && typeof parent === "object") {
+              for (const f2 of sec.fields) {
+                if (typeof f2.showWhen === "function" && !f2.showWhen(vals, _cfg)) {
+                  delete parent[f2.key];
+                }
+              }
+              if (Object.keys(parent).length === 0) deletePath(_cfg, sec.key);
+            }
+          }
+          _applyShowWhen(); syncJson(); return;
         }
         const v = readField(ns, f);
         // Treat blank/undefined/null as "not provided" — drop the key.
@@ -1585,6 +1637,55 @@ async function refreshCameraPicker() {
   }
   sel.innerHTML = added.map(d => `<option value="${escHtml(d.serial_number)}">${escHtml(d.serial_number)} — ${escHtml(d.name || "RealSense")}</option>`).join("");
   if (prev && added.find(d => d.serial_number === prev)) sel.value = prev;
+
+  // Remember each camera's connected channels so the Channel dropdown can
+  // list only what's actually available (set server-side via connect()).
+  _cameraChannels = {};
+  for (const d of added) if (d.channels) _cameraChannels[d.serial_number] = d.channels;
+  refreshChannelPicker();
+}
+
+// Camera channels {color, depth, ir_left, ir_right} map to the feed images
+// get_all() fills. ir_left/ir_right share the single ir_img slot, so they
+// collapse to one IR option — mirroring gui.py's feed_options_for_camera.
+const CHANNEL_FEEDS = [
+  { ch: "color",    feed: "color_img", label: "Color" },
+  { ch: "depth",    feed: "depth_img", label: "Depth" },
+  { ch: "ir_left",  feed: "ir_img",    label: "IR" },
+  { ch: "ir_right", feed: "ir_img",    label: "IR" },
+];
+let _cameraChannels = {};
+
+function refreshChannelPicker() {
+  const sel = $("#pgChannel");
+  if (!sel) return;
+  const camSn = $("#pgCamera")?.value || "";
+  const chans = _cameraChannels[camSn];
+  // Build feed options from the camera's channels; if unknown (camera not
+  // pooled / server didn't report), fall back to the full list.
+  let opts;
+  if (chans && chans.length) {
+    const seen = new Set();
+    opts = CHANNEL_FEEDS
+      .filter(x => chans.includes(x.ch) && !seen.has(x.feed) && seen.add(x.feed))
+      .map(x => ({ v: x.feed, t: x.label }));
+  } else {
+    opts = [{ v: "color_img", t: "Color" }, { v: "depth_img", t: "Depth" }, { v: "ir_img", t: "IR" }];
+  }
+  if (!opts.length) opts = [{ v: "color_img", t: "Color" }];
+  const prev = sel.value;
+  sel.innerHTML = opts.map(o => `<option value="${o.v}">${o.t}</option>`).join("");
+  // Keep prior selection if still valid, else fall back to first (and clear
+  // any now-invalid _cfg.feed).
+  if (opts.find(o => o.v === prev)) {
+    sel.value = prev;
+  } else {
+    // Selected feed is no longer valid for this camera — fall back to first
+    // and send it explicitly (self.feed is stateful server-side).
+    sel.value = opts[0].v;
+    _cfg.feed = sel.value;
+    syncJson();
+  }
 }
 
 // ── Server-side playground detection ───────────────────────────────
@@ -2584,6 +2685,19 @@ export function init(vc) {
     overlay.classList.add("show");
   });
 
+  // Download the currently-shown image (blob URL of the active tab) as a JPEG.
+  $("#pgDownload")?.addEventListener("click", () => {
+    const src = $("#pgImg")?.src;
+    if (!src) { toast("Run once to capture a frame first", "warn"); return; }
+    const tabName = { img: "annotated", img_roi: "roi", img_thr: "threshold" }[_currentImgTab] || _currentImgTab;
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = `playground_${tabName}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+
   // HSV eyedropper — listen for clicks on the image whenever it's active.
   $("#pgImg")?.addEventListener("click", (e) => {
     if (_eyedrop.active) { e.preventDefault(); e.stopPropagation(); _onImgEyedrop(e); }
@@ -2656,8 +2770,10 @@ export function init(vc) {
     _copyToClipboard(text, btn);
   });
 
-  // Camera selection feeds into the Python snippet — re-render on change
+  // Camera selection feeds into the Python snippet — re-render on change.
+  // Also refresh the Channel dropdown to this camera's actual channels.
   $("#pgCamera")?.addEventListener("change", () => {
+    refreshChannelPicker();
     $("#pgPySnippet").textContent = _buildPySnippet();
   });
 
@@ -2669,9 +2785,11 @@ export function init(vc) {
   if (ch) {
     if (_cfg.feed) ch.value = _cfg.feed;
     ch.addEventListener("change", () => {
-      const v = ch.value;
-      if (!v || v === "color_img") delete _cfg.feed;   // default — keep cfg slim
-      else _cfg.feed = v;
+      // Always send feed explicitly — even for color_img. Detection.feed is
+      // stateful on the server (run() only updates it when 'feed' is in the
+      // kwargs), so dropping it for the default would leave self.feed stuck
+      // on the previously-selected channel (e.g. depth -> color shows depth).
+      _cfg.feed = ch.value || "color_img";
       syncJson();
     });
   }

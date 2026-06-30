@@ -123,7 +123,9 @@ class default_widget(object):
             "roi_label": widgets.Label(value="Select the region of interest where the detection method is applied. Use the blue polygon selector on the output image to define this area.", layout={'width': '99%'}, style=style),
             "roi_enb": widgets.Checkbox(value=False, description='Apply ROI', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "roi_line": widgets.HTML(value="<hr>", description=' ', layout={'width': '99%'}, style=style_2),
+            "roi_mode": widgets.Dropdown(options=[('Corners (polygon picker)', 'corners'), ('Box ([x,y,z,a,b,c,w,d,h])', 'box')], value='corners', description='ROI source', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "roi_value": widgets.Text(value='[]', placeholder='[]', description='ROI', disabled=True, layout={'width': '99%'}, style=style),
+            "roi_box": widgets.Text(value='[]', placeholder='[x, y, z, a, b, c, w, d, h]', description='Box', layout={'width': '99%'}, style=style),
             "roi_offset" : widgets.IntSlider(value=0, min=-200, max=200, step=1, description='Offset', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "roi_inv": widgets.Checkbox(value=False, description='Invert region', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
             "roi_crop": widgets.Checkbox(value=False, description='Crop region', continuous_update=continuous_update, layout={'width': '99%'}, style=style),
@@ -236,7 +238,7 @@ class default_widget(object):
             "color_hsv": widgets.Text(value='Hue = 119, Saturation = 255, Value = 255', placeholder='', description='', disabled=True,),            
 
             "source_value": widgets.Dropdown(value=0, options=[('0: File', 0)], description='Image source', continuous_update=continuous_update, style=style),
-            "source_feed": widgets.Dropdown(value="color_img", options=[('Color image', "color_img")], description='Feed', continuous_update=continuous_update, style=style, layout={'visible': 'none'}),
+            "source_feed": widgets.Dropdown(value="color_img", options=[('Color image', "color_img")], description='Feed', continuous_update=continuous_update, style=style, layout={'width': '99%'}),
 
             "s_file_value": widgets.Text(value='', placeholder='Path to the file (*.jpg, *.jpeg, *.png, *.tiff, ...).Ex: img/test.jpg', description='File path', disabled=False, layout={'width': '99%'}, style=style),            
             "s_camera_info": widgets.Textarea(value='', placeholder='', description='Camera info', disabled=True, rows=5, layout={'width': '99%'}, style=style),
@@ -335,7 +337,7 @@ class Detection_app(object):
         color_picker_box = widgets.HBox([self.widget_tr[k] for k in [key for key in self.widget_tr.keys() if key.startswith('color_')]])
         acc_adjust_img = widgets.Accordion()
         acc_adjust_img.children = [
-            widgets.VBox([self.widget_tr["source_value"], self.widget_tr["s_file_value"], self.widget_tr["s_camera_info"]]),
+            widgets.VBox([self.widget_tr["source_value"], self.widget_tr["source_feed"], self.widget_tr["s_file_value"], self.widget_tr["s_camera_info"]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('ori_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('roi_')]]),
             widgets.VBox([self.widget_in[k] for k in [key for key in self.widget_in.keys() if key.startswith('intensity_')]]),
@@ -487,6 +489,9 @@ class Detection_app(object):
 
         # interactive for ml model
         interactive(self.hide_show_model, ml_detection_type=self.widget_init["ml_detection_type"])
+
+        # interactive for roi source (corners vs box)
+        interactive(self.hide_show_roi_mode, roi_mode=self.widget_in["roi_mode"])
 
         # interactive color_picker
         self.widget_tr["color_picker"].observe(self.hex_to_hsv, names='value')
@@ -778,6 +783,25 @@ class Detection_app(object):
         self._detect_pattern(**kwargs)
 
 
+    def feed_options_for_camera(self, camera):
+        """Build Feed-dropdown options from the channels the camera actually
+        connected with. Channels {color, depth, ir_left, ir_right} map to the
+        feed images get_all() fills; ir_left/ir_right share the single ir_img
+        slot, so they collapse to one IR option. Falls back to color only."""
+        channel_to_feed = [
+            ("color", "color_img", "Color image"),
+            ("depth", "depth_img", "Depth image"),
+            ("ir_left", "ir_img", "IR image"),
+            ("ir_right", "ir_img", "IR image"),
+        ]
+        enabled = getattr(camera, "_enabled_channels", {"color"})
+        options, seen = [], set()
+        for ch, feed, label in channel_to_feed:
+            if ch in enabled and feed not in seen:
+                options.append((label, feed))
+                seen.add(feed)
+        return options or [("Color image", "color_img")]
+
     def hide_show_source(self, **kwargs):
         # index
         index = kwargs["source_value"]
@@ -787,6 +811,12 @@ class Detection_app(object):
         else:
             # hide file path
             self.widget_tr["s_file_value"].layout.display = "none"
+
+            # Feed dropdown lists only the channels this camera connected with.
+            options = self.feed_options_for_camera(self.camera_list[index - 1])
+            self.widget_tr["source_feed"].options = options
+            if self.widget_tr["source_feed"].value not in [v for _, v in options]:
+                self.widget_tr["source_feed"].value = options[0][1]
 
             # camera info — show fields from Camera.all_device()
             c_info = self.camera_info_list[index - 1]
@@ -819,6 +849,15 @@ class Detection_app(object):
             self.widget_init["ml_kp_geometry"].layout.display = "flex"
         else:
             self.widget_init["ml_kp_geometry"].layout.display = "none"
+
+    def hide_show_roi_mode(self, **kwargs):
+        # Show only the field for the selected ROI source.
+        if kwargs["roi_mode"] == "box":
+            self.widget_in["roi_value"].layout.display = "none"
+            self.widget_in["roi_box"].layout.display = "flex"
+        else:
+            self.widget_in["roi_value"].layout.display = "flex"
+            self.widget_in["roi_box"].layout.display = "none"
 
 
     def plane_plt_maker(self):
@@ -935,7 +974,13 @@ detection.close()
             # roi
             prm["roi"] = {"corners": [], "inv": 0, "crop": 0, "offset": 0}
             if kwargs["roi_enb"]:
-                prm["roi"] = {"corners": ast.literal_eval(kwargs["roi_value"]), "inv": kwargs["roi_inv"], "crop": kwargs["roi_crop"], "offset": kwargs["roi_offset"]}
+                prm["roi"] = {"corners": [], "inv": kwargs["roi_inv"], "crop": kwargs["roi_crop"], "offset": kwargs["roi_offset"]}
+                # ROI source: a 3D box (resolved to corners at run time) or a
+                # picked polygon. Only the selected one is sent.
+                if kwargs["roi_mode"] == "box":
+                    prm["roi"]["box"] = ast.literal_eval(kwargs["roi_box"])
+                else:
+                    prm["roi"]["corners"] = ast.literal_eval(kwargs["roi_value"])
                 _prm["roi"] = prm["roi"]
             
             # detection

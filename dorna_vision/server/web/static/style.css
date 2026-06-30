@@ -861,6 +861,14 @@ body.is-pre-init .pg-actions { visibility: hidden; }
 .pg-vec-row { display: grid; gap: 6px; }
 .pg-vec3 { grid-template-columns: repeat(3, 1fr); }
 .pg-vec6 { grid-template-columns: repeat(6, 1fr); }
+/* vec9: two stacked rows — pose [x,y,z,a,b,c] then size [w,d,h]. BOTH rows
+ * use the same 6-column track so every cell is identical width; the size
+ * row simply fills its first 3 columns and leaves the rest empty, so w/d/h
+ * align under x/y/z. */
+.pg-vec9 { display: grid; gap: 4px; }
+.pg-vec9 .pg-vec-row { grid-template-columns: repeat(6, 1fr); }
+.pg-vec-caption { font-size: 11px; font-family: var(--mono); color: var(--muted); letter-spacing: 0.04em; margin-top: 2px; }
+.pg-vec-caption-note { color: var(--muted2); letter-spacing: 0; }
 .pg-vec-cell { padding: 4px 8px; font-size: 11px; font-family: var(--mono); text-align: center; }
 
 /* dual-handle range slider — gui.py IntRangeSlider equivalent */
@@ -1008,13 +1016,21 @@ body.is-pre-init .pg-actions { visibility: hidden; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-select.input {
+/* Chevron for select dropdowns. The base `.input { background: ... }` and
+ * `[data-theme="light"] .input { background: ... }` rules use the background
+ * SHORTHAND, which resets background-image to none — and the light-theme rule
+ * outweighs `select.input` on specificity. So we re-assert the chevron under
+ * both themes (light selector matched explicitly to win), keeping the arrow
+ * visible regardless of theme or how many options the select has. */
+select.input,
+[data-theme="light"] select.input {
   appearance: none;
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 32px;
+  cursor: pointer;
 }
 
 .modal-overlay {
@@ -1179,6 +1195,10 @@ select.input {
 /* Playground variant — always visible (the camera card hides it until a
    frame is captured; here the user always has at least the empty stage). */
 .pg-expand-overlay { display: inline-flex; z-index: 11; }
+/* Download sits just left of the expand button (expand: right 8px, w 30px). */
+.pg-download-overlay { right: 46px; }
+/* Same offset for the camera-card download button. */
+.cc-thumb .cc-download { right: 46px; }
 
 /* Subtle silent connected indicator (no text). Three variants: connected
    (ok / green pulse), recovering (yellow pulse), missing (red dot). */

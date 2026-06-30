@@ -37,11 +37,21 @@ def camera_list(session, args):
     hardware = {d["serial_number"]: d for d in session.camera_pool.list_devices()}
     pooled = set(session.camera_pool.list_pool_keys())
 
+    def _channels(sn):
+        # The channels a pooled camera actually connected with (set by
+        # Camera.connect(channels=...)). None when not pooled yet — the
+        # client then can't know the channel set until the camera is added.
+        cam = session.camera_pool.get(sn)
+        chans = getattr(cam, "_enabled_channels", None) if cam is not None else None
+        return sorted(chans) if chans else None
+
     out = []
     for sn, dev in hardware.items():
-        out.append({**dev, "attached": True, "added": sn in pooled})
+        out.append({**dev, "attached": True, "added": sn in pooled,
+                    "channels": _channels(sn)})
     for sn in pooled - set(hardware.keys()):
-        out.append({"serial_number": sn, "attached": False, "added": True})
+        out.append({"serial_number": sn, "attached": False, "added": True,
+                    "channels": _channels(sn)})
     return {"devices": out}
 
 
@@ -317,6 +327,21 @@ def detection_pixel(session, args):
     return {"name": name, "pxl": _to_jsonable(det.pixel(xyz))}
 
 
+def detection_box_corners(session, args):
+    name = args.get("name")
+    box = args.get("box")
+    if not name or box is None:
+        raise ValueError("name and box are required")
+    det = session.detection_get(name)
+    # Optional caller-supplied intrinsics (K, D), used instead of the live
+    # feed's. They arrive over JSON as plain lists; box_to_corners builds the
+    # shim. Omit both to use whatever the last run() left in camera_data.
+    K = args.get("K")
+    D = args.get("D")
+    return {"name": name,
+            "corners": _to_jsonable(det.box_to_corners(box, K=K, D=D))}
+
+
 def detection_grasp(session, args):
     from dorna_vision import grasp as grasp_mod
 
@@ -463,6 +488,7 @@ HANDLERS = {
     "detection_get_img": detection_get_img,
     "detection_xyz": detection_xyz,
     "detection_pixel": detection_pixel,
+    "detection_box_corners": detection_box_corners,
     "detection_grasp": detection_grasp,
     "detection_remove": detection_remove,
     "call": call,
@@ -487,6 +513,7 @@ CAMERA_BOUND = {
     "detection_get_img",
     "detection_xyz",
     "detection_pixel",
+    "detection_box_corners",
     "detection_grasp",
     "camera_get_img",
     "camera_recover",

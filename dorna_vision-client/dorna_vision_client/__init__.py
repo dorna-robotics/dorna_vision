@@ -393,6 +393,20 @@ class VisionClient(object):
     def detection_pixel(self, name, xyz, timeout=None):
         return self._send("detection_pixel", {"name": name, "xyz": list(xyz)}, timeout=timeout).get("pxl")
 
+    def detection_box_corners(self, name, box, K=None, D=None, timeout=None):
+        # box = [x, y, z, a, b, c, w, d, h]: bottom-plane-center pose + extents.
+        # Returns the convex-hull pixel polygon of the box's 8 projected corners
+        # (the outer ROI silhouette). h>0 floor, h<0 ceiling.
+        #
+        # By default the intrinsics from the last run() are used. Pass your own
+        # K (3x3) and D (distortion coeffs) to project against supplied
+        # intrinsics instead.
+        args = {"name": name, "box": list(box)}
+        if K is not None and D is not None:
+            args["K"] = [list(r) for r in K]
+            args["D"] = list(D)
+        return self._send("detection_box_corners", args, timeout=timeout).get("corners")
+
     def detection_grasp(self, name, target_id, target_rvec, gripper_opening,
                         finger_wdith, finger_location,
                         mask_type="bb", prune_factor=2,
