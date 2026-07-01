@@ -17,6 +17,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+    "numpy",
+    "scipy",               # used by calibration
     "zxing-cpp",
     "scikit-learn",
     "shapely",
@@ -25,6 +27,10 @@ dependencies = [
     "tornado",
     "paho-mqtt>=2.0",      # device health publishing per docs/device-mqtt-spec.md
     "dorna_devices>=0.1",  # device protocol + MQTTDeviceAdapter + AutoRecover
+    #"camera",              # Dorna RealSense camera API (server/pools.py)
+    # NOTE: OpenCV (cv2) is a hard runtime requirement but intentionally NOT
+    # pinned here — installed/managed separately for this deployment. The code
+    # uses cv2.aruco/charuco, which require the contrib build.
 ]
 
 [project.urls]

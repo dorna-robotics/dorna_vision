@@ -162,16 +162,14 @@ To connect to a robot from the Dorna Lab session, follow these steps:
 
 The vision kit comes with a built-in **detection app** software which lets you to visually build your vision applications directly from a web browser. The detection app  generates the necessary API calls for you. You can then use these generated calls within your code to perform object detection, simplifying the process and integrating detection capabilities seamlessly into your applications.
 
-To access the detection app, navigate to:
+The detection app runs as a web server on the vision kit. Start it with:
 ```bash
-http://vision_kit_ip_address:8888/doc/workspaces/auto-g/tree/Downloads/vision/example/detection_app.ipynb
+python3 -m dorna_vision.server --host 0.0.0.0 --port 5000
 ```
 
-Alternatively, access Dorna Lab via the Vision Kit, open a new Python3 kernel in Jupyter Notebook and run the following code:
-```python
-%matplotlib widget
-from dorna_vision import Detection_app
-x = Detection_app()
+Then open it in your browser:
+```bash
+http://vision_kit_ip_address:5000/
 ```
 </p>
 <p align="center">
