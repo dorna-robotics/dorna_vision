@@ -27,7 +27,7 @@ function setTheme(theme) {
 }
 
 // Apply on load
-setTheme(localStorage.getItem(KEY) || "dark");
+setTheme(localStorage.getItem(KEY) || "light");
 
 // ── Fullscreen ──────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ document.addEventListener("DOMContentLoaded", function() {
   var btnTheme = document.getElementById("btnTheme");
   if (btnTheme) {
     btnTheme.addEventListener("click", function() {
-      var current = document.documentElement.getAttribute("data-theme") || "dark";
+      var current = document.documentElement.getAttribute("data-theme") || "light";
       setTheme(current === "dark" ? "light" : "dark");
     });
   }
