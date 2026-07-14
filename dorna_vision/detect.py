@@ -42,7 +42,7 @@ class Detection(object):
             camera=None,
             robot=None,
             camera_mount="dorna_ta_j4_1",
-            frame=[0, 0, 0, 0, 0, 0], 
+            base_in_world=[0, 0, 0, 0, 0, 0],
             feed="color_img",
             rot= 0, 
             intensity={"a":1.0, "b":0},
@@ -70,7 +70,17 @@ class Detection(object):
         self.robot = robot
         self.camera_mount_label = camera_mount
         self.camera_mount = self.set_camera_mount(camera_mount)
-        self.frame = frame
+        # `frame` was renamed to `base_in_world` with inverted semantics (you
+        # now pass the pose you know — the chain root in world — not its
+        # inverse). Reject the old key loudly so stale configs can't silently
+        # misbehave.
+        if "frame" in kwargs:
+            raise TypeError(
+                "unknown parameter 'frame' — it was renamed to 'base_in_world'. "
+                "Pass the chain-root pose in world coords directly (no inversion "
+                "needed); base_in_world=[0,0,0,0,0,0] reproduces the old default."
+            )
+        self.base_in_world = base_in_world
         self.feed = feed
         self.rot = rot
         self.intensity = intensity
@@ -303,10 +313,12 @@ class Detection(object):
 
         box : [x, y, z, a, b, c, w, d, h]
             (x, y, z)   center of the box's BOTTOM plane. Interpreted in the
-                        SAME frame as xyz_to_pixel — i.e. whatever the last
-                        run() established: the robot BASE frame when a robot
-                        is set (j4 mount + joints available), otherwise the
-                        camera-relative `self.frame`.
+                        WORLD frame defined by `base_in_world` (the same frame
+                        xyz_to_pixel reports in): with a robot set (j4 mount +
+                        joints) the moving lens composes on top of base_in_world
+                        via the kinematic chain; with a fixed camera the world
+                        frame is base_in_world itself. Default
+                        base_in_world=[0,0,0,0,0,0] => world == camera/base.
             (a, b, c)   orientation of the box (Euler degrees), same convention
                         as dorna2.pose.xyzabc_to_T
             w, d, h     extents along the box's LOCAL X (width), Y (depth) and
@@ -375,6 +387,12 @@ class Detection(object):
 
 
     def run(self, data=None, **kwargs):
+        # `frame` was renamed to `base_in_world` — reject it loudly here too,
+        # since run() silently ignores unknown keys (hasattr guard below).
+        if "frame" in kwargs:
+            raise TypeError(
+                "unknown parameter 'frame' — it was renamed to 'base_in_world'."
+            )
         # return
         self.retval = self.init_retval()
         retval = []
@@ -405,8 +423,17 @@ class Detection(object):
             if self.rot != 0:
                 _img = rotate_and_flip(_img, rotate=self.rot)
             
-            # frame
-            self.frame_mat_inv = np.linalg.inv(dorna_pose.xyzabc_to_T(np.array(self.frame)))
+            # world transform
+            # `base_in_world` is the pose of the root of the camera's transform
+            # chain, in world/reference coords. frame_mat_inv holds the
+            # world<-camera matrix so downstream `frame_mat_inv @ T_target_to_cam`
+            # yields target-in-world.
+            #   - No robot: the chain root IS the lens, so world<-camera = T_biw.
+            #   - Robot set: the moving lens composes on top via the kinematic
+            #     chain, so world<-camera = T_biw @ T_cam_to_base.
+            # (The name frame_mat_inv is kept for its many downstream consumers;
+            # it is no longer an inverse — it is the world matrix.)
+            self.frame_mat_inv = np.array(dorna_pose.xyzabc_to_T(np.array(self.base_in_world)))
             if self.robot is not None and camera_data["joint"] is not None:
                 joint = camera_data["joint"][0:6]
                 if "type" in self.camera_mount and "T" in self.camera_mount and self.camera_mount["type"].startswith("dorna_ta_j4"):

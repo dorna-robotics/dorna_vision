@@ -252,10 +252,10 @@ const CMD_SCHEMAS = {
 const SECTION_SCHEMAS = [
   // Initialization
   {
-    tab: "init", key: null, label: "Frame",
-    desc: "Specify the reference frame relative to the robot's base (eye-in-hand) or the camera (eye-to-hand). All measurements are reported with respect to this frame.",
+    tab: "init", key: null, label: "Base in world",
+    desc: "Pose of the camera chain's root in the world/reference frame — the robot base (eye-in-hand) or the lens itself (fixed camera). Pass the pose you know directly (no inversion); all measurements are reported in this world frame. Default [0,0,0,0,0,0] = world equals camera/base.",
     fields: [
-      { key: "frame", label: "x · y · z · a · b · c", kind: "vec6", default: [0,0,0,0,0,0] },
+      { key: "base_in_world", label: "x · y · z · a · b · c", kind: "vec6", default: [0,0,0,0,0,0] },
     ],
   },
 
@@ -343,7 +343,7 @@ const SECTION_SCHEMAS = [
   },
   {
     tab: "setting", key: "limit.xyz", label: "XYZ Limits", enable: true,
-    desc: "Apply 3D constraints to remove detections outside the specified x, y, z range relative to the frame.",
+    desc: "Apply 3D constraints to remove detections outside the specified x, y, z range in the world frame (as set by Base in world).",
     fields: [
       { key: "x", label: "x (mm)", kind: "range", min: -1000, max: 1000, step: 1, default: [-1000, 1000] },
       { key: "y", label: "y (mm)", kind: "range", min: -1000, max: 1000, step: 1, default: [-1000, 1000] },
@@ -1767,7 +1767,7 @@ function _applySourceUI() {
 // Keys that belong to Detection.__init__ — sent at detection_add time
 // and frozen until Re-initialize. Everything else in _cfg flows into
 // .run() each tick.
-const INIT_PARAM_KEYS = ["robot_host", "camera_mount", "frame"];
+const INIT_PARAM_KEYS = ["robot_host", "camera_mount", "base_in_world"];
 
 function _buildInitBody() {
   const body = {};

@@ -7,7 +7,7 @@
 - [Detection App ](#detection-app)
   - [Initialization ](#initialization)
     - [Camera mounting ](#camera-mounting)
-    - [Frame ](#frame)
+    - [Base in world ](#base-in-world)
     - [AI Models ](#ai-models)
   - [Image ](#image)
     - [Source ](#source)
@@ -201,18 +201,20 @@ To function correctly in the eye-in-hand setup, the vision processor needs to kn
 
 > 🚨 **Note:** The eye-in-hand configuration only works for the Dorna TA model.
 
-### Frame
-The `Frame` defines the coordinate system used to report the positions of detected objects. All detected positions are expressed relative to this frame. You can define a frame using a the `[x, y, z, a, b, c]` values of a 6D pose: `x, y, z` for the frame’s position (translation), and `a, b, c` for its orientation (rotation angles). The way this frame is defined depends on the camera setup:
+### Base in world
+`base_in_world` defines the world/reference coordinate system that detected positions are reported in. It is the pose of the **root of the camera's transform chain**, expressed in world coordinates, given as a 6D pose `[x, y, z, a, b, c]` — `x, y, z` for translation and `a, b, c` for orientation (degrees).
+
+You pass **the pose you actually know** (the chain root in world); no inverse is needed. The default `[0,0,0,0,0,0]` means the world frame coincides with the chain root (camera or base), which is ideal for most applications.
 
 #### Eye in hand:
-When the camera is mounted on the robot, its position in space constantly changes. So, the frame should be defined relative to the robot's base. 
+When the camera is mounted on the robot, the moving lens composes on top of the robot base via the kinematic chain, so the chain root is the **robot base**. Set `base_in_world` to the robot base's pose in world.
 
 </p>
 <p align="center">
 <img src="docs/images/frames.jpg" width="700">
 </p>
 
-The default frame of `[0,0,0,0,0,0]` means all object positions are reported relative to the robot base — which is ideal for most applications.
+With the default `base_in_world=[0,0,0,0,0,0]`, all object positions are reported relative to the robot base.
 
 </p>
 <p align="center">
@@ -220,9 +222,9 @@ The default frame of `[0,0,0,0,0,0]` means all object positions are reported rel
 </p>
 
 
-#### Eye to hand: 
+#### Eye to hand:
 
-When the camera is fixed in space (not on the robot), the frame must be defined relative to the camera using a 6D pose vector: `[x, y, z, a, b, c]`. If no frame is specified, all reported positions will default to the camera’s internal coordinate system, centered between its two lenses.
+When the camera is fixed in space (not on the robot), the chain root is the **lens** itself. Set `base_in_world` to the lens's pose in world, and detections are reported in that world frame. If left at `[0,0,0,0,0,0]`, positions default to the camera’s internal coordinate system, centered between its two lenses.
 
 
 ### AI Models
