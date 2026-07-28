@@ -1329,3 +1329,17 @@ select.input,
   font-size: 11px;
   color: var(--text);
 }
+
+/* Camera thumb: the image itself opens the lightbox */
+.cc-thumb img[data-cam-thumb] { cursor: zoom-in; }
+
+/* Lightbox: live intrinsics block under the caption */
+.img-lightbox-intr {
+  margin: 6px auto 0;
+  display: inline-block;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.55;
+  opacity: .75;
+  white-space: pre;
+}

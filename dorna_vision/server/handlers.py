@@ -64,6 +64,31 @@ def camera_add(session, args):
     return {"serial_number": serial_number}
 
 
+def camera_info(session, args):
+    """Live facts for a pooled camera: the mode that actually RUNS and
+    the intrinsics in effect right now — get_K/get_D read the ACTIVE
+    profile, so these are the true obtained values, not the requested
+    config (they differ after a USB fallback)."""
+    sn = args.get("serial_number")
+    if not sn:
+        raise ValueError("serial_number is required")
+    cam = session.camera_pool.get(sn)
+    if cam is None:
+        raise ValueError("camera not found: %s" % sn)
+    out = {
+        "serial_number": sn,
+        "stream": dict(getattr(cam, "stream_actual", None) or cam.stream or {}),
+        "requested": dict(cam.stream or {}),
+        "mode": getattr(cam, "mode", None),
+    }
+    try:
+        out["K"] = cam.get_K()
+        out["D"] = cam.get_D()
+    except Exception as ex:
+        out["K"], out["D"], out["intr_error"] = None, None, str(ex)
+    return out
+
+
 def camera_remove(session, args):
     serial_number = args.get("serial_number")
     if not serial_number:
@@ -476,6 +501,7 @@ HANDLERS = {
     "hello": hello,
     "camera_list": camera_list,
     "camera_add": camera_add,
+    "camera_info": camera_info,
     "camera_remove": camera_remove,
     "camera_recover": camera_recover,
     "camera_get_img": camera_get_img,
@@ -508,6 +534,7 @@ BINARY_INBOUND = {
 # serialize against detection_run. The detection name in args resolves to a
 # camera serial number via session.detection_camera_serial_number().
 CAMERA_BOUND = {
+    "camera_info",
     "detection_run",
     "detection_capture",
     "detection_get_img",

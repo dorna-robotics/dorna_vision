@@ -180,6 +180,7 @@ export class VisionClient {
   cameraAdd(serial_number, connectKwargs = {}, opts) { return this._send("camera_add", { serial_number, ...connectKwargs }, opts); }
   cameraRemove(serial_number, opts) { return this._send("camera_remove", { serial_number }, opts); }
   cameraRecover(serial_number, opts) { return this._send("camera_recover", { serial_number }, opts); }
+  cameraInfo(serial_number, opts)    { return this._send("camera_info", { serial_number }, opts); }
 
   /** Register a listener for server-initiated events (JSON frames with a
    * "type" field and no "id"). Distinct from on(fn), which is for
