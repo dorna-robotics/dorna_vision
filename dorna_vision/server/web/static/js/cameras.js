@@ -319,12 +319,20 @@ function expandCapture(sn) {
   if (cap) _vc.cameraInfo(sn).then((info) => {
     if (overlay.dataset.sn !== sn) return;   // closed / switched away
     const s = info.stream || {};
-    const row = (r) => r.map((v) => Number(v).toFixed(2).padStart(9)).join(" ");
-    const K = Array.isArray(info.K) ? info.K.map(row).join("\n") : "—";
-    const D = Array.isArray(info.D) ? info.D.map((v) => Number(v).toFixed(5)).join("  ") : "—";
+    // Python-literal format — copy-paste ready for camera_cfg /
+    // notebooks, with native_res pinned to the resolution these
+    // values are true for (that's what makes later rescaling valid).
+    const K = Array.isArray(info.K)
+      ? "K = [" + info.K.map((r) => "[" + r.map((v) => Number(v).toFixed(4)).join(", ") + "]").join(",\n     ") + "]"
+      : "K = None";
+    const D = Array.isArray(info.D)
+      ? "D = [" + info.D.map((v) => Number(v).toFixed(6)).join(", ") + "]"
+      : "D = None";
+    const NR = (s.width != null && s.height != null)
+      ? `native_res = [${s.width}, ${s.height}]` : "";
     cap.innerHTML = `
       <div>SN ${escHtml(sn)} · ${s.width ?? "—"} × ${s.height ?? "—"} @ ${s.fps ?? "—"} fps${info.mode ? ` · ${escHtml(info.mode)}` : ""}</div>
-      <pre class="img-lightbox-intr">K  ${escHtml(K).split("\n").join("\n   ")}\nD  ${escHtml(D)}</pre>`;
+      <pre class="img-lightbox-intr">${escHtml(K)}\n${escHtml(D)}${NR ? "\n" + escHtml(NR) : ""}</pre>`;
   }).catch(() => {});
   // Make sure the "Capture again" button is visible — the playground
   // expand flow hides it because the playground doesn't have a single SN.
