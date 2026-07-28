@@ -330,9 +330,11 @@ function expandCapture(sn) {
       : "D = None";
     const NR = (s.width != null && s.height != null)
       ? `native_res = [${s.width}, ${s.height}]` : "";
+    const hdr = (s.width != null && s.height != null)
+      ? `# intrinsics at ${s.width} x ${s.height}${info.source ? ` (${info.source})` : ""}` : "";
     cap.innerHTML = `
       <div>SN ${escHtml(sn)} · ${s.width ?? "—"} × ${s.height ?? "—"} @ ${s.fps ?? "—"} fps${info.mode ? ` · ${escHtml(info.mode)}` : ""}</div>
-      <pre class="img-lightbox-intr">${escHtml(K)}\n${escHtml(D)}${NR ? "\n" + escHtml(NR) : ""}</pre>`;
+      <pre class="img-lightbox-intr">${hdr ? escHtml(hdr) + "\n" : ""}${escHtml(K)}\n${escHtml(D)}${NR ? "\n" + escHtml(NR) : ""}</pre>`;
   }).catch(() => {});
   // Make sure the "Capture again" button is visible — the playground
   // expand flow hides it because the playground doesn't have a single SN.

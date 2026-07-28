@@ -82,8 +82,20 @@ def camera_info(session, args):
         "mode": getattr(cam, "mode", None),
     }
     try:
-        out["K"] = cam.get_K()
-        out["D"] = cam.get_D()
+        # Report what is IN EFFECT: the authored override (already
+        # scaled to the running resolution) when one was passed at
+        # connect, else the factory intrinsics of the active profile.
+        intr = getattr(cam, "intr", None)
+        if intr is not None:
+            out["K"] = [[float(intr.fx), 0.0, float(intr.ppx)],
+                        [0.0, float(intr.fy), float(intr.ppy)],
+                        [0.0, 0.0, 1.0]]
+            out["D"] = [float(v) for v in intr.coeffs]
+            out["source"] = "override"
+        else:
+            out["K"] = cam.get_K()
+            out["D"] = cam.get_D()
+            out["source"] = "factory"
     except Exception as ex:
         out["K"], out["D"], out["intr_error"] = None, None, str(ex)
     return out
