@@ -231,24 +231,21 @@ async function refreshList() {
 
 async function refreshMeta(sn, card) {
   if (!_vc?.isConnected()) return;
-  const cam = _vc.camera(sn);
-  // Connect-time attributes only — both are stored on the Camera and don't
-  // change after connect. The dim chip is the image overlay; refreshed by
-  // captureFrame from the actual JPEG shape.
-  const [mode, stream] = await Promise.allSettled([
-    cam.mode(),
-    cam.stream(),
-  ]);
   const setVal = (k, v) => {
     const el = card.querySelector(`[data-meta="${k}"]`);
     if (el) el.textContent = v;
   };
-  setVal("mode", mode.status === "fulfilled" && mode.value ? String(mode.value) : "—");
-  if (stream.status === "fulfilled" && stream.value && typeof stream.value === "object") {
-    const s = stream.value;
+  try {
+    // camera_info reports the mode that actually RUNS (stream_actual) —
+    // request and reality differ after a USB fallback, so the card must
+    // not read the connect-time request attribute.
+    const info = await _vc.cameraInfo(sn);
+    const s = info.stream || {};
+    setVal("mode", info.mode ? String(info.mode) : "—");
     setVal("dim", (s.width != null && s.height != null) ? `${s.width} × ${s.height}` : "—");
     setVal("fps", s.fps != null ? String(s.fps) : "—");
-  } else {
+  } catch {
+    setVal("mode", "—");
     setVal("dim", "—");
     setVal("fps", "—");
   }
