@@ -781,8 +781,13 @@ class Detection(object):
             # save image
             if "save_img" in self.display and self.display["save_img"]:
                 if isinstance(self.display["save_img"], str):
-                    # save image path name
+                    # a FOLDER (trailing slash or existing dir) keeps the
+                    # default timestamped naming inside it; anything else
+                    # is a full file path, overwritten each detection
                     save_img_path = self.display["save_img"]
+                    if save_img_path.endswith("/") or os.path.isdir(save_img_path):
+                        os.makedirs(save_img_path, exist_ok=True)
+                        save_img_path = os.path.join(save_img_path, str(int(camera_data["timestamp"]))+".jpg")
                 else:
                     # make directory if not exists
                     os.makedirs("output", exist_ok=True)
@@ -795,8 +800,11 @@ class Detection(object):
             # save image
             if "save_img_roi" in self.display and self.display["save_img_roi"]:
                 if isinstance(self.display["save_img_roi"], str):
-                    # save image path name
+                    # folder -> default "roi_<timestamp>.jpg" naming inside it
                     save_img_path = self.display["save_img_roi"]
+                    if save_img_path.endswith("/") or os.path.isdir(save_img_path):
+                        os.makedirs(save_img_path, exist_ok=True)
+                        save_img_path = os.path.join(save_img_path, "roi_"+str(int(camera_data["timestamp"]))+".jpg")
                 else:
                     # make directory if not exists
                     os.makedirs("output", exist_ok=True)
