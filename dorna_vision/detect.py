@@ -319,8 +319,9 @@ class Detection(object):
                         via the kinematic chain; with a fixed camera the world
                         frame is base_in_world itself. Default
                         base_in_world=[0,0,0,0,0,0] => world == camera/base.
-            (a, b, c)   orientation of the box (Euler degrees), same convention
-                        as dorna2.pose.xyzabc_to_T
+            (a, b, c)   orientation of the box — rotation VECTOR (axis-angle,
+                        degrees), the dorna2.pose.xyzabc_to_T convention
+                        (NOT Euler angles)
             w, d, h     extents along the box's LOCAL X (width), Y (depth) and
                         Z (height) axes.
                         h > 0 : box rises from the bottom plane (sits on floor),
