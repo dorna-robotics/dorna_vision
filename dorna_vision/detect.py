@@ -211,8 +211,8 @@ class Detection(object):
         return []
 
 
-    def get_camera_data(self, data=None):
-        self.camera_data = {key:None for key in ["depth_frame", "ir_frame", "color_frame", "depth_img", "ir_img", "color_img", "depth_int", "frames", "joint", "K", "D", "timestamp"]}
+    def get_camera_data(self, data=None, camera_in_world=None):
+        self.camera_data = {key:None for key in ["depth_frame", "ir_frame", "color_frame", "depth_img", "ir_img", "color_img", "depth_int", "frames", "joint", "K", "D", "timestamp", "camera_in_world"]}
 
         if type(data) == str: # read from file
             data = cv.imread(data)
@@ -250,6 +250,12 @@ class Detection(object):
                 "K": K,
                 "D": D
             }
+        # Per-capture lens pose in world (xyzabc, rotation-vector abc),
+        # stated by the caller — the workspace is the kinematic
+        # authority. Overrides base_in_world/robot in run(). Snapshot
+        # semantics: the pose belongs to THIS frame.
+        if camera_in_world is not None:
+            self.camera_data["camera_in_world"] = [float(v) for v in camera_in_world]
         return self.camera_data
 
 
@@ -434,8 +440,15 @@ class Detection(object):
             #     chain, so world<-camera = T_biw @ T_cam_to_base.
             # (The name frame_mat_inv is kept for its many downstream consumers;
             # it is no longer an inverse — it is the world matrix.)
-            self.frame_mat_inv = np.array(dorna_pose.xyzabc_to_T(np.array(self.base_in_world)))
-            if self.robot is not None and camera_data["joint"] is not None:
+            ciw = camera_data.get("camera_in_world") if isinstance(camera_data, dict) else None
+            if ciw is not None:
+                # The caller stated the LENS pose in world for this frame:
+                # the chain root IS the lens. Overrides base_in_world and
+                # any robot chain — one kinematic authority per frame.
+                self.frame_mat_inv = np.array(dorna_pose.xyzabc_to_T(np.array(ciw)))
+            else:
+                self.frame_mat_inv = np.array(dorna_pose.xyzabc_to_T(np.array(self.base_in_world)))
+            if ciw is None and self.robot is not None and camera_data["joint"] is not None:
                 joint = camera_data["joint"][0:6]
                 if "type" in self.camera_mount and "T" in self.camera_mount and self.camera_mount["type"].startswith("dorna_ta_j4"):
                     T_camholder_to_base = self.robot.kinematic.Ti_r_world(i=5, joint=joint[0:6])

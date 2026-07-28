@@ -267,7 +267,11 @@ def detection_run(session, args):
     det = session.detection_get(name)
 
     data = args.pop("data", None)
+    camera_in_world = args.pop("camera_in_world", None)
     if use_last and det.camera_data is not None:
+        data = det.camera_data           # carries its capture's camera_in_world
+    elif camera_in_world is not None:
+        det.get_camera_data(data=data, camera_in_world=camera_in_world)
         data = det.camera_data
 
     valid = det.run(data=data, **args)
@@ -301,9 +305,10 @@ def detection_capture(session, args):
     if not name:
         raise ValueError("name is required")
     data = args.get("data")
+    camera_in_world = args.get("camera_in_world")
     det = session.detection_get(name)
     try:
-        det.get_camera_data(data=data)   # populates det.camera_data; raises on failure
+        det.get_camera_data(data=data, camera_in_world=camera_in_world)   # populates det.camera_data; raises on failure
     except Exception as ex:
         return {"name": name, "ok": False, "msg": f"{type(ex).__name__}: {ex}"}
     cam = det.camera_data or {}

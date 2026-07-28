@@ -369,6 +369,8 @@ class VisionClient(object):
         args = {"name": name}
         if data is not None:
             args["data"] = data
+        if camera_in_world is not None:
+            args["camera_in_world"] = list(camera_in_world)
         return self._send("detection_capture", args, timeout=timeout)
 
     def camera_get_img(self, serial_number, type="color_img", quality=75, timeout=None):
