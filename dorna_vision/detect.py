@@ -778,6 +778,22 @@ class Detection(object):
                 self.retval["valid"].append(dict(r))
 
             
+            def _own(path):
+                # The server runs under sudo (platform convention) —
+                # without this, every folder/jpg it creates is
+                # root-owned and the operator cannot delete it.
+                try:
+                    uid = int(os.environ.get("SUDO_UID", -1))
+                    gid = int(os.environ.get("SUDO_GID", -1))
+                    if uid >= 0:
+                        os.chown(path, uid, gid)
+                except Exception:
+                    pass
+
+            def _imwrite_owned(path, img):
+                cv.imwrite(path, img)
+                _own(path)
+
             # save image
             if "save_img" in self.display and self.display["save_img"]:
                 if isinstance(self.display["save_img"], str):
@@ -787,13 +803,15 @@ class Detection(object):
                     save_img_path = self.display["save_img"]
                     if save_img_path.endswith("/") or os.path.isdir(save_img_path):
                         os.makedirs(save_img_path, exist_ok=True)
+                        _own(save_img_path)
                         save_img_path = os.path.join(save_img_path, str(int(camera_data["timestamp"]))+".jpg")
                 else:
                     # make directory if not exists
                     os.makedirs("output", exist_ok=True)
+                    _own("output")
                     save_img_path = "output/"+str(int(camera_data["timestamp"]))+".jpg"
                 # Create a thread to perform the file write operation
-                thread = threading.Thread(target=cv.imwrite, args=(save_img_path, img_adjust))
+                thread = threading.Thread(target=_imwrite_owned, args=(save_img_path, img_adjust))
                 thread.start()
                 self.thread_list.append(thread)
 
@@ -804,13 +822,15 @@ class Detection(object):
                     save_img_path = self.display["save_img_roi"]
                     if save_img_path.endswith("/") or os.path.isdir(save_img_path):
                         os.makedirs(save_img_path, exist_ok=True)
+                        _own(save_img_path)
                         save_img_path = os.path.join(save_img_path, "roi_"+str(int(camera_data["timestamp"]))+".jpg")
                 else:
                     # make directory if not exists
                     os.makedirs("output", exist_ok=True)
+                    _own("output")
                     save_img_path = "output/roi_"+str(int(camera_data["timestamp"]))+".jpg"
                 # Create a thread to perform the file write operation
-                thread = threading.Thread(target=cv.imwrite, args=(save_img_path, img_roi))
+                thread = threading.Thread(target=_imwrite_owned, args=(save_img_path, img_roi))
                 thread.start()
                 self.thread_list.append(thread)
 
