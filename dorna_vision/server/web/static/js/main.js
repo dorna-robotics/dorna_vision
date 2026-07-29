@@ -112,6 +112,10 @@ async function refreshHome() {
 
 // ── boot ─────────────────────────────────────────────────────────
 (async function boot() {
+  // Jupyter runs on the same host (upgrade-provisioned, port 8888) —
+  // derive the link from wherever the GUI was reached.
+  const j = $("#homeCardJupyter");
+  if (j) j.href = `http://${location.hostname}:8888/`;
   setConn("warn", "connecting…");
   vc.on((ev) => {
     if (ev === "close") setConn("bad", "disconnected");

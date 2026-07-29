@@ -70,7 +70,7 @@ section[data-page="home"].active {
 }
 .home-cards {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr;
   gap: 12px;
   text-align: left;
 }
@@ -117,12 +117,10 @@ section[data-page="home"].active {
 /* Per-card accent colors — same palette as the Workspace landing. */
 .home-card-cameras    .home-card-icon { background: rgba(10,132,255,0.12); color: var(--accent); }
 .home-card-playground .home-card-icon { background: rgba(52,199,89,0.12);  color: var(--green); }
+.home-card-jupyter    .home-card-icon { background: rgba(255,159,10,0.12); color: #ff9f0a; }
 [data-theme="light"] .home-card-cameras    .home-card-icon { background: rgba(0,122,255,0.08); }
 [data-theme="light"] .home-card-playground .home-card-icon { background: rgba(36,138,61,0.08); }
-
-@media (max-width: 520px) {
-  .home-cards { grid-template-columns: 1fr; }
-}
+[data-theme="light"] .home-card-jupyter    .home-card-icon { background: rgba(255,149,0,0.08); color: #c93400; }
 
 /* Quiet meta line under the cards — host · version. Muted so it
    doesn't compete with the main nav cards above. */
