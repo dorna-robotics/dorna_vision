@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/vendor/favicon.png"/>
   <link rel="stylesheet" href="/static/vendor/base.css"/>
   <link rel="stylesheet" href="/static/vendor/nav.css"/>
-  <link rel="stylesheet" href="/static/style.css?v=72"/>
+  <link rel="stylesheet" href="/static/style.css?v=73"/>
 </head>
 <body class="is-pre-init">
 
@@ -74,6 +74,14 @@
               <div class="home-card-hint" id="homeCardPlayground">Build and test detections</div>
             </div>
           </a>
+        </div>
+        <!-- Developer tools — collapsed by default, same as the
+             Workspace landing. -->
+        <div class="home-cards-label" id="devToggle" title="Show developer tools">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          Developer
+        </div>
+        <div class="home-cards" id="devCards" hidden>
           <!-- External link (no data-route): the SPA router ignores it and
                the browser opens Jupyter on this same host, port 8888. The
                href is filled in by main.js from location.hostname. -->

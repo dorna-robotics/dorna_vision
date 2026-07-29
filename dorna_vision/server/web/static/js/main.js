@@ -116,6 +116,18 @@ async function refreshHome() {
   // derive the link from wherever the GUI was reached.
   const j = $("#homeCardJupyter");
   if (j) j.href = `http://${location.hostname}:8888/`;
+  // Developer section — collapsible, always collapsed on load (same
+  // behavior as the Workspace landing).
+  const devToggle = $("#devToggle");
+  const devCards = $("#devCards");
+  if (devToggle && devCards) {
+    devToggle.addEventListener("click", () => {
+      const open = devCards.hidden;
+      devCards.hidden = !open;
+      devToggle.classList.toggle("open", open);
+      devToggle.title = open ? "Hide developer tools" : "Show developer tools";
+    });
+  }
   setConn("warn", "connecting…");
   vc.on((ev) => {
     if (ev === "close") setConn("bad", "disconnected");

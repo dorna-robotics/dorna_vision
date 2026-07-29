@@ -49,10 +49,12 @@ section[data-page="home"].active {
   justify-content: center;
   padding: 40px 24px;
 }
+/* No width: 100% — shrink-to-fit inside the flex parent, so the card
+   column is only as wide as its content, exactly like the Workspace
+   landing container. */
 .home-landing {
   text-align: center;
   max-width: 640px;
-  width: 100%;
 }
 /* Title + subtitle: only override margin-bottom so the default
    browser top margins still apply — that's what gives the title
@@ -113,6 +115,18 @@ section[data-page="home"].active {
   color: var(--muted);
   margin-top: 2px;
 }
+/* Collapsible Developer section — same as the Workspace landing. */
+.home-cards-label {
+  display: flex; align-items: center; gap: 5px;
+  text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px;
+  margin: 24px 0 10px 4px;
+  cursor: pointer; user-select: none;
+}
+.home-cards-label:hover { color: var(--text); }
+.home-cards[hidden] { display: none; }
+.home-cards-label svg { transition: transform 0.15s; }
+.home-cards-label.open svg { transform: rotate(90deg); }
 
 /* Per-card accent colors — same palette as the Workspace landing. */
 .home-card-cameras    .home-card-icon { background: rgba(10,132,255,0.12); color: var(--accent); }
@@ -121,6 +135,13 @@ section[data-page="home"].active {
 [data-theme="light"] .home-card-cameras    .home-card-icon { background: rgba(0,122,255,0.08); }
 [data-theme="light"] .home-card-playground .home-card-icon { background: rgba(36,138,61,0.08); }
 [data-theme="light"] .home-card-jupyter    .home-card-icon { background: rgba(255,149,0,0.08); color: #c93400; }
+
+/* Collapsed nav rail peeks open on hover — it OVERLAYS the page
+   (position: fixed, content margin untouched) so nothing shifts;
+   pinning it open via the collapse button still uses the vendor
+   .expanded state that pushes the content over. */
+.app-nav:not(.expanded):hover { width: 200px; box-shadow: var(--shadow); }
+.app-nav:not(.expanded):hover .app-nav-link span { opacity: 1; width: auto; }
 
 /* Quiet meta line under the cards — host · version. Muted so it
    doesn't compete with the main nav cards above. */
