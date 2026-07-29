@@ -355,7 +355,7 @@ class VisionClient(object):
         reply = self._send("detection_run", args, timeout=timeout)
         return reply.get("valid", [])
 
-    def detection_capture(self, name, data=None, timeout=None):
+    def detection_capture(self, name, data=None, camera_in_world=None, timeout=None):
         """Capture a fresh atomic snapshot (camera frames + robot joint
         angles) for ``name`` and cache it on the server. Returns the
         full reply dict so callers can branch on ``ok`` without raising:
