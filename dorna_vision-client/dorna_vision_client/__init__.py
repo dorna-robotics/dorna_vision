@@ -295,6 +295,15 @@ class VisionClient(object):
         args["serial_number"] = serial_number
         return self._send("camera_add", args, timeout=timeout)
 
+    def bus_connect(self, host=None, port=1883, timeout=None):
+        """Point the unit's device-state publishing at a broker. With
+        host=None the server uses THIS client's address — the calling
+        workspace is the site's broker host (zero-config site bus)."""
+        args = {"port": int(port)}
+        if host:
+            args["host"] = host
+        return self._send("bus_connect", args, timeout=timeout)
+
     def camera_remove(self, serial_number, timeout=None):
         return self._send("camera_remove", {"serial_number": serial_number}, timeout=timeout)
 

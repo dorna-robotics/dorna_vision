@@ -98,6 +98,14 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
 
     async def open(self):
         self.session = ClientSession(self.camera_pool, self.robot_pool)
+        # For the site-bus handshake (bus_connect): the caller's own
+        # address is the default broker host, and the observer is the
+        # unit's GUI feed that must follow the same broker.
+        try:
+            self.session.peer_ip = self.request.connection.context.address[0]
+        except Exception:
+            self.session.peer_ip = None
+        self.session.bus_observer = getattr(VisionWSHandler, "bus_observer", None)
         with VisionWSHandler._conn_lock:
             VisionWSHandler._connections.add(self)
         try:

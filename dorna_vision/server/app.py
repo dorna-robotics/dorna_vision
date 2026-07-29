@@ -73,6 +73,8 @@ async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
             broker_host=mqtt_broker_host,
             broker_port=mqtt_broker_port,
         )
+        # Reachable by the bus_connect handler (site-bus handshake).
+        VisionWSHandler.bus_observer = observer
     VisionWSHandler.set_observer(observer)
 
     app = make_app(camera_pool, robot_pool, default_executor)

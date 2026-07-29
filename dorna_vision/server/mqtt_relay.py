@@ -199,6 +199,23 @@ class MQTTDeviceObserver:
                 })
             return out
 
+    def set_broker(self, host, port=1883):
+        """Re-point at a (new) broker — part of the site-bus handshake.
+        Retained messages repopulate the cache on resubscribe."""
+        with self._lock:
+            if (host, int(port)) == (self.broker_host, self.broker_port):
+                return
+            self.broker_host, self.broker_port = host, int(port)
+            try:
+                self.client.disconnect()
+            except Exception:
+                pass
+            try:
+                self.client.connect(self.broker_host, self.broker_port, keepalive=30)
+            except Exception:
+                log.warning("MQTTDeviceObserver: reconnect to %s:%s failed; "
+                            "paho will keep retrying", host, port)
+
     def close(self) -> None:
         """Idempotent shutdown."""
         if self._closed:

@@ -64,6 +64,26 @@ def camera_add(session, args):
     return {"serial_number": serial_number}
 
 
+def bus_connect(session, args):
+    """Site-bus handshake: point this unit's device-state publishing at
+    the caller's broker. ``host`` defaults to the CALLER's own address
+    (the workspace that opened this session) — zero configuration per
+    site: the workspace host runs the broker, every unit that serves it
+    publishes there (workspace device-guide §8)."""
+    host = args.get("host") or getattr(session, "peer_ip", None)
+    if not host:
+        raise ValueError("no host given and peer address unknown")
+    port = int(args.get("port", 1883))
+    session.camera_pool.set_broker(host, port)
+    obs = getattr(session, "bus_observer", None)
+    if obs is not None:
+        try:
+            obs.set_broker(host, port)
+        except Exception:
+            pass
+    return {"broker": "%s:%s" % (host, port)}
+
+
 def camera_info(session, args):
     """Live facts for a pooled camera: the mode that actually RUNS and
     the intrinsics in effect right now — get_K/get_D read the ACTIVE
@@ -519,6 +539,7 @@ HANDLERS = {
     "camera_list": camera_list,
     "camera_add": camera_add,
     "camera_info": camera_info,
+    "bus_connect": bus_connect,
     "camera_remove": camera_remove,
     "camera_recover": camera_recover,
     "camera_get_img": camera_get_img,

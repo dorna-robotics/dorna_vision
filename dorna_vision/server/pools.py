@@ -144,6 +144,39 @@ class CameraPool(object):
 
             return cam
 
+    def set_broker(self, host, port=1883):
+        """Point device-state publishing at a (new) broker — the
+        zero-config site-bus handshake: the workspace tells this unit
+        "publish to my bus". Rebuilds the adapter of every held
+        camera; future acquires use the new broker automatically."""
+        with self._lock:
+            if (host, int(port)) == (self._mqtt_broker_host, self._mqtt_broker_port):
+                return
+            self._mqtt_broker_host, self._mqtt_broker_port = host, int(port)
+            if not self._mqtt_enabled:
+                return
+            for sn, cam in self._cameras.items():
+                old_adapter = self._adapters.pop(sn, None)
+                if old_adapter is not None:
+                    try:
+                        old_adapter.close()
+                    except Exception:
+                        pass
+                try:
+                    publishable = _AutoRecoveringCamera(cam, self._recovers.get(sn))
+                    self._adapters[sn] = MQTTDeviceAdapter(
+                        publishable,
+                        kind="camera",
+                        critical=self._mqtt_critical,
+                        meta={"serial_number": sn},
+                        broker_host=host,
+                        broker_port=int(port),
+                    )
+                except Exception:
+                    log.exception(
+                        "CameraPool: failed to re-point MQTT adapter for %s", sn)
+            log.info("CameraPool: device bus -> %s:%s", host, port)
+
     def release(self, serial_number):
         with self._lock:
             if serial_number not in self._cameras:
