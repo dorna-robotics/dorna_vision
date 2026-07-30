@@ -120,12 +120,20 @@ def camera_info(session, args):
             out["source"] = getattr(cam, "intr_source", "factory")
     except Exception as ex:
         out["K"], out["D"], out["intr_error"] = None, None, str(ex)
-    # Focus surface (uEye XS) — absent on cameras without one.
+    # Focus / exposure / WB surfaces (uEye XS) — absent on cameras
+    # without them.
     if hasattr(cam, "focus_info"):
         try:
             out["focus"] = cam.focus_info()
         except Exception as ex:
             out["focus"] = {"supported": False, "error": str(ex)}
+    if hasattr(cam, "white_balance_info"):
+        try:
+            out["exposure"] = {"ms": cam.get_exposure(),
+                               "auto": bool(getattr(cam, "exposure_auto", None))}
+            out["wb"] = cam.white_balance_info()
+        except Exception:
+            pass
     return out
 
 
@@ -154,13 +162,61 @@ def camera_focus(session, args):
         raise ValueError("camera %s has no focus control" % sn)
     region = args.get("region")
     if region is not None:
-        result = cam.focus_region([int(v) for v in region])
+        kw = {}
+        if args.get("method"):
+            kw["method"] = args["method"]   # "auto" (default) | "af" | "sweep"
+        result = cam.focus_region([int(v) for v in region], **kw)
         return {"serial_number": sn, **result, "focus": cam.focus_info()}
     cfg = {k: v for k, v in args.items() if k in ("mode", "position")}
     if not cfg:
         raise ValueError("pass mode/position or region")
     cam.focus_apply(cfg)
     return {"serial_number": sn, "focus": cam.focus_info()}
+
+
+def camera_exposure(session, args):
+    """Sensor exposure control (distinct from the detection pipeline's
+    software `intensity`). args: serial_number + ONE of
+      {"ms": 12.5}     pin the integration time (disables auto)
+      {"auto": true}   hand it back to the sensor's auto-shutter
+    Neither -> just report. Units are the camera's native ms (uEye);
+    the D405 exposes the same methods in its own units."""
+    sn = args.get("serial_number")
+    if not sn:
+        raise ValueError("serial_number is required")
+    cam = session.camera_pool.get(sn)
+    if cam is None:
+        raise ValueError("camera not found: %s" % sn)
+    if not hasattr(cam, "set_exposure"):
+        raise ValueError("camera %s has no exposure control" % sn)
+    if args.get("ms") is not None:
+        cam.set_exposure(float(args["ms"]))
+    elif args.get("auto"):
+        cam.auto_exposure(True)
+    return {"serial_number": sn,
+            "exposure": cam.get_exposure(),
+            "auto": bool(getattr(cam, "exposure_auto", None))}
+
+
+def camera_wb(session, args):
+    """White-balance control (uEye XS). args: serial_number + one of
+      {"auto": true}   in-camera auto WB
+      {"hold": true}   freeze WB at its current convergence — the bench
+                       recipe: let auto settle on the lit scene, hold,
+                       deterministic color from then on
+    Neither -> just report. (The XS ISP rejects fixed kelvin/rgb.)"""
+    sn = args.get("serial_number")
+    if not sn:
+        raise ValueError("serial_number is required")
+    cam = session.camera_pool.get(sn)
+    if cam is None:
+        raise ValueError("camera not found: %s" % sn)
+    if not hasattr(cam, "white_balance"):
+        raise ValueError("camera %s has no white-balance control" % sn)
+    cfg = {k: v for k, v in args.items() if k in ("auto", "hold")}
+    if cfg:
+        cam.white_balance(cfg)
+    return {"serial_number": sn, "wb": cam.white_balance_info()}
 
 
 def camera_remove(session, args):
@@ -587,6 +643,8 @@ HANDLERS = {
     "camera_remove": camera_remove,
     "camera_recover": camera_recover,
     "camera_focus": camera_focus,
+    "camera_exposure": camera_exposure,
+    "camera_wb": camera_wb,
     "camera_get_img": camera_get_img,
     "robot_add": robot_add,
     "robot_remove": robot_remove,
@@ -628,6 +686,8 @@ CAMERA_BOUND = {
     "camera_get_img",
     "camera_recover",
     "camera_focus",
+    "camera_exposure",
+    "camera_wb",
 }
 
 

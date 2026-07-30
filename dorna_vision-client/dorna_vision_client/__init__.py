@@ -319,22 +319,28 @@ class VisionClient(object):
         over the API). Returns {ok, state, msg}."""
         return self._send("camera_recover", {"serial_number": serial_number}, timeout=timeout)
 
-    def camera_focus(self, serial_number, mode=None, position=None, region=None, timeout=None):
+    def camera_focus(self, serial_number, mode=None, position=None, region=None,
+                     method=None, timeout=None):
         """Focus control for cameras with a focus surface (uEye XS).
 
         Pass ONE of:
           mode="continuous"            SDK continuous autofocus
           mode="once"                  one-shot autofocus, then hold
           mode="manual", position=N    pin the lens position
-          region=[x0, y0, x1, y1]      region-tune sweep (SLOW, ~15-30 s):
-                                       finds + pins the sharpest position
-                                       for the rect, returns it
+          region=[x0, y0, x1, y1]      region focus: the camera's own AF
+                                       pointed at the rect (~1-2 s), pinned
+                                       where it lands. method="sweep" forces
+                                       the deterministic manual-lens sweep
+                                       (~15-30 s); "af" forces hardware AF;
+                                       default "auto" tries af, falls back.
 
         Returns the reply dict; "focus" carries the camera's focus_info.
         """
         args = {"serial_number": serial_number}
         if region is not None:
             args["region"] = [int(v) for v in region]
+            if method is not None:
+                args["method"] = method
         else:
             if mode is not None:
                 args["mode"] = mode
@@ -344,6 +350,33 @@ class VisionClient(object):
         if timeout is None and region is not None:
             timeout = 120
         return self._send("camera_focus", args, timeout=timeout)
+
+    def camera_exposure(self, serial_number, ms=None, auto=None, timeout=None):
+        """Sensor exposure (integration time) — distinct from the detection
+        pipeline's software `intensity`. ms=<value> pins it on cameras that
+        allow manual exposure; auto=True re-enables auto; neither just
+        reports. NOTE: the uEye XS ISP owns exposure (auto only) — passing
+        ms there raises with that explanation. Returns
+        {"exposure": <value>, "auto": bool}."""
+        args = {"serial_number": serial_number}
+        if ms is not None:
+            args["ms"] = float(ms)
+        elif auto:
+            args["auto"] = True
+        return self._send("camera_exposure", args, timeout=timeout)
+
+    def camera_wb(self, serial_number, auto=None, hold=None, timeout=None):
+        """White balance (uEye XS). auto=True — in-camera auto WB;
+        hold=True — freeze WB at its current convergence (the bench
+        recipe: let auto settle on the lit scene, then hold —
+        deterministic color from then on). Neither just reports.
+        The XS ISP rejects fixed kelvin/rgb — hold is the fixed-WB tool."""
+        args = {"serial_number": serial_number}
+        if auto:
+            args["auto"] = True
+        elif hold:
+            args["hold"] = True
+        return self._send("camera_wb", args, timeout=timeout)
 
     def robot_add(self, host, port=443, timeout_connect=5, model="dorna_ta", config=None, timeout=None):
         args = {"host": host, "port": port, "timeout": timeout_connect, "model": model}

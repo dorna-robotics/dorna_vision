@@ -216,7 +216,7 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
         if cmd in CAMERA_BOUND:
             # Camera-direct cmds carry serial_number explicitly; detection cmds
             # carry only the detection name and resolve via the session.
-            serial_number = args.get("serial_number") if cmd in ("camera_get_img", "camera_recover", "camera_info", "camera_focus") else None
+            serial_number = args.get("serial_number") if cmd in ("camera_get_img", "camera_recover", "camera_info", "camera_focus", "camera_exposure", "camera_wb") else None
             if serial_number is None:
                 name = args.get("name")
                 serial_number = self.session.detection_camera_serial_number(name) if name else None
