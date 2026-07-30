@@ -78,6 +78,12 @@ section[data-page="home"].active {
   grid-template-columns: 1fr;
   gap: 12px;
   text-align: left;
+  /* Fixed card-column width, shared with the Workspace landing
+     (.cards in gui/server.py) — keep the two values in sync so the
+     two home pages are pixel-identical. */
+  width: 300px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .home-card {
   display: flex;
