@@ -104,15 +104,12 @@ function cardHTML(d) {
     `<strong${dataMeta ? ` data-meta="${dataMeta}"` : ""}>${value}</strong>`;
   const sep = ` <span class="cc-sep">·</span> `;
 
-  // One compact mono line — identity + live params. The focus line is
-  // revealed by refreshMeta only for cameras with a focus surface (uEye).
+  // One compact mono line — identity + live params. Focus/WB state
+  // shows in the expanded image's details, not on the card.
   const meta = `
     <div class="cc-meta-lines">
       <div class="cc-meta-line">
         ${k("sn")} ${v(escHtml(sn))}${d.usb_type ? `${sep}${k("usb")} ${v(escHtml(d.usb_type))}` : ""}${sep}${k("type")} ${v("—", "mode")}${sep}${k("fps")} ${v("—", "fps")}
-      </div>
-      <div class="cc-meta-line" data-focus-line hidden>
-        ${k("focus")} ${v("—", "focus")}
       </div>
     </div>`;
 
@@ -248,19 +245,6 @@ async function refreshMeta(sn, card) {
     setVal("mode", info.mode ? String(info.mode) : "—");
     setVal("dim", (s.width != null && s.height != null) ? `${s.width} × ${s.height}` : "—");
     setVal("fps", s.fps != null ? String(s.fps) : "—");
-    // Focus / WB surfaces (uEye XS) — display only. The lens is manual
-    // all the time; the one focus ACTION lives in the expanded image
-    // (Focus region). WB changes via the API (camera_wb auto/hold).
-    const f = info.focus;
-    const line = card.querySelector("[data-focus-line]");
-    if (f && f.supported) {
-      if (line) line.hidden = false;
-      const wb = info.wb?.cfg?.hold ? "hold" : (info.wb ? "auto" : null);
-      const focusTxt = f.mode === "manual"
-        ? `manual @ ${f.position}`
-        : `${f.mode || "—"}${f.position != null ? ` (pos ${f.position})` : ""}`;
-      setVal("focus", focusTxt + (wb ? `  ·  wb ${wb}` : ""));
-    }
   } catch {
     setVal("mode", "—");
     setVal("dim", "—");
@@ -354,8 +338,19 @@ function expandCapture(sn) {
       ? `native_res = [${s.width}, ${s.height}]` : "";
     const hdr = (s.width != null && s.height != null)
       ? `# intrinsics at ${s.width} x ${s.height}${info.source ? ` (${info.source})` : ""}` : "";
+    // Focus/WB state (uEye) — lives here in the details, not on the card.
+    let extras = "";
+    if (info.focus && info.focus.supported) {
+      const f = info.focus;
+      const focusTxt = f.mode === "manual"
+        ? `manual @ ${f.position}`
+        : `${f.mode || "—"}${f.position != null ? ` (pos ${f.position})` : ""}`;
+      const wb = info.wb?.cfg?.hold ? "hold" : (info.wb ? "auto" : null);
+      const exp = info.exposure?.ms != null ? ` · exp ${info.exposure.ms} ms` : "";
+      extras = ` · focus ${escHtml(focusTxt)}${wb ? ` · wb ${wb}` : ""}${exp}`;
+    }
     cap.innerHTML = `
-      <div>SN ${escHtml(sn)} · ${s.width ?? "—"} × ${s.height ?? "—"} @ ${s.fps ?? "—"} fps${info.mode ? ` · ${escHtml(info.mode)}` : ""}</div>
+      <div>SN ${escHtml(sn)} · ${s.width ?? "—"} × ${s.height ?? "—"} @ ${s.fps ?? "—"} fps${info.mode ? ` · ${escHtml(info.mode)}` : ""}${extras}</div>
       <pre class="img-lightbox-intr">${hdr ? escHtml(hdr) + "\n" : ""}${escHtml(K)}\n${escHtml(D)}${NR ? "\n" + escHtml(NR) : ""}</pre>`;
   }).catch(() => {});
   // Make sure the "Capture again" button is visible — the playground
@@ -553,6 +548,14 @@ function _wireLightboxFocus() {
   $("#imgLightboxFocus")?.addEventListener("click", (e) => {
     e.stopPropagation();
     _lbFocusToggle();
+  });
+
+  // Esc = changed my mind: leave focus-draw mode (clears any rectangle).
+  // The lightbox itself deliberately ignores Esc, so the key is free.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && _lbFocus.active && !_lbFocus.busy) {
+      _lbFocusToggle(false);
+    }
   });
 
   // Capture phase so the zoom/pan mousedown never engages while drawing.
