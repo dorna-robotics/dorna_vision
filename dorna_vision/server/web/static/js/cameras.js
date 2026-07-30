@@ -652,7 +652,11 @@ function _wireLightboxFocus() {
     toast("Region focus — sweeping the lens, ~20 s…", "ok");
     try {
       const r = await _vc.cameraFocus(sn, { region: [x0, y0, x1, y1] });
-      toast(`Focused — pinned at position ${r.position}. Use focus {"mode": "manual", "position": ${r.position}} to keep it.`, "ok");
+      if (r.at_range_limit) {
+        toast(`Pinned at ${r.position} — the LENS RANGE LIMIT, not a true optimum. The target is likely closer than the camera can focus: move it farther and refocus.`, "warn");
+      } else {
+        toast(`Focused — pinned at position ${r.position}. Use focus {"mode": "manual", "position": ${r.position}} to keep it.`, "ok");
+      }
       await lightboxRecapture();
       const card = document.querySelector(`.cam-card[data-sn="${CSS.escape(sn)}"]`);
       if (card) refreshMeta(sn, card);
