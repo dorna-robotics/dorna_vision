@@ -42,13 +42,15 @@
 section[data-page="home"].active {
   /* Anchored at a fixed height (not vertically centered) so expanding
      the Developer section only grows DOWNWARD — the cards above never
-     move. Same anchoring as the Workspace landing. min-height instead
-     of height so the page doesn't clip on small viewports. */
+     move. The Workspace landing is topbar(54px) + 16vh; here .main
+     already adds 20px padding above this section, so subtract it to
+     land the title at EXACTLY the same viewport height. min-height
+     instead of height so the page doesn't clip on small viewports. */
   min-height: calc(100vh - 120px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 16vh 24px 40px;
+  padding: calc(16vh - 20px) 24px 40px;
 }
 /* No width: 100% — shrink-to-fit inside the flex parent, so the card
    column is only as wide as its content, exactly like the Workspace
