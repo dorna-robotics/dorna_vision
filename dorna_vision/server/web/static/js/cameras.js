@@ -131,9 +131,13 @@ function cardHTML(d) {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
           Capture
         </button>
-        <button class="btn btn-sm" data-act="af" hidden title="One-shot autofocus (full frame). For a region, expand the image and use Focus region.">
+        <button class="btn btn-sm" data-act="af" hidden title="One-shot autofocus (full frame), then hold. For a region, expand the image and use Focus region.">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
           AF
+        </button>
+        <button class="btn btn-sm" data-act="afc" hidden title="Back to continuous autofocus (lens re-focuses as the scene changes; converges over a few captures)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Auto
         </button>
         ${(() => {
           if (usable) return "";
@@ -256,12 +260,15 @@ async function refreshMeta(sn, card) {
     const f = info.focus;
     const line  = card.querySelector("[data-focus-line]");
     const afBtn = card.querySelector('[data-act="af"]');
+    const afcBtn = card.querySelector('[data-act="afc"]');
     if (f && f.supported) {
       if (line) line.hidden = false;
       setVal("focus", f.mode === "manual"
         ? `manual @ ${f.position}`
         : `${f.mode || "—"}${f.position != null ? ` (pos ${f.position})` : ""}`);
       if (afBtn) afBtn.hidden = false;
+      // "Auto" only makes sense when the lens is currently held.
+      if (afcBtn) afcBtn.hidden = (f.mode === "continuous");
     }
   } catch {
     setVal("mode", "—");
@@ -281,6 +288,22 @@ async function focusOnce(sn, card) {
     refreshMeta(sn, card);
   } catch (e) {
     toast(`Autofocus failed: ${e.message || e}`, "bad");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function focusContinuous(sn, card) {
+  if (!_vc?.isConnected()) return;
+  const btn = card.querySelector('[data-act="afc"]');
+  if (btn) btn.disabled = true;
+  try {
+    await _vc.cameraFocus(sn, { mode: "continuous" }, { timeout: 15000 });
+    toast("Continuous autofocus on", "ok");
+    await captureFrame(sn, card);
+    refreshMeta(sn, card);
+  } catch (e) {
+    toast(`Focus mode failed: ${e.message || e}`, "bad");
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -801,6 +824,7 @@ function _bindCardHandlers(card, sn) {
   card.querySelector('[data-act="remove"]')?.addEventListener("click", () => removeCamera(sn));
   card.querySelector('[data-act="capture"]')?.addEventListener("click", () => captureFrame(sn, card));
   card.querySelector('[data-act="af"]')?.addEventListener("click", () => focusOnce(sn, card));
+  card.querySelector('[data-act="afc"]')?.addEventListener("click", () => focusContinuous(sn, card));
   card.querySelector('[data-act="expand"]')?.addEventListener("click", () => expandCapture(sn));
   card.querySelector('img[data-cam-thumb]')?.addEventListener("click", () => expandCapture(sn));
   card.querySelector('[data-act="download"]')?.addEventListener("click", () => downloadCapture(sn));
