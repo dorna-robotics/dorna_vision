@@ -1180,6 +1180,14 @@ select.input,
 }
 .cc-thumb img { width: 100%; height: 100%; object-fit: cover; display: none; }
 .cc-thumb-empty { color: var(--muted); font-size: 12px; }
+/* Pending card shown while camera_add connects — same skeleton as a
+   real card, spinner in the thumb area. */
+.cam-card.is-pending .cc-thumb-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cam-card.is-pending { opacity: 0.85; }
 
 /* Disconnected state — contextual placeholder inside the thumbnail area */
 .cc-thumb-warn {

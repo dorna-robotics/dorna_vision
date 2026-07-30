@@ -476,8 +476,28 @@ async function submitAddModal() {
   if (dev?.camera_type && kwargs.type === undefined) kwargs.type = dev.camera_type;
 
   closeAddModal();
+
+  // Immediate feedback: a pending card while the server connects (init +
+  // first-frame verify takes seconds — uEye AF converge, D405 pipeline
+  // negotiation). Replaced by the real card on success, removed on error.
+  const grid = $("#camGrid");
+  let pending = null;
+  if (grid) {
+    grid.querySelector(".empty-state")?.remove();
+    pending = document.createElement("div");
+    pending.className = "cam-card is-pending";
+    pending.innerHTML = `
+      <div class="cc-head">
+        <div class="cc-info"><div class="cc-name">${escHtml(dev?.name || (kwargs.type === "ueye_xs" ? "uEye camera" : "RealSense camera"))}</div></div>
+        <span class="cc-status recovering"><span class="dot warn pulse"></span></span>
+      </div>
+      <div class="cc-meta-lines"><div class="cc-meta-line"><span class="cc-mk">sn</span> <strong>${escHtml(sn)}</strong></div></div>
+      <div class="cc-body"><div class="cc-thumb"><div class="cc-thumb-empty"><span class="btn-spinner"></span> Connecting…</div></div></div>`;
+    grid.prepend(pending);
+  }
+
   try {
-    await _vc.cameraAdd(sn, kwargs);
+    await _vc.cameraAdd(sn, kwargs, { timeout: 60000 });
     toast(`Added ${sn}`, "ok");
     await refreshList();
     // Grab and display the first frame so the card lands populated.
@@ -485,6 +505,8 @@ async function submitAddModal() {
     if (card) captureFrame(sn, card);
   } catch (e) {
     toast(`Add failed: ${e.message || e}`, "bad");
+  } finally {
+    pending?.remove();   // no-op when refreshList already rebuilt the grid
   }
 }
 
