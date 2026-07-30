@@ -317,9 +317,22 @@ function expandCapture(sn) {
   // has a focus surface (uEye XS).
   $("#imgLightboxFocus")?.setAttribute("hidden", "");
   _lbFocusToggle(false);
-  // True obtained values — the ACTIVE stream and the intrinsics in
-  // effect (camera_info reads the live profile, not the request).
-  if (cap) _vc.cameraInfo(sn).then((info) => {
+  _lbRefreshCaption(sn);
+  // Make sure the "Capture again" button is visible — the playground
+  // expand flow hides it because the playground doesn't have a single SN.
+  $("#imgLightboxCapture")?.removeAttribute("hidden");
+  overlay.classList.add("show");   // observer resets zoom on open
+}
+
+// Build (or REBUILD) the lightbox details line + intrinsics block from a
+// fresh camera_info. Called on open, after every recapture, and after a
+// region focus — so focus/wb/exposure never show stale values while the
+// large view stays open.
+function _lbRefreshCaption(sn) {
+  const overlay = $("#imgLightbox");
+  const cap = $("#imgLightboxCap");
+  if (!overlay || !cap || overlay.dataset.sn !== sn) return;
+  _vc.cameraInfo(sn).then((info) => {
     if (overlay.dataset.sn !== sn) return;   // closed / switched away
     if (info.focus && info.focus.supported) {
       $("#imgLightboxFocus")?.removeAttribute("hidden");
@@ -353,10 +366,6 @@ function expandCapture(sn) {
       <div>SN ${escHtml(sn)} · ${s.width ?? "—"} × ${s.height ?? "—"} @ ${s.fps ?? "—"} fps${info.mode ? ` · ${escHtml(info.mode)}` : ""}${extras}</div>
       <pre class="img-lightbox-intr">${hdr ? escHtml(hdr) + "\n" : ""}${escHtml(K)}\n${escHtml(D)}${NR ? "\n" + escHtml(NR) : ""}</pre>`;
   }).catch(() => {});
-  // Make sure the "Capture again" button is visible — the playground
-  // expand flow hides it because the playground doesn't have a single SN.
-  $("#imgLightboxCapture")?.removeAttribute("hidden");
-  overlay.classList.add("show");   // observer resets zoom on open
 }
 
 async function lightboxRecapture() {
@@ -367,6 +376,7 @@ async function lightboxRecapture() {
   await captureFrame(sn, card);
   const url = _capturedUrls.get(sn);
   if (url) $("#imgLightboxImg").src = url;
+  _lbRefreshCaption(sn);   // exposure/focus may have moved with the frame
 }
 
 async function removeCamera(sn) {
