@@ -40,14 +40,15 @@
    `.active`, `section[data-page="home"]` (specificity 011) beats
    `.page` (010) and home would render on every route. */
 section[data-page="home"].active {
-  /* Center the landing column vertically + horizontally inside the
-     scroll area. min-height instead of height so the page doesn't
-     clip on small viewports. */
+  /* Anchored at a fixed height (not vertically centered) so expanding
+     the Developer section only grows DOWNWARD — the cards above never
+     move. Same anchoring as the Workspace landing. min-height instead
+     of height so the page doesn't clip on small viewports. */
   min-height: calc(100vh - 120px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 40px 24px;
+  padding: 16vh 24px 40px;
 }
 /* No width: 100% — shrink-to-fit inside the flex parent, so the card
    column is only as wide as its content, exactly like the Workspace
@@ -135,13 +136,6 @@ section[data-page="home"].active {
 [data-theme="light"] .home-card-cameras    .home-card-icon { background: rgba(0,122,255,0.08); }
 [data-theme="light"] .home-card-playground .home-card-icon { background: rgba(36,138,61,0.08); }
 [data-theme="light"] .home-card-jupyter    .home-card-icon { background: rgba(255,149,0,0.08); color: #c93400; }
-
-/* Collapsed nav rail peeks open on hover — it OVERLAYS the page
-   (position: fixed, content margin untouched) so nothing shifts;
-   pinning it open via the collapse button still uses the vendor
-   .expanded state that pushes the content over. */
-.app-nav:not(.expanded):hover { width: 200px; box-shadow: var(--shadow); }
-.app-nav:not(.expanded):hover .app-nav-link span { opacity: 1; width: auto; }
 
 /* Quiet meta line under the cards — host · version. Muted so it
    doesn't compete with the main nav cards above. */
