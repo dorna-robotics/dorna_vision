@@ -308,6 +308,17 @@ class VisionClient(object):
     def camera_remove(self, serial_number, timeout=None):
         return self._send("camera_remove", {"serial_number": serial_number}, timeout=timeout)
 
+    def camera_info(self, serial_number, timeout=None):
+        """Live facts for a pooled camera: type, the stream that actually
+        runs, the intrinsics in effect (labeled factory/override/nominal),
+        and — for cameras with a focus surface — the focus state."""
+        return self._send("camera_info", {"serial_number": serial_number}, timeout=timeout)
+
+    def camera_recover(self, serial_number, timeout=60):
+        """Trigger recovery on a pooled camera (the GUI's Recover button,
+        over the API). Returns {ok, state, msg}."""
+        return self._send("camera_recover", {"serial_number": serial_number}, timeout=timeout)
+
     def camera_focus(self, serial_number, mode=None, position=None, region=None, timeout=None):
         """Focus control for cameras with a focus surface (uEye XS).
 
