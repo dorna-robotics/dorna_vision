@@ -62,6 +62,12 @@ class Detection(object):
             # pose_kp(...) called after run() on the result you want.
             sort={"cmd": None, "max_det":100}, # {"cmd":"conf", "ascending":False, "max_det":100}, {"cmd":"pxl", "pxl":[w,h], "ascending":True, "max_det":100}, {"cmd":"xyz", "xyz":[x,y,z], "ascending":True, "max_det":100}
             display={"label":0, "save_img":0, "save_img_roi":0},
+            # Per-detection focus pin (cameras with a focus surface — uEye
+            # XS). Applied at CAPTURE time, before the grab, e.g.
+            # {"mode": "manual", "position": 164}. None = leave the camera
+            # focus wherever it is. Tune the position once with the GUI's
+            # region-focus, then pin it here.
+            focus=None,
             **kwargs
         ):
         super(Detection, self).__init__()
@@ -90,6 +96,7 @@ class Detection(object):
         self.limit = limit
         self.sort = sort
         self.display = display
+        self.focus = focus
         self.kwargs = kwargs
 
         # retval
@@ -211,7 +218,7 @@ class Detection(object):
         return []
 
 
-    def get_camera_data(self, data=None, camera_in_world=None):
+    def get_camera_data(self, data=None, camera_in_world=None, focus=None):
         self.camera_data = {key:None for key in ["depth_frame", "ir_frame", "color_frame", "depth_img", "ir_img", "color_img", "depth_int", "frames", "joint", "K", "D", "timestamp", "camera_in_world"]}
 
         if type(data) == str: # read from file
@@ -224,6 +231,14 @@ class Detection(object):
                 self.camera_data[k] = data[k]
         
         else: # update
+            # Per-call focus overrides (and becomes) the detection's pin —
+            # same update semantics as roi. Applied BEFORE the grab so the
+            # frame is taken at the requested lens position; a no-change
+            # apply is a cheap no-op inside the driver.
+            if focus is not None:
+                self.focus = focus
+            if self.focus and hasattr(self.camera, "focus_apply"):
+                self.camera.focus_apply(self.focus)
             joint = None
             depth_frame, ir_frame, color_frame, depth_img, ir_img, color_img, depth_int, frames, timestamp = self.camera.get_all()
             K = self.camera.camera_matrix(depth_int)

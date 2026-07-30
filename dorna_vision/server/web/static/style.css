@@ -1274,6 +1274,20 @@ select.input,
   cursor: grab;
 }
 .img-lightbox-stage.is-panning { cursor: grabbing; }
+/* Focus-region drawing (uEye XS): crosshair + rubber-band rectangle;
+   position:relative anchors the absolutely-positioned box. */
+.img-lightbox-stage { position: relative; }
+.img-lightbox-stage.is-focus-draw { cursor: crosshair; }
+.lb-focus-box {
+  position: absolute;
+  border: 2px solid #ffd60a;
+  background: rgba(255, 214, 10, 0.12);
+  pointer-events: none;
+  z-index: 5;
+}
+.lb-focus-box.busy { border-style: dashed; animation: lbFocusPulse 1s linear infinite; }
+@keyframes lbFocusPulse { 50% { opacity: 0.45; } }
+#imgLightboxFocus.active { background: rgba(255, 214, 10, 0.2); color: #ffd60a; }
 .img-lightbox img {
   max-width: 100%;
   max-height: 100%;

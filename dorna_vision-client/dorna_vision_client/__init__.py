@@ -287,7 +287,8 @@ class VisionClient(object):
         return reply
 
     def camera_list(self, timeout=None):
-        """Hardware discovery — RealSense devices currently attached to USB."""
+        """Hardware discovery — camera devices currently attached to USB
+        (RealSense + uEye; each carries camera_type)."""
         return self._send("camera_list", {}, timeout=timeout).get("devices", [])
 
     def camera_add(self, serial_number, timeout=None, **connect_kwargs):
@@ -306,6 +307,32 @@ class VisionClient(object):
 
     def camera_remove(self, serial_number, timeout=None):
         return self._send("camera_remove", {"serial_number": serial_number}, timeout=timeout)
+
+    def camera_focus(self, serial_number, mode=None, position=None, region=None, timeout=None):
+        """Focus control for cameras with a focus surface (uEye XS).
+
+        Pass ONE of:
+          mode="continuous"            SDK continuous autofocus
+          mode="once"                  one-shot autofocus, then hold
+          mode="manual", position=N    pin the lens position
+          region=[x0, y0, x1, y1]      region-tune sweep (SLOW, ~15-30 s):
+                                       finds + pins the sharpest position
+                                       for the rect, returns it
+
+        Returns the reply dict; "focus" carries the camera's focus_info.
+        """
+        args = {"serial_number": serial_number}
+        if region is not None:
+            args["region"] = [int(v) for v in region]
+        else:
+            if mode is not None:
+                args["mode"] = mode
+            if position is not None:
+                args["position"] = int(position)
+        # region sweeps far exceed the default reply timeout
+        if timeout is None and region is not None:
+            timeout = 120
+        return self._send("camera_focus", args, timeout=timeout)
 
     def robot_add(self, host, port=443, timeout_connect=5, model="dorna_ta", config=None, timeout=None):
         args = {"host": host, "port": port, "timeout": timeout_connect, "model": model}
@@ -355,7 +382,7 @@ class VisionClient(object):
         reply = self._send("detection_run", args, timeout=timeout)
         return reply.get("valid", [])
 
-    def detection_capture(self, name, data=None, camera_in_world=None, timeout=None):
+    def detection_capture(self, name, data=None, camera_in_world=None, focus=None, timeout=None):
         """Capture a fresh atomic snapshot (camera frames + robot joint
         angles) for ``name`` and cache it on the server. Returns the
         full reply dict so callers can branch on ``ok`` without raising:
@@ -380,6 +407,8 @@ class VisionClient(object):
             args["data"] = data
         if camera_in_world is not None:
             args["camera_in_world"] = list(camera_in_world)
+        if focus is not None:
+            args["focus"] = focus
         return self._send("detection_capture", args, timeout=timeout)
 
     def camera_get_img(self, serial_number, type="color_img", quality=75, timeout=None):

@@ -2732,10 +2732,12 @@ export function init(vc) {
       const tab = _currentImgTab === "img_thr" ? "Threshold" : "Annotated";
       cap.textContent = `Playground · ${tab}`;
     }
-    // The overlay's "Capture again" button is for camera-card flows; it
-    // looks up a camera SN that the playground never sets. Hide it here.
+    // The overlay's "Capture again" / "Focus region" buttons are for
+    // camera-card flows; they look up a camera SN that the playground
+    // never sets. Hide them here.
     delete overlay.dataset.sn;
     $("#imgLightboxCapture")?.setAttribute("hidden", "");
+    $("#imgLightboxFocus")?.setAttribute("hidden", "");
     overlay.classList.add("show");
   });
 

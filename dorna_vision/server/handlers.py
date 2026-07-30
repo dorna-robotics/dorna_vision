@@ -51,6 +51,7 @@ def camera_list(session, args):
                     "channels": _channels(sn)})
     for sn in pooled - set(hardware.keys()):
         out.append({"serial_number": sn, "attached": False, "added": True,
+                    "camera_type": session.camera_pool.camera_type(sn),
                     "channels": _channels(sn)})
     return {"devices": out}
 
@@ -97,6 +98,7 @@ def camera_info(session, args):
         raise ValueError("camera not found: %s" % sn)
     out = {
         "serial_number": sn,
+        "type": session.camera_pool.camera_type(sn),
         "stream": dict(getattr(cam, "stream_actual", None) or cam.stream or {}),
         "requested": dict(cam.stream or {}),
         "mode": getattr(cam, "mode", None),
@@ -104,7 +106,7 @@ def camera_info(session, args):
     try:
         # Report what is IN EFFECT: the authored override (already
         # scaled to the running resolution) when one was passed at
-        # connect, else the factory intrinsics of the active profile.
+        # connect, else the factory (D405) / nominal (uEye) intrinsics.
         intr = getattr(cam, "intr", None)
         if intr is not None:
             out["K"] = [[float(intr.fx), 0.0, float(intr.ppx)],
@@ -115,10 +117,50 @@ def camera_info(session, args):
         else:
             out["K"] = cam.get_K()
             out["D"] = cam.get_D()
-            out["source"] = "factory"
+            out["source"] = getattr(cam, "intr_source", "factory")
     except Exception as ex:
         out["K"], out["D"], out["intr_error"] = None, None, str(ex)
+    # Focus surface (uEye XS) — absent on cameras without one.
+    if hasattr(cam, "focus_info"):
+        try:
+            out["focus"] = cam.focus_info()
+        except Exception as ex:
+            out["focus"] = {"supported": False, "error": str(ex)}
     return out
+
+
+def camera_focus(session, args):
+    """Focus control for cameras that support it (uEye XS).
+
+    args: serial_number + ONE of
+      {"mode": "continuous"}                 SDK continuous autofocus
+      {"mode": "once"}                       one-shot autofocus, then hold
+      {"mode": "manual", "position": N}      pin the lens position
+      {"region": [x0, y0, x1, y1]}           region-tune sweep (SLOW,
+                                             ~15-30 s): finds the sharpest
+                                             manual position for the rect
+                                             and pins it; returns it so
+                                             the caller can persist it.
+
+    Runs on the camera's executor, so it serializes against grabs.
+    """
+    sn = args.get("serial_number")
+    if not sn:
+        raise ValueError("serial_number is required")
+    cam = session.camera_pool.get(sn)
+    if cam is None:
+        raise ValueError("camera not found: %s" % sn)
+    if not hasattr(cam, "focus_apply"):
+        raise ValueError("camera %s has no focus control" % sn)
+    region = args.get("region")
+    if region is not None:
+        result = cam.focus_region([int(v) for v in region])
+        return {"serial_number": sn, **result, "focus": cam.focus_info()}
+    cfg = {k: v for k, v in args.items() if k in ("mode", "position")}
+    if not cfg:
+        raise ValueError("pass mode/position or region")
+    cam.focus_apply(cfg)
+    return {"serial_number": sn, "focus": cam.focus_info()}
 
 
 def camera_remove(session, args):
@@ -326,9 +368,11 @@ def detection_capture(session, args):
         raise ValueError("name is required")
     data = args.get("data")
     camera_in_world = args.get("camera_in_world")
+    focus = args.get("focus")
     det = session.detection_get(name)
     try:
-        det.get_camera_data(data=data, camera_in_world=camera_in_world)   # populates det.camera_data; raises on failure
+        det.get_camera_data(data=data, camera_in_world=camera_in_world,
+                            focus=focus)   # populates det.camera_data; raises on failure
     except Exception as ex:
         return {"name": name, "ok": False, "msg": f"{type(ex).__name__}: {ex}"}
     cam = det.camera_data or {}
@@ -542,6 +586,7 @@ HANDLERS = {
     "bus_connect": bus_connect,
     "camera_remove": camera_remove,
     "camera_recover": camera_recover,
+    "camera_focus": camera_focus,
     "camera_get_img": camera_get_img,
     "robot_add": robot_add,
     "robot_remove": robot_remove,
@@ -582,6 +627,7 @@ CAMERA_BOUND = {
     "detection_grasp",
     "camera_get_img",
     "camera_recover",
+    "camera_focus",
 }
 
 

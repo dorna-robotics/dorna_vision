@@ -181,6 +181,12 @@ export class VisionClient {
   cameraRemove(serial_number, opts) { return this._send("camera_remove", { serial_number }, opts); }
   cameraRecover(serial_number, opts) { return this._send("camera_recover", { serial_number }, opts); }
   cameraInfo(serial_number, opts)    { return this._send("camera_info", { serial_number }, opts); }
+  /** Focus control (uEye XS). args: {mode, position} or {region:[x0,y0,x1,y1]}.
+      Region sweeps take ~15-30 s — give them a generous reply timeout. */
+  cameraFocus(serial_number, args = {}, opts) {
+    const o = (args.region && !(opts && opts.timeout)) ? { ...(opts || {}), timeout: 120000 } : opts;
+    return this._send("camera_focus", { serial_number, ...args }, o);
+  }
 
   /** Register a listener for server-initiated events (JSON frames with a
    * "type" field and no "id"). Distinct from on(fn), which is for

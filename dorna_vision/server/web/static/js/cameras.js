@@ -72,7 +72,7 @@ function statusPill(d) {
 function cardHTML(d) {
   // Only added cameras get cards. Available devices are reachable via the Add modal.
   const sn = d.serial_number;
-  const name = d.name || "RealSense camera";
+  const name = d.name || (d.camera_type === "ueye_xs" ? "uEye camera" : "RealSense camera");
 
   // Inline the cached JPEG blob URL straight into the <img> so re-renders
   // don't flicker. Without this, innerHTML rebuilds an empty <img> and the
@@ -104,11 +104,15 @@ function cardHTML(d) {
     `<strong${dataMeta ? ` data-meta="${dataMeta}"` : ""}>${value}</strong>`;
   const sep = ` <span class="cc-sep">·</span> `;
 
-  // One compact mono line — identity + live params.
+  // One compact mono line — identity + live params. The focus line is
+  // revealed by refreshMeta only for cameras with a focus surface (uEye).
   const meta = `
     <div class="cc-meta-lines">
       <div class="cc-meta-line">
         ${k("sn")} ${v(escHtml(sn))}${d.usb_type ? `${sep}${k("usb")} ${v(escHtml(d.usb_type))}` : ""}${sep}${k("type")} ${v("—", "mode")}${sep}${k("fps")} ${v("—", "fps")}
+      </div>
+      <div class="cc-meta-line" data-focus-line hidden>
+        ${k("focus")} ${v("—", "focus")}
       </div>
     </div>`;
 
@@ -126,6 +130,10 @@ function cardHTML(d) {
         <button class="btn btn-sm" data-act="capture" ${usable ? "" : "disabled"}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
           Capture
+        </button>
+        <button class="btn btn-sm" data-act="af" hidden title="One-shot autofocus (full frame). For a region, expand the image and use Focus region.">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+          AF
         </button>
         ${(() => {
           if (usable) return "";
@@ -244,10 +252,37 @@ async function refreshMeta(sn, card) {
     setVal("mode", info.mode ? String(info.mode) : "—");
     setVal("dim", (s.width != null && s.height != null) ? `${s.width} × ${s.height}` : "—");
     setVal("fps", s.fps != null ? String(s.fps) : "—");
+    // Focus surface (uEye XS) — reveal the focus meta line + AF button.
+    const f = info.focus;
+    const line  = card.querySelector("[data-focus-line]");
+    const afBtn = card.querySelector('[data-act="af"]');
+    if (f && f.supported) {
+      if (line) line.hidden = false;
+      setVal("focus", f.mode === "manual"
+        ? `manual @ ${f.position}`
+        : `${f.mode || "—"}${f.position != null ? ` (pos ${f.position})` : ""}`);
+      if (afBtn) afBtn.hidden = false;
+    }
   } catch {
     setVal("mode", "—");
     setVal("dim", "—");
     setVal("fps", "—");
+  }
+}
+
+async function focusOnce(sn, card) {
+  if (!_vc?.isConnected()) return;
+  const btn = card.querySelector('[data-act="af"]');
+  if (btn) btn.disabled = true;
+  try {
+    await _vc.cameraFocus(sn, { mode: "once" }, { timeout: 30000 });
+    toast("Autofocus done", "ok");
+    await captureFrame(sn, card);
+    refreshMeta(sn, card);
+  } catch (e) {
+    toast(`Autofocus failed: ${e.message || e}`, "bad");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -311,10 +346,17 @@ function expandCapture(sn) {
   img.src = url;
   if (cap) cap.textContent = `SN ${sn}`;
   overlay.dataset.sn = sn;
+  // Focus-region button: hidden until camera_info confirms this camera
+  // has a focus surface (uEye XS).
+  $("#imgLightboxFocus")?.setAttribute("hidden", "");
+  _lbFocusToggle(false);
   // True obtained values — the ACTIVE stream and the intrinsics in
   // effect (camera_info reads the live profile, not the request).
   if (cap) _vc.cameraInfo(sn).then((info) => {
     if (overlay.dataset.sn !== sn) return;   // closed / switched away
+    if (info.focus && info.focus.supported) {
+      $("#imgLightboxFocus")?.removeAttribute("hidden");
+    }
     const s = info.stream || {};
     // Python-literal format — copy-paste ready for camera_cfg /
     // notebooks, with native_res pinned to the resolution these
@@ -381,7 +423,7 @@ function populateAddModalDropdown(presetSn) {
   if (!sel) return;
   const candidates = _devices.filter(d => d.attached && !d.added);
   sel.innerHTML = candidates.length
-    ? candidates.map(d => `<option value="${escHtml(d.serial_number)}">${escHtml(d.serial_number)} — ${escHtml(d.name || "RealSense")}</option>`).join("")
+    ? candidates.map(d => `<option value="${escHtml(d.serial_number)}">${escHtml(d.serial_number)} — ${escHtml(d.name || (d.camera_type === "ueye_xs" ? "uEye" : "RealSense"))}${d.camera_type ? ` (${escHtml(d.camera_type)})` : ""}</option>`).join("")
     : `<option value="">(no available cameras)</option>`;
   if (presetSn && candidates.find(d => d.serial_number === presetSn)) {
     sel.value = presetSn;
@@ -450,6 +492,11 @@ async function submitAddModal() {
   try { kwargs = parseKwargs(); }
   catch { return; }
 
+  // The driver follows the device — inject the enumerated camera_type
+  // unless the user's JSON explicitly set one.
+  const dev = _devices.find(d => d.serial_number === sn);
+  if (dev?.camera_type && kwargs.type === undefined) kwargs.type = dev.camera_type;
+
   closeAddModal();
   try {
     await _vc.cameraAdd(sn, kwargs);
@@ -490,6 +537,115 @@ export function init(vc) {
   $("#imgLightboxCapture")?.addEventListener("click", lightboxRecapture);
 
   _wireLightboxZoom();
+  _wireLightboxFocus();
+}
+
+// ── Lightbox focus-region (uEye XS) ─────────────────────────────────
+// Draw a rectangle on the expanded frame, run the region-focus sweep on
+// it, and land back with a recaptured (now sharp) frame. The rect is
+// mapped from displayed pixels to full-resolution sensor pixels through
+// the img's natural size; drawing forces zoom 1:1 so the mapping is a
+// single scale factor.
+const _lbFocus = { active: false, start: null, box: null, busy: false };
+
+function _lbFocusClearBox() {
+  _lbFocus.box?.remove();
+  _lbFocus.box = null;
+  _lbFocus.start = null;
+}
+
+function _lbFocusToggle(on) {
+  const next = on === undefined ? !_lbFocus.active : !!on;
+  if (_lbFocus.busy) return;              // sweep in flight — no toggling
+  _lbFocus.active = next;
+  if (!next) _lbFocusClearBox();
+  else lightboxResetZoom();               // 1:1 so display→sensor is one scale
+  $("#imgLightboxStage")?.classList.toggle("is-focus-draw", next);
+  $("#imgLightboxFocus")?.classList.toggle("active", next);
+}
+
+function _wireLightboxFocus() {
+  const stage = $("#imgLightboxStage");
+  if (!stage) return;
+  $("#imgLightboxFocus")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    _lbFocusToggle();
+  });
+
+  // Capture phase so the zoom/pan mousedown never engages while drawing.
+  stage.addEventListener("mousedown", (e) => {
+    if (!_lbFocus.active || _lbFocus.busy || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = stage.getBoundingClientRect();
+    _lbFocusClearBox();
+    _lbFocus.start = { x: e.clientX - r.left, y: e.clientY - r.top };
+    const box = document.createElement("div");
+    box.className = "lb-focus-box";
+    box.style.left = `${_lbFocus.start.x}px`;
+    box.style.top = `${_lbFocus.start.y}px`;
+    stage.appendChild(box);
+    _lbFocus.box = box;
+  }, true);
+
+  document.addEventListener("mousemove", (e) => {
+    if (!_lbFocus.active || !_lbFocus.start || !_lbFocus.box) return;
+    const r = stage.getBoundingClientRect();
+    const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
+    const y = Math.max(0, Math.min(r.height, e.clientY - r.top));
+    const s = _lbFocus.start;
+    _lbFocus.box.style.left = `${Math.min(s.x, x)}px`;
+    _lbFocus.box.style.top = `${Math.min(s.y, y)}px`;
+    _lbFocus.box.style.width = `${Math.abs(x - s.x)}px`;
+    _lbFocus.box.style.height = `${Math.abs(y - s.y)}px`;
+  });
+
+  document.addEventListener("mouseup", async (e) => {
+    if (!_lbFocus.active || !_lbFocus.start || !_lbFocus.box || _lbFocus.busy) return;
+    const img = $("#imgLightboxImg");
+    const sn = $("#imgLightbox")?.dataset.sn;
+    const stageR = stage.getBoundingClientRect();
+    const imgR = img.getBoundingClientRect();
+    const s = _lbFocus.start;
+    const ex = Math.max(0, Math.min(stageR.width, e.clientX - stageR.left));
+    const ey = Math.max(0, Math.min(stageR.height, e.clientY - stageR.top));
+    _lbFocus.start = null;
+
+    // stage coords → image coords → sensor pixels
+    const offX = imgR.left - stageR.left, offY = imgR.top - stageR.top;
+    const sx = img.naturalWidth / imgR.width, sy = img.naturalHeight / imgR.height;
+    const clampW = (v) => Math.max(0, Math.min(img.naturalWidth, Math.round(v)));
+    const clampH = (v) => Math.max(0, Math.min(img.naturalHeight, Math.round(v)));
+    const x0 = clampW((Math.min(s.x, ex) - offX) * sx);
+    const y0 = clampH((Math.min(s.y, ey) - offY) * sy);
+    const x1 = clampW((Math.max(s.x, ex) - offX) * sx);
+    const y1 = clampH((Math.max(s.y, ey) - offY) * sy);
+    if (x1 - x0 < 20 || y1 - y0 < 20) {
+      _lbFocusClearBox();
+      toast("Region too small — drag a bigger rectangle", "warn");
+      return;
+    }
+    if (!sn) { _lbFocusClearBox(); return; }
+
+    _lbFocus.busy = true;
+    _lbFocus.box.classList.add("busy");
+    const btn = $("#imgLightboxFocus");
+    if (btn) btn.disabled = true;
+    toast("Region focus — sweeping the lens, ~20 s…", "ok");
+    try {
+      const r = await _vc.cameraFocus(sn, { region: [x0, y0, x1, y1] });
+      toast(`Focused — pinned at position ${r.position}. Use focus {"mode": "manual", "position": ${r.position}} to keep it.`, "ok");
+      await lightboxRecapture();
+      const card = document.querySelector(`.cam-card[data-sn="${CSS.escape(sn)}"]`);
+      if (card) refreshMeta(sn, card);
+    } catch (ex) {
+      toast(`Region focus failed: ${ex.message || ex}`, "bad");
+    } finally {
+      _lbFocus.busy = false;
+      if (btn) btn.disabled = false;
+      _lbFocusToggle(false);
+    }
+  });
 }
 
 // ── Lightbox zoom & pan ──────────────────────────────────────────────
@@ -512,6 +668,7 @@ function lightboxResetZoom() {
 function closeLightbox() {
   $("#imgLightbox")?.classList.remove("show");
   lightboxResetZoom();
+  _lbFocusToggle(false);
 }
 
 function _lbZoomAt(deltaY, clientX, clientY) {
@@ -558,11 +715,13 @@ function _wireLightboxZoom() {
 
   stage.addEventListener("wheel", (e) => {
     e.preventDefault();
+    if (_lbFocus.active) return;   // focus-draw needs the 1:1 mapping
     _lbZoomAt(e.deltaY, e.clientX, e.clientY);
   }, { passive: false });
 
   let drag = null;
   stage.addEventListener("mousedown", (e) => {
+    if (_lbFocus.active) return;                    // drawing, not panning
     if (e.button !== 0 || _lbZoom.s <= 1) return;   // only pan when zoomed in
     e.preventDefault();
     drag = { x: e.clientX, y: e.clientY, tx: _lbZoom.tx, ty: _lbZoom.ty };
@@ -641,6 +800,7 @@ function _wireDeviceStateChannel() {
 function _bindCardHandlers(card, sn) {
   card.querySelector('[data-act="remove"]')?.addEventListener("click", () => removeCamera(sn));
   card.querySelector('[data-act="capture"]')?.addEventListener("click", () => captureFrame(sn, card));
+  card.querySelector('[data-act="af"]')?.addEventListener("click", () => focusOnce(sn, card));
   card.querySelector('[data-act="expand"]')?.addEventListener("click", () => expandCapture(sn));
   card.querySelector('img[data-cam-thumb]')?.addEventListener("click", () => expandCapture(sn));
   card.querySelector('[data-act="download"]')?.addEventListener("click", () => downloadCapture(sn));

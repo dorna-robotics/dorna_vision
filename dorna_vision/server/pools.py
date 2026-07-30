@@ -3,13 +3,22 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from camera import Camera
+from camera import Camera, UEyeXS
 from dorna2 import Dorna
 
 from dorna_devices import MQTTDeviceAdapter, AutoRecover
 
 
 log = logging.getLogger(__name__)
+
+# Camera type registry — ``camera_add`` picks the driver via the "type"
+# key in camera_cfg (default "d405", the RealSense). Every driver
+# duck-types the same Device-protocol + capture surface, so the pool,
+# the MQTT adapter and Detection treat them identically.
+CAMERA_TYPES = {
+    "d405": Camera,
+    "ueye_xs": UEyeXS,
+}
 
 
 class _AutoRecoveringCamera:
@@ -61,11 +70,12 @@ class CameraPool(object):
         mqtt_critical: bool = True,
     ):
         self._lock = threading.Lock()
-        self._cameras = {}      # serial_number -> Camera
+        self._cameras = {}      # serial_number -> Camera | UEyeXS
         self._refs = {}         # serial_number -> int
         self._executors = {}    # serial_number -> ThreadPoolExecutor(max_workers=1)
         self._adapters = {}     # serial_number -> MQTTDeviceAdapter
         self._recovers = {}     # serial_number -> AutoRecover
+        self._types = {}        # serial_number -> "d405" | "ueye_xs"
 
         self._mqtt_enabled = mqtt_enabled
         self._mqtt_broker_host = mqtt_broker_host
@@ -79,17 +89,30 @@ class CameraPool(object):
         Camera()
 
     def list_devices(self):
-        # No refresh call needed — the hotplug callback registered inside
-        # Camera() keeps rs._all_device current. Just read it.
-        return [{k: v for k, v in d.items() if k != "obj"} for d in Camera().all_device()]
+        # RealSense: no refresh call needed — the hotplug callback registered
+        # inside Camera() keeps rs._all_device current. uEye: enumerated on
+        # demand (returns [] when the IDS SDK isn't installed).
+        out = [{k: v for k, v in d.items() if k != "obj"} | {"camera_type": "d405"}
+               for d in Camera().all_device()]
+        out.extend(UEyeXS.all_device())
+        return out
+
+    def camera_type(self, serial_number):
+        with self._lock:
+            return self._types.get(serial_number)
 
     def acquire(self, serial_number, **connect_kwargs):
+        ctype = connect_kwargs.pop("type", "d405") or "d405"
+        cls = CAMERA_TYPES.get(ctype)
+        if cls is None:
+            raise ValueError(
+                "unknown camera type %r (known: %s)" % (ctype, sorted(CAMERA_TYPES)))
         with self._lock:
             if serial_number in self._cameras:
                 self._refs[serial_number] += 1
                 return self._cameras[serial_number]
 
-            cam = Camera()
+            cam = cls()
             ok = cam.connect(serial_number=serial_number, **connect_kwargs)
             if not ok:
                 try:
@@ -100,6 +123,7 @@ class CameraPool(object):
 
             self._cameras[serial_number] = cam
             self._refs[serial_number] = 1
+            self._types[serial_number] = ctype
             self._executors[serial_number] = ThreadPoolExecutor(max_workers=1)
 
             # Self-healing reconnect loop. The camera SDK fires
@@ -187,6 +211,7 @@ class CameraPool(object):
 
             cam = self._cameras.pop(serial_number)
             self._refs.pop(serial_number, None)
+            self._types.pop(serial_number, None)
             executor = self._executors.pop(serial_number, None)
             adapter = self._adapters.pop(serial_number, None)
             recover = self._recovers.pop(serial_number, None)
