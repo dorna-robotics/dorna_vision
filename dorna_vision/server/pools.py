@@ -115,11 +115,16 @@ class CameraPool(object):
             cam = cls()
             ok = cam.connect(serial_number=serial_number, **connect_kwargs)
             if not ok:
+                # Carry the driver's own reason (in-use, not on USB, SDK
+                # missing, ...) — a bare "connect failed" hides the fix.
+                why = str(getattr(cam, "msg", "") or "")
                 try:
                     cam.close()
                 except Exception:
                     pass
-                raise RuntimeError("camera connect failed for serial_number=%s" % serial_number)
+                raise RuntimeError(
+                    "camera connect failed for serial_number=%s%s"
+                    % (serial_number, f" — {why}" if why else ""))
 
             self._cameras[serial_number] = cam
             self._refs[serial_number] = 1
