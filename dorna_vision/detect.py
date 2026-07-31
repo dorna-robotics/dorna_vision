@@ -317,8 +317,19 @@ class Detection(object):
             # 2) Project with your pure function
             u, v = self.camera.pixel(xyz_cam, self.camera_data["depth_int"])
 
-            # 3) Compensate for any image rotation
-            h, w, _ = self.camera_data["depth_img"].shape
+            # 3) Compensate for any image rotation. Take the dimensions
+            # from whichever image this frame actually HAS — a color-only
+            # camera (uEye XS) carries no depth_img, and reading it here
+            # made the bare except below return [0,0] for EVERY point:
+            # box ROIs silently collapsed to a dot in the corner.
+            img = next((self.camera_data.get(k)
+                        for k in ("depth_img", "color_img", "ir_img")
+                        if self.camera_data.get(k) is not None), None)
+            if img is not None:
+                h, w = img.shape[:2]
+            else:
+                i = self.camera_data["depth_int"]
+                w, h = int(i.width), int(i.height)
             if   self.rot ==  90: pxl = [h - 1 - int(round(v)), int(round(u))]
             elif self.rot == 180: pxl = [w - 1 - int(round(u)), h - 1 - int(round(v))]
             elif self.rot == 270: pxl = [int(round(v)), w - 1 - int(round(u))]
