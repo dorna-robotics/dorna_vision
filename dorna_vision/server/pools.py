@@ -110,7 +110,24 @@ class CameraPool(object):
         with self._lock:
             if serial_number in self._cameras:
                 self._refs[serial_number] += 1
-                return self._cameras[serial_number]
+                cam = self._cameras[serial_number]
+                # Idempotent hit: the camera keeps its running connection,
+                # but RUNTIME-applyable authored intent must still win —
+                # a workspace's camera_cfg focus/wb pin cannot be silently
+                # ignored just because the GUI (or a prior client) pooled
+                # the camera first. Stream/mode changes still need a
+                # remove/re-add; those genuinely re-open the device.
+                for key, method in (("focus", "focus_apply"),
+                                    ("wb", "white_balance")):
+                    cfg = connect_kwargs.get(key)
+                    if cfg and hasattr(cam, method):
+                        try:
+                            getattr(cam, method)(cfg)
+                        except Exception:
+                            log.exception(
+                                "CameraPool: applying %s to pooled %s failed",
+                                key, serial_number)
+                return cam
 
             cam = cls()
             ok = cam.connect(serial_number=serial_number, **connect_kwargs)
