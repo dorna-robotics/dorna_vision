@@ -426,7 +426,7 @@ class VisionClient(object):
         reply = self._send("detection_run", args, timeout=timeout)
         return reply.get("valid", [])
 
-    def detection_capture(self, name, data=None, camera_in_world=None, focus=None, timeout=None):
+    def detection_capture(self, name, data=None, camera_in_world=None, focus=None, frames_avg=None, timeout=None):
         """Capture a fresh atomic snapshot (camera frames + robot joint
         angles) for ``name`` and cache it on the server. Returns the
         full reply dict so callers can branch on ``ok`` without raising:
@@ -445,6 +445,11 @@ class VisionClient(object):
           * ``str``  — server-local image path. (File-shipping from the
             client uses the binary follow-frame path on ``call`` —
             distinct from this method.)
+
+        ``frames_avg`` — aligned frame averaging at capture (noise
+        ~÷√N): N>1 grabs N color frames, registers each to the first
+        (sub-pixel translation — absorbs servo jitter) and averages;
+        1 = single grab (default). Sticky per detection, like ``focus``.
         """
         args = {"name": name}
         if data is not None:
@@ -453,6 +458,8 @@ class VisionClient(object):
             args["camera_in_world"] = list(camera_in_world)
         if focus is not None:
             args["focus"] = focus
+        if frames_avg is not None:
+            args["frames_avg"] = int(frames_avg)
         return self._send("detection_capture", args, timeout=timeout)
 
     def camera_get_img(self, serial_number, type="color_img", quality=75, timeout=None):

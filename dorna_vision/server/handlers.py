@@ -425,10 +425,12 @@ def detection_capture(session, args):
     data = args.get("data")
     camera_in_world = args.get("camera_in_world")
     focus = args.get("focus")
+    frames_avg = args.get("frames_avg")
     det = session.detection_get(name)
     try:
         det.get_camera_data(data=data, camera_in_world=camera_in_world,
-                            focus=focus)   # populates det.camera_data; raises on failure
+                            focus=focus,
+                            frames_avg=frames_avg)   # populates det.camera_data; raises on failure
     except Exception as ex:
         return {"name": name, "ok": False, "msg": f"{type(ex).__name__}: {ex}"}
     cam = det.camera_data or {}

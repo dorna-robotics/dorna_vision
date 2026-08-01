@@ -68,6 +68,14 @@ class Detection(object):
             # focus wherever it is. Tune the position once with the GUI's
             # region-focus, then pin it here.
             focus=None,
+            # Aligned frame averaging (noise ↓ ~√N, deterministic — no AI
+            # enhancement). 1 = off (single grab, default). N>1 grabs N
+            # color frames, registers each to the first by sub-pixel
+            # translation (phase correlation — absorbs servo/PID jitter)
+            # and averages. Frames whose shift exceeds AVG_MAX_SHIFT_PX
+            # are dropped: that is real motion, not jitter. Depth/IR stay
+            # single-frame.
+            frames_avg=1,
             **kwargs
         ):
         super(Detection, self).__init__()
@@ -97,6 +105,7 @@ class Detection(object):
         self.sort = sort
         self.display = display
         self.focus = focus
+        self.frames_avg = max(1, int(frames_avg))
         self.kwargs = kwargs
 
         # retval
@@ -218,7 +227,51 @@ class Detection(object):
         return []
 
 
-    def get_camera_data(self, data=None, camera_in_world=None, focus=None):
+    # ── aligned frame averaging ─────────────────────────────────────
+    AVG_REG_SCALE = 2        # registration at 1/2 res: sub-pixel accuracy at full
+                             # res stays ~0.1-0.2 px; 1/4 was measurably blurring edges
+    AVG_MAX_SHIFT_PX = 8.0   # full-res px; a larger shift is real motion → drop frame
+
+    def _aligned_mean(self, ref, n_extra):
+        """Average ``n_extra`` fresh color frames onto ``ref``.
+
+        Each frame is registered to ``ref`` by pure translation (phase
+        correlation on downscaled grayscale → sub-pixel warp), which is
+        the servo-jitter model: the robot holds position under PID, so
+        consecutive frames differ by a fraction-of-a-pixel drift, not
+        rotation. Frames shifted beyond AVG_MAX_SHIFT_PX (or that fail
+        to grab) are skipped — averaging never blocks a capture. Returns
+        (mean_uint8, frames_kept).
+        """
+        h, w = ref.shape[:2]
+        s = 1.0 / self.AVG_REG_SCALE
+        ref_g = cv.cvtColor(ref, cv.COLOR_BGR2GRAY) if ref.ndim == 3 else ref
+        small_ref = cv.resize(ref_g, None, fx=s, fy=s).astype(np.float32)
+        win = cv.createHanningWindow((small_ref.shape[1], small_ref.shape[0]), cv.CV_32F)
+        acc = ref.astype(np.float32)
+        kept = 1
+        for _ in range(n_extra):
+            try:
+                frame = self.camera.get_all()[5]   # color_img
+            except Exception:
+                continue
+            if frame is None or frame.shape != ref.shape:
+                continue
+            g = cv.cvtColor(frame, cv.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+            small = cv.resize(g, None, fx=s, fy=s).astype(np.float32)
+            (dx, dy), _ = cv.phaseCorrelate(small_ref, small, win)
+            dx *= self.AVG_REG_SCALE
+            dy *= self.AVG_REG_SCALE
+            if dx * dx + dy * dy > self.AVG_MAX_SHIFT_PX ** 2:
+                continue
+            M = np.float32([[1, 0, -dx], [0, 1, -dy]])
+            aligned = cv.warpAffine(frame, M, (w, h), flags=cv.INTER_CUBIC,
+                                    borderMode=cv.BORDER_REPLICATE)
+            acc += aligned.astype(np.float32)
+            kept += 1
+        return np.clip(acc / kept + 0.5, 0, 255).astype(np.uint8), kept
+
+    def get_camera_data(self, data=None, camera_in_world=None, focus=None, frames_avg=None):
         self.camera_data = {key:None for key in ["depth_frame", "ir_frame", "color_frame", "depth_img", "ir_img", "color_img", "depth_int", "frames", "joint", "K", "D", "timestamp", "camera_in_world"]}
 
         if type(data) == str: # read from file
@@ -239,8 +292,14 @@ class Detection(object):
                 self.focus = focus
             if self.focus and hasattr(self.camera, "focus_apply"):
                 self.camera.focus_apply(self.focus)
+            # Per-call frames_avg overrides (and becomes) the detection's
+            # setting — same update semantics as focus. 1 = off.
+            if frames_avg is not None:
+                self.frames_avg = max(1, int(frames_avg))
             joint = None
             depth_frame, ir_frame, color_frame, depth_img, ir_img, color_img, depth_int, frames, timestamp = self.camera.get_all()
+            if self.frames_avg > 1 and color_img is not None:
+                color_img, _kept = self._aligned_mean(color_img, self.frames_avg - 1)
             K = self.camera.camera_matrix(depth_int)
             D = self.camera.dist_coeffs(depth_int)
             try:
