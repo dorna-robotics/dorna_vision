@@ -254,6 +254,7 @@ class Detection(object):
         win = cv.createHanningWindow((small_ref.shape[1], small_ref.shape[0]), cv.CV_32F)
         acc = ref.astype(np.float32)
         kept = 1
+        log = []   # per-frame diagnosis: (dx, dy, tier) — printed once per burst
         for _ in range(n_extra):
             try:
                 frame = self.camera.get_all()[5]   # color_img
@@ -267,6 +268,7 @@ class Detection(object):
             dx *= self.AVG_REG_SCALE
             dy *= self.AVG_REG_SCALE
             if dx * dx + dy * dy > self.AVG_MAX_SHIFT_PX ** 2:
+                log.append((round(dx, 2), round(dy, 2), "drop"))
                 continue
             # Interpolation is a low-pass — every warp costs sharpness.
             # Three tiers, softest touch first: negligible shift → add
@@ -275,16 +277,22 @@ class Detection(object):
             rx, ry = round(dx), round(dy)
             if dx * dx + dy * dy <= self.AVG_RAW_ADD_PX ** 2:
                 aligned = frame
+                tier = "raw"
             elif (dx - rx) ** 2 + (dy - ry) ** 2 <= self.AVG_INT_SNAP_PX ** 2:
                 M = np.float32([[1, 0, -rx], [0, 1, -ry]])
                 aligned = cv.warpAffine(frame, M, (w, h), flags=cv.INTER_NEAREST,
                                         borderMode=cv.BORDER_REPLICATE)
+                tier = "int"
             else:
                 M = np.float32([[1, 0, -dx], [0, 1, -dy]])
                 aligned = cv.warpAffine(frame, M, (w, h), flags=cv.INTER_LANCZOS4,
                                         borderMode=cv.BORDER_REPLICATE)
+                tier = "warp"
+            log.append((round(dx, 2), round(dy, 2), tier))
             acc += aligned.astype(np.float32)
             kept += 1
+        print(f"[avg] kept {kept}/{n_extra + 1} " +
+              " ".join(f"({dx:+.2f},{dy:+.2f}:{t})" for dx, dy, t in log))
         return np.clip(acc / kept + 0.5, 0, 255).astype(np.uint8), kept
 
     def get_camera_data(self, data=None, camera_in_world=None, focus=None, frames_avg=None):
