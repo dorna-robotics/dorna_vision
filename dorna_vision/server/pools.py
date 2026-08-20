@@ -3,7 +3,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from camera import Camera, UEyeXS
+from camera import Camera, UEyeXS, HikRobot
 from dorna2 import Dorna
 
 from dorna_devices import MQTTDeviceAdapter, AutoRecover
@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 CAMERA_TYPES = {
     "d405": Camera,
     "ueye_xs": UEyeXS,
+    "hikrobot": HikRobot,
 }
 
 
@@ -95,6 +96,12 @@ class CameraPool(object):
         out = [{k: v for k, v in d.items() if k != "obj"} | {"camera_type": "d405"}
                for d in Camera().all_device()]
         out.extend(UEyeXS.all_device())
+        # HikRobot: GigE, enumerated on demand over the network (returns
+        # [] when the MVS runtime is absent — and says why, once).
+        # Entries carry BOTH serial_number and ip; the pool keys on the
+        # serial like every other type, and the ip is what connect()
+        # uses to reach it.
+        out.extend(HikRobot.all_device())
         return out
 
     def camera_type(self, serial_number):

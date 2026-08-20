@@ -109,7 +109,7 @@ function cardHTML(d) {
   const meta = `
     <div class="cc-meta-lines">
       <div class="cc-meta-line">
-        ${k("sn")} ${v(escHtml(sn))}${d.usb_type ? `${sep}${k("usb")} ${v(escHtml(d.usb_type))}` : ""}${sep}${k("type")} ${v("—", "mode")}${sep}${k("fps")} ${v("—", "fps")}
+        ${k("sn")} ${v(escHtml(sn))}${d.ip ? `${sep}${k("ip")} ${v(escHtml(d.ip))}` : ""}${d.usb_type ? `${sep}${k("usb")} ${v(escHtml(d.usb_type))}` : ""}${sep}${k("type")} ${v("—", "mode")}${sep}${k("fps")} ${v("—", "fps")}
       </div>
     </div>`;
 
@@ -150,7 +150,7 @@ let _searchQuery = "";
 
 function _matchesSearch(d, q) {
   if (!q) return true;
-  const hay = `${d.serial_number || ""} ${d.name || ""}`.toLowerCase();
+  const hay = `${d.serial_number || ""} ${d.ip || ""} ${d.name || ""}`.toLowerCase();
   return hay.includes(q);
 }
 
@@ -411,7 +411,7 @@ function populateAddModalDropdown(presetSn) {
   if (!sel) return;
   const candidates = _devices.filter(d => d.attached && !d.added);
   sel.innerHTML = candidates.length
-    ? candidates.map(d => `<option value="${escHtml(d.serial_number)}">${escHtml(d.serial_number)} — ${escHtml(d.name || (d.camera_type === "ueye_xs" ? "uEye" : "RealSense"))}${d.camera_type ? ` (${escHtml(d.camera_type)})` : ""}</option>`).join("")
+    ? candidates.map(d => `<option value="${escHtml(d.serial_number)}">${escHtml(d.serial_number)}${d.ip ? ` @ ${escHtml(d.ip)}` : ""} — ${escHtml(d.name || (d.camera_type === "ueye_xs" ? "uEye" : "RealSense"))}${d.camera_type ? ` (${escHtml(d.camera_type)})` : ""}</option>`).join("")
     : `<option value="">(no available cameras)</option>`;
   if (presetSn && candidates.find(d => d.serial_number === presetSn)) {
     sel.value = presetSn;

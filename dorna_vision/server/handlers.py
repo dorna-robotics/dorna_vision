@@ -57,12 +57,44 @@ def camera_list(session, args):
 
 
 def camera_add(session, args):
+    """Add a camera to the pool. Addressed by ``serial_number``, or —
+    for network cameras — by ``ip``.
+
+    THE POOL IS KEYED BY SERIAL, ALWAYS. A GigE camera can be named
+    either way, but it is ONE camera: allowing both as pool keys would
+    let the same device be pooled twice, once per spelling, each with
+    its own connection and reference count. So an ip is RESOLVED to its
+    serial here, at the edge, and the ip is passed through to connect()
+    — which uses it to reach the camera directly rather than relying on
+    broadcast discovery.
+    """
     args = dict(args)
     serial_number = args.get("serial_number")
+    ip = args.get("ip")
     if not serial_number:
-        raise ValueError("serial_number is required")
+        if not ip:
+            raise ValueError("serial_number is required (or ip, for a network camera)")
+        serial_number = _serial_for_ip(session, ip)
+        args["serial_number"] = serial_number
     session.camera_add(**args)
     return {"serial_number": serial_number}
+
+
+def _serial_for_ip(session, ip):
+    """The serial of the enumerated camera at ``ip``.
+
+    Enumeration is the only authority on the mapping, and it also tells
+    the caller something useful when it fails: a camera that does not
+    enumerate is either powered off, on another subnet, or — the case
+    that cost a bench session — sitting behind a missing SDK runtime.
+    """
+    for d in session.camera_pool.list_devices():
+        if d.get("ip") == ip and d.get("serial_number"):
+            return d["serial_number"]
+    raise ValueError(
+        "no camera enumerated at ip %s — check power and subnet, and that "
+        "the vendor runtime is installed (an absent SDK enumerates nothing)"
+        % ip)
 
 
 def bus_connect(session, args):
