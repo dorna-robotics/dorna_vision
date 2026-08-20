@@ -216,8 +216,13 @@ export class VisionClient {
     return this._send("detection_add", { name, ...body }, opts, binary);
   }
   detectionRemove(name, opts)    { return this._send("detection_remove", { name }, opts); }
-  detectionGetImg(name, type = "img", quality = 85, opts) {
-    return this._send("detection_get_img", { name, type, quality }, opts);  // resolves to {json, binary}
+  // maxSide caps the PREVIEW's long edge (server-side downscale, after
+  // detection has already run at full resolution). Reply meta carries
+  // source_shape + scale. Never use it where the pixels are coordinates.
+  detectionGetImg(name, type = "img", quality = 85, opts, maxSide = null) {
+    const args = { name, type, quality };
+    if (maxSide) args.max_side = maxSide;
+    return this._send("detection_get_img", args, opts);  // resolves to {json, binary}
   }
 
   // ---------------- proxy-style RPC ---------------------------------------

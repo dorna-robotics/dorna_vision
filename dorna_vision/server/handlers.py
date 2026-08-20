@@ -498,10 +498,34 @@ def detection_get_img(session, args):
     if img is None:
         raise ValueError("no image available for type %s" % kind)
 
+    # PREVIEW-ONLY DOWNSCALE. Detection has already run at full
+    # resolution — this only shrinks the picture being shipped to a
+    # browser. On a 3072x2048 sensor the annotated JPEG is ~750 KB and
+    # the client must decode 6.3 MP every frame; measured on the bench
+    # that capped live view at 1.7 fps while the server itself could
+    # produce 9.3.
+    #
+    # The reply carries source_shape and scale so a caller can map a
+    # click back to real pixels. Anything that returns COORDINATES
+    # (detection_xyz, detection_pixel, the ROI editor) keeps working in
+    # full-resolution space and must not use this.
+    src_h, src_w = img.shape[:2]
+    scale = 1.0
+    max_side = args.get("max_side")
+    if max_side:
+        longest = max(src_h, src_w)
+        if longest > int(max_side):
+            scale = int(max_side) / float(longest)
+            img = cv.resize(img, (max(1, int(round(src_w * scale))),
+                                  max(1, int(round(src_h * scale)))),
+                            interpolation=cv.INTER_AREA)
+
     ok, buf = cv.imencode(".jpg", img, [int(cv.IMWRITE_JPEG_QUALITY), quality])
     if not ok:
         raise RuntimeError("jpeg encode failed")
-    meta = {"name": name, "type": kind, "shape": list(img.shape), "encoding": "jpeg", "quality": quality}
+    meta = {"name": name, "type": kind, "shape": list(img.shape),
+            "source_shape": [src_h, src_w], "scale": round(scale, 6),
+            "encoding": "jpeg", "quality": quality}
     return (meta, buf.tobytes())
 
 

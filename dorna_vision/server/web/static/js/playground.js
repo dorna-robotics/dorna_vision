@@ -1991,7 +1991,8 @@ async function refreshOutput() {
   if (!_initializedFlag() || !_hasRun) return;
   const tab = _currentImgTab;
   try {
-    const { binary } = await _vc.detectionGetImg(PG_NAME, tab, 80);
+    const { binary } = await _vc.detectionGetImg(
+      PG_NAME, tab, 80, undefined, _live ? LIVE_PREVIEW_MAX_SIDE : null);
     if (!binary) return;
     if (_imgObjUrl) URL.revokeObjectURL(_imgObjUrl);
     _imgObjUrl = URL.createObjectURL(new Blob([binary], { type: "image/jpeg" }));
@@ -2004,7 +2005,8 @@ async function refreshOutput() {
   } catch (e) {
     if (tab !== "img") {
       try {
-        const { binary } = await _vc.detectionGetImg(PG_NAME, "img", 80);
+        const { binary } = await _vc.detectionGetImg(
+          PG_NAME, "img", 80, undefined, _live ? LIVE_PREVIEW_MAX_SIDE : null);
         if (binary) {
           if (_imgObjUrl) URL.revokeObjectURL(_imgObjUrl);
           _imgObjUrl = URL.createObjectURL(new Blob([binary], { type: "image/jpeg" }));
@@ -2055,6 +2057,14 @@ function renderResults(valid) {
 // cap applies a minimum frame interval; if the server is slower than
 // that, the loop runs at server speed.
 const LIVE_MIN_INTERVAL_MS = 100;
+
+// Cap the LIVE preview's long edge. Detection still runs at full
+// resolution — this only shrinks the picture on the wire. A 3072x2048
+// annotated frame is ~750 KB and 6.3 MP for the browser to decode every
+// tick, which measured out at 1.7 fps on the bench while the server
+// could produce 9.3. Still-frame views (Run once, the ROI editor) stay
+// full-res: they are what you zoom into and click on.
+const LIVE_PREVIEW_MAX_SIDE = 1280;
 
 async function liveLoop() {
   while (_live && isPageActive() && _vc?.isConnected()) {
