@@ -15,6 +15,8 @@ log = logging.getLogger(__name__)
 # key in camera_cfg (default "d405", the RealSense). Every driver
 # duck-types the same Device-protocol + capture surface, so the pool,
 # the MQTT adapter and Detection treat them identically.
+HIK_DEFAULT_BANDWIDTH_MBPS = 400   # per free-running Hikrobot camera; see acquire()
+
 CAMERA_TYPES = {
     "d405": Camera,
     "ueye_xs": UEyeXS,
@@ -136,6 +138,20 @@ class CameraPool(object):
                                 key, serial_number)
                 return cam
 
+            if (ctype == "hikrobot"
+                    and connect_kwargs.get("acquisition") == "continuous"
+                    and not any(connect_kwargs.get(k) is not None
+                                for k in ("bandwidth", "packet_delay"))):
+                # Hikrobot cameras capture ON DEMAND by default (the
+                # driver software-triggers one frame per grab), so the
+                # NIC is idle between captures and N cameras just fit.
+                # Only a free-run stream ("acquisition": "continuous")
+                # needs pacing: unpaced, ONE MV-CU060 fills a gigabit
+                # link (951 Mbps measured) and the Pi 5 NIC drops
+                # frames. 400 Mbps each fits two streaming cameras
+                # (~8 fps each at 6 MP); more need a lower "bandwidth"
+                # (Mbps) in the Add kwargs — 0 disables pacing.
+                connect_kwargs["bandwidth"] = HIK_DEFAULT_BANDWIDTH_MBPS
             cam = cls()
             ok = cam.connect(serial_number=serial_number, **connect_kwargs)
             if not ok:

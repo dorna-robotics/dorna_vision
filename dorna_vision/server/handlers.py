@@ -166,6 +166,14 @@ def camera_info(session, args):
             out["wb"] = cam.white_balance_info()
         except Exception:
             pass
+    # Stream health (GigE): frames/packets received vs lost since the
+    # session started, and the pacing in effect. A camera whose
+    # recv_frames stops climbing is dead, whatever the link load says.
+    if hasattr(cam, "net_stats"):
+        try:
+            out["net"] = cam.net_stats()
+        except Exception:
+            pass
     return out
 
 
