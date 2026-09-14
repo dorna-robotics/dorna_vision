@@ -111,6 +111,19 @@ class Detection(object):
         # retval
         self.retval = self.init_retval()
 
+        # ONE RUN AT A TIME, per detection.
+        # run() is a pipeline over this object's own state: it setattr's
+        # the kwargs it was called with, replaces self.retval, rewrites
+        # self.camera_data and self.frame_mat_inv, and reads them back
+        # as it goes. Two runs on the same Detection interleave those
+        # writes and each returns the other's half-built result — one
+        # disc in the frame came back as six. The server answers every
+        # websocket call on a thread-pool worker and the playground
+        # re-runs on each slider tweak, so overlap is routine, not a
+        # corner case. The lock lives HERE, with the state it protects,
+        # so a script calling run() from two threads is safe too.
+        self._run_lock = threading.RLock()
+
         # thread list
         self.thread_list = []
 
@@ -485,6 +498,10 @@ class Detection(object):
             raise TypeError(
                 "unknown parameter 'frame' — it was renamed to 'base_in_world'."
             )
+        with self._run_lock:
+            return self._run(data=data, **kwargs)
+
+    def _run(self, data=None, **kwargs):
         # return
         self.retval = self.init_retval()
         retval = []
@@ -1119,14 +1136,19 @@ class Detection(object):
 
 
     def close(self):
-        # save image
-        for thread in self.thread_list:
-            thread.join()
+        # Under the run lock: close() releases the models an in-flight
+        # run() is still using (detection_remove can land mid-run), so it
+        # waits for that run to finish instead of pulling the model out
+        # from under it.
+        with self._run_lock:
+            # save image
+            for thread in self.thread_list:
+                thread.join()
 
-        # object detection
-        if hasattr(self, "od"):
-            self.od.__del__()
+            # object detection
+            if hasattr(self, "od"):
+                self.od.__del__()
 
-        # ocr
-        if hasattr(self, "ocr"):
-            self.ocr.__del__()
+            # ocr
+            if hasattr(self, "ocr"):
+                self.ocr.__del__()

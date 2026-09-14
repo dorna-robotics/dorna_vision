@@ -37,6 +37,7 @@ import math
 import os
 import pickle
 import importlib
+import threading
 from types import SimpleNamespace
 
 import cv2
@@ -137,6 +138,44 @@ def _load_pickle(path):
         return pickle.load(f)
 
 
+class _PerThreadModel:
+    """A compiled OpenVINO model that infers on ONE InferRequest PER THREAD.
+
+    ``CompiledModel.__call__`` builds a request the first time and then
+    REUSES that same one for every later call (its own docstring says so
+    and advises a dedicated request instead), while a running request
+    blocks every method on itself. The vision server answers each
+    websocket call on a thread-pool worker, so two detections against the
+    same model overlap as a matter of course — and the second one died
+    with ``RuntimeError: Infer Request is busy``.
+
+    A request is the unit of execution, so each thread gets its own, made
+    on first use and released when the thread ends. Inference stays
+    concurrent: no lock, no queue, no serialising the pool down to one.
+    Everything else (``input``, ``output``, ``outputs``, …) passes
+    straight through, so callers cannot tell the difference.
+    """
+
+    __slots__ = ("_compiled", "_local")
+
+    def __init__(self, compiled):
+        self._compiled = compiled
+        self._local = threading.local()
+
+    def __call__(self, inputs=None, share_inputs=True, share_outputs=False,
+                 *, decode_strings=True):
+        request = getattr(self._local, "request", None)
+        if request is None:
+            request = self._compiled.create_infer_request()
+            self._local.request = request
+        return request.infer(inputs, share_inputs=share_inputs,
+                             share_outputs=share_outputs,
+                             decode_strings=decode_strings)
+
+    def __getattr__(self, name):
+        return getattr(self._compiled, name)
+
+
 def _read_openvino_from_pickle(model_dict, input_shape, device_name="CPU", device_config=None):
     """
     Build a compiled OpenVINO model from {xml, bin} pickle entries.
@@ -184,7 +223,7 @@ def _read_openvino_from_pickle(model_dict, input_shape, device_name="CPU", devic
         # corrupt blob) -> a clean Python error the server can report, never
         # a native crash that drops the connection.
         raise ValueError("Failed to load OpenVINO model: %s" % ex)
-    return core, model, compiled
+    return core, model, _PerThreadModel(compiled)
 
 
 def _release_openvino(*objs):
@@ -896,7 +935,8 @@ class OD_v1(object):
 
         self.core = Core()
         self.model = self.core.read_model(model=bytes(data["xml"], "utf-8"), weights=bytes(data["bin"]))
-        self.compiled_model = self.core.compile_model(model=self.model, device_name=device_name)
+        self.compiled_model = _PerThreadModel(
+            self.core.compile_model(model=self.model, device_name=device_name))
         self.input_shape = self.compiled_model.input(0).shape
 
     def __del__(self):
@@ -1028,7 +1068,8 @@ class CLS_v1(object):
 
         self.core = Core()
         self.model = self.core.read_model(model=bytes(data["xml"], "utf-8"), weights=bytes(data["bin"]))
-        self.compiled_model = self.core.compile_model(model=self.model, device_name=device_name)
+        self.compiled_model = _PerThreadModel(
+            self.core.compile_model(model=self.model, device_name=device_name))
 
         self.target_size = target_size
         self.input_tensor = self.compiled_model.input(0)
