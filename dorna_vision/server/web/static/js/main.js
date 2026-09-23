@@ -129,22 +129,45 @@ async function refreshHome() {
     });
   }
   setConn("warn", "connecting…");
-  vc.on((ev) => {
-    if (ev === "close") setConn("bad", "disconnected");
+  // The client keeps the link alive for the life of the page (reconnect
+  // with backoff, idle heartbeat). The pill follows its lifecycle, and
+  // every reconnect re-runs the current page's onShow so lists and
+  // device state are fetched fresh — nothing here waits for a reload.
+  let _everReady = false;
+  vc.on((ev, p) => {
+    if (ev === "ready") {
+      setConn("ok", "connected");
+      if (_everReady) {
+        refreshHome();
+        PAGE_HOOKS[_currentRoute]?.onShow?.();
+      }
+      _everReady = true;
+    } else if (ev === "reconnecting") {
+      setConn("warn", `reconnecting… (${p?.attempt ?? 1})`);
+    } else if (ev === "close") {
+      setConn("bad", "disconnected");
+    }
   });
+  // A tab that comes back to the foreground, or a machine whose network
+  // just returned, checks its link right away instead of waiting for the
+  // next heartbeat or backoff tick.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") vc.reconnectNow();
+  });
+  window.addEventListener("online", () => vc.reconnectNow());
   // Wire page modules with the shared client
   Cameras.init(vc);
   Playground.init(vc);
   // Show the initial page (idempotent before connect — onShow may need to retry)
   showPage(currentRoute());
   try {
-    await vc.connect();
-    setConn("ok", "connected");
+    await vc.connect({ autoReconnect: true });
     refreshHome();
     // Re-show the current page so its onShow runs against a live connection
     PAGE_HOOKS[_currentRoute]?.onShow?.();
   } catch (e) {
-    setConn("bad", `failed: ${e.message || e}`);
+    // First attempt failed (server still starting?) — the client is
+    // already retrying and the pill shows it; nothing else to do.
     console.error(e);
   }
 })();

@@ -10,7 +10,11 @@
 //   const det   = vc.detection("d1");
 //   const res   = await det.run();
 
-const DEFAULT_TIMEOUT = 10_000; // ms
+const DEFAULT_TIMEOUT = 10_000;      // ms, per request
+const RECONNECT_DELAY = 1_000;       // ms, first retry; doubles each attempt
+const RECONNECT_MAX_DELAY = 10_000;  // ms, backoff ceiling
+const HEARTBEAT = 30_000;            // ms, idle liveness probe
+const HEARTBEAT_TIMEOUT = 8_000;     // ms, a probe unanswered this long = dead link
 
 export class VisionServerError extends Error {
   constructor(code, msg) {
@@ -27,7 +31,20 @@ export class VisionClient {
     this._pending = new Map();        // id -> {resolve, reject, needsBinary, json}
     this._lastBinaryHolder = null;    // pending entry waiting for its binary frame
     this._defaultTimeout = DEFAULT_TIMEOUT;
-    this._listeners = new Set();      // ('open'|'close'|'error', payload)
+    this._listeners = new Set();      // ('open'|'ready'|'reconnecting'|'close'|'error', payload)
+    // Connection-keeping state. `_wanted` is the app's intent — true from
+    // connect() until close() — and is what reconnects key on. `_detached`
+    // holds sockets already given up on: a dead TCP link can deliver its
+    // close event minutes after we abandoned it, and that must not touch
+    // the socket that replaced it.
+    this._opts = {};
+    this._wanted = false;
+    this._connecting = false;
+    this._attempt = 0;
+    this._reconnectTimer = null;
+    this._hbTimer = null;
+    this._probing = false;
+    this._detached = new WeakSet();
   }
 
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
@@ -35,57 +52,173 @@ export class VisionClient {
 
   isConnected() { return !!this._ws && this._ws.readyState === WebSocket.OPEN; }
 
-  connect({ url, timeout = 5000, defaultTimeout = DEFAULT_TIMEOUT } = {}) {
+  /** Open the connection and verify it with `hello`. Resolves with the
+   *  hello reply; rejects if the first attempt fails.
+   *
+   *  autoReconnect keeps the link alive for the life of the page: when it
+   *  drops (server restart, NAT idle timeout, laptop sleep) it reconnects
+   *  with backoff, forever. An idle link is also probed every `heartbeat`
+   *  ms, because a socket the browser still reports OPEN can be dead
+   *  underneath (a NAT that forgot it drops packets in both directions
+   *  and nobody sends a FIN) — an unanswered probe abandons the socket
+   *  and reconnects, instead of the GUI claiming "connected" until a
+   *  request times out. Lifecycle events via on(): "open" (socket up),
+   *  "ready" (hello answered — usable; fires after every reconnect too),
+   *  "reconnecting" ({attempt, delay}), "close", "error". */
+  connect({ url, timeout = 5000, defaultTimeout = DEFAULT_TIMEOUT,
+            autoReconnect = false, reconnectDelay = RECONNECT_DELAY,
+            reconnectMaxDelay = RECONNECT_MAX_DELAY,
+            heartbeat = HEARTBEAT, heartbeatTimeout = HEARTBEAT_TIMEOUT } = {}) {
     this._defaultTimeout = defaultTimeout;
+    this._opts = { url, timeout, autoReconnect, reconnectDelay, reconnectMaxDelay,
+                   heartbeat, heartbeatTimeout };
+    this._wanted = true;
+    this._attempt = 0;
+    this._clearReconnectTimer();
+    return this._open();
+  }
+
+  /** Make sure the link is alive right now. Call when the tab returns to
+   *  the foreground or the OS says the network is back: a connected
+   *  socket is probed (it may have died while the tab slept), a
+   *  disconnected one is reconnected immediately, skipping the backoff. */
+  reconnectNow() {
+    if (!this._wanted) return;
+    if (this.isConnected()) { this._probe(); return; }
+    if (this._connecting) return;
+    this._clearReconnectTimer();
+    this._attempt = 0;
+    this._open().catch(() => {});
+  }
+
+  close() {
+    this._wanted = false;
+    this._clearReconnectTimer();
+    this._stopHeartbeat();
+    this._drop("closed");
+  }
+
+  _open() {
+    const { url, timeout } = this._opts;
     const wsUrl = url || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
+    this._connecting = true;
 
     return new Promise((resolve, reject) => {
       let settled = false;
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-
+      let ws = null;
       const fail = (err) => {
         if (settled) return;
         settled = true;
-        try { ws.close(); } catch {}
+        this._connecting = false;
+        if (ws) { this._detached.add(ws); try { ws.close(); } catch {} }
         reject(err instanceof Error ? err : new Error(String(err)));
+        this._scheduleReconnect();
       };
 
-      const handshakeTimer = setTimeout(() => fail(new Error(`websocket connect timed out after ${timeout}ms`)), timeout);
+      try { ws = new WebSocket(wsUrl); } catch (ex) { fail(ex); return; }
+      ws.binaryType = "arraybuffer";
+      const handshakeTimer = setTimeout(
+        () => fail(new Error(`websocket connect timed out after ${timeout}ms`)), timeout);
 
       ws.addEventListener("open", () => {
         clearTimeout(handshakeTimer);
+        if (this._detached.has(ws)) return;
         this._ws = ws;
+        this._attempt = 0;
         this._emit("open");
         // Verify with hello so we don't pretend we're "up" before the server replies.
         this.hello({ timeout })
-          .then(info => { if (!settled) { settled = true; resolve(info); } })
-          .catch(err => fail(err));
+          .then(info => {
+            if (settled || this._ws !== ws) return;
+            settled = true;
+            this._connecting = false;
+            this._startHeartbeat();
+            this._emit("ready", info);
+            resolve(info);
+          })
+          .catch(err => {
+            if (this._ws === ws) this._drop("hello failed");
+            fail(err);
+          });
       });
 
-      ws.addEventListener("message", (ev) => this._onMessage(ev));
+      ws.addEventListener("message", (ev) => { if (this._ws === ws) this._onMessage(ev); });
 
       ws.addEventListener("error", (ev) => {
+        if (this._detached.has(ws)) return;
         this._emit("error", ev);
-        fail(new Error("websocket error"));
+        if (!settled) fail(new Error("websocket error"));
       });
 
       ws.addEventListener("close", () => {
-        const wasUp = !!this._ws;
-        this._ws = null;
-        this._emit("close");
-        if (!wasUp) fail(new Error("websocket closed before handshake completed"));
-        // Reject all pending
-        for (const [id, p] of this._pending) p.reject(new Error("connection closed"));
-        this._pending.clear();
-        this._lastBinaryHolder = null;
+        clearTimeout(handshakeTimer);
+        if (this._detached.has(ws)) return;          // already replaced or abandoned
+        if (this._ws === ws) this._drop("connection closed");
+        else fail(new Error("websocket closed before handshake completed"));
       });
     });
   }
 
-  close() {
-    try { this._ws && this._ws.close(); } catch {}
+  /** Abandon the current socket — it closed, or it stopped answering —
+   *  fail everything in flight, and let the reconnect policy take over.
+   *  Idempotent per socket. */
+  _drop(reason) {
+    const ws = this._ws;
+    if (!ws) return;
     this._ws = null;
+    this._detached.add(ws);
+    try { ws.close(); } catch {}
+    this._stopHeartbeat();
+    for (const [, p] of this._pending) p.reject(new Error(reason));
+    this._pending.clear();
+    this._lastBinaryHolder = null;
+    this._emit("close");
+    this._scheduleReconnect();
+  }
+
+  _scheduleReconnect() {
+    if (!this._opts.autoReconnect || !this._wanted) return;
+    if (this._reconnectTimer || this._connecting || this.isConnected()) return;
+    const { reconnectDelay, reconnectMaxDelay } = this._opts;
+    const delay = Math.min(reconnectMaxDelay, reconnectDelay * 2 ** this._attempt);
+    this._attempt += 1;
+    this._emit("reconnecting", { attempt: this._attempt, delay });
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      if (!this._wanted || this._connecting || this.isConnected()) return;
+      this._open().catch(() => {});
+    }, delay);
+  }
+
+  _clearReconnectTimer() {
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+  }
+
+  _startHeartbeat() {
+    this._stopHeartbeat();
+    const iv = this._opts.heartbeat;
+    if (!iv) return;
+    // Probe only an IDLE link: in-flight requests are their own proof of
+    // life, and their timeouts run a probe themselves (see _send).
+    this._hbTimer = setInterval(() => {
+      if (this.isConnected() && this._pending.size === 0) this._probe();
+    }, iv);
+  }
+
+  _stopHeartbeat() {
+    if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null; }
+  }
+
+  _probe() {
+    if (!this.isConnected() || this._probing) return;
+    const ws = this._ws;
+    this._probing = true;
+    this.hello({ timeout: this._opts.heartbeatTimeout || HEARTBEAT_TIMEOUT })
+      .then(() => { this._probing = false; })
+      .catch(() => {
+        this._probing = false;
+        if (this._ws === ws) this._drop("connection stopped answering");
+      });
   }
 
   _onMessage(ev) {
@@ -144,6 +277,7 @@ export class VisionClient {
       const timer = setTimeout(() => {
         this._pending.delete(id);
         reject(new Error(`timeout waiting for reply to ${cmd} (id=${id})`));
+        this._probe();   // a reply that never came may mean a dead link — find out now
       }, timeout || (binary ? Math.max(60000, this._defaultTimeout) : this._defaultTimeout));
 
       const wrap = {

@@ -33,6 +33,19 @@ class NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
         self.set_header("Cache-Control", "no-store")
 
 
+# WebSocket keepalive. Without server pings an idle GUI connection carries
+# no traffic at all, and anything stateful between the browser and this
+# unit — the GL.iNet's NAT table (the GUI is usually reached from its
+# Wi-Fi side), a sleeping laptop, a browser throttling a background tab —
+# quietly forgets it. Neither end notices until the next request, which
+# then just times out; the GUI showed "disconnected" until a page reload.
+# A ping every 20 s keeps every hop's idle timer reset, and a peer that
+# stops answering pongs is reaped after 60 s instead of holding a session
+# open forever.
+WS_PING_INTERVAL_S = 20
+WS_PING_TIMEOUT_S = 60
+
+
 def make_app(camera_pool, robot_pool, default_executor):
     return tornado.web.Application([
         (r"/ws", VisionWSHandler, {
@@ -45,7 +58,10 @@ def make_app(camera_pool, robot_pool, default_executor):
         # so /, /cameras, /robots, /playground all render the same shell and
         # the client-side router picks the section.
         (r"/.*", IndexHandler),
-    ])
+    ],
+        websocket_ping_interval=WS_PING_INTERVAL_S,
+        websocket_ping_timeout=WS_PING_TIMEOUT_S,
+    )
 
 
 async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
