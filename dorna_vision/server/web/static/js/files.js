@@ -4,8 +4,8 @@
 // files.js): breadcrumbs, one row per entry, a resizable preview pane on
 // the right. Here the root is the capture folder (server --captures,
 // default ~/captures), and the preview is built for IMAGES — the point
-// of the page is reviewing a dataset: click an image and it fills the
-// pane, ↑/↓ steps through the folder.
+// preview pane stays hidden until a file is clicked, exactly like the
+// workspace's; an image shows in it, ↑/↓ steps through the folder.
 //
 // Folders download as a zip (streamed by the server — a folder of
 // thousands of captures never sits in memory). Delete takes a file or
@@ -88,14 +88,6 @@ async function load() {
   entries = data.entries;
   $(".fb-path").textContent = data.abs + (path ? `/${path}` : "");
   $(".fb-path").title = $(".fb-path").textContent;
-  const nImg = entries.filter((e) => !e.dir && IMG_EXT.test(e.name)).length;
-  const nDir = entries.filter((e) => e.dir).length;
-  $(".fb-count").textContent = [
-    nDir ? `${nDir} folder${nDir === 1 ? "" : "s"}` : "",
-    `${entries.length - nDir} file${entries.length - nDir === 1 ? "" : "s"}`,
-    nImg && nImg !== entries.length - nDir ? `${nImg} image${nImg === 1 ? "" : "s"}` : "",
-  ].filter(Boolean).join(" · ");
-
   // keep the preview when the selected file is still here (reload)
   if (selected && !entries.some((e) => e.path === selected.path)) select(null);
 
@@ -170,43 +162,31 @@ function markSelected() {
     r.classList.toggle("is-selected", !!selected && r.dataset.path === selected.path));
 }
 
+function showPane(on) {
+  $(".fb-preview").hidden = !on;
+  $(".fb-split").hidden = !on;
+}
+
 function select(e) {
   selected = e;
   markSelected();
   const pv = $(".fb-preview");
-  if (!e) {
-    pv.innerHTML = `<div class="fb-pv-empty">${svg(ICON.image, 28)}<span>Select an image to view it</span>
-      <span class="fb-pv-hint">↑ ↓ step through the folder</span></div>`;
-    return;
-  }
-  const rowEl = document.querySelector(`#filesPage .fb-row[data-path="${CSS.escape(e.path)}"]`);
-  rowEl?.scrollIntoView({ block: "nearest" });
-  const files = entries.filter((x) => !x.dir);
-  const idx = files.findIndex((x) => x.path === e.path);
-  const head = `<div class="fb-pv-head">
-      <span class="fb-pv-name" title="${esc(e.name)}">${esc(e.name)}</span>
-      <span class="fb-pv-meta"><span class="fb-pv-dims"></span>${fmtSize(e.size)} · ${fmtWhen(e.mtime)} · ${idx + 1} / ${files.length}</span>
-      <a class="btn btn-ghost btn-sm btn-icon" title="Download ${esc(e.name)}"
-         href="${url({ path: e.path, download: 1 })}" download="${esc(e.name)}">${svg(ICON.down, 13)}</a>
-    </div>`;
+  if (!e) { showPane(false); pv.innerHTML = ""; return; }
+  showPane(true);
+  document.querySelector(`#filesPage .fb-row[data-path="${CSS.escape(e.path)}"]`)
+    ?.scrollIntoView({ block: "nearest" });
+  const head = `<div class="fb-pv-head"><span class="fb-pv-name">${esc(e.name)}</span>` +
+    `<span class="fb-pv-meta">${fmtSize(e.size)} · ${fmtWhen(e.mtime)}</span></div>`;
   if (!IMG_EXT.test(e.name)) {
-    pv.innerHTML = head + `<div class="fb-pv-empty">${svg(ICON.file, 28)}<span>No preview for this file type</span></div>`;
+    pv.innerHTML = head + `<div class="fb-error">Cannot preview this file</div>`;
     return;
   }
-  pv.innerHTML = head + `<div class="fb-pv-stage is-loading"><img alt="${esc(e.name)}"/></div>`;
-  const stage = pv.querySelector(".fb-pv-stage");
-  const img = stage.querySelector("img");
-  img.onload = () => {
-    stage.classList.remove("is-loading");
-    const dims = pv.querySelector(".fb-pv-dims");
-    if (dims) dims.textContent = `${img.naturalWidth}×${img.naturalHeight} · `;
-  };
-  img.onerror = () => {
-    stage.classList.remove("is-loading");
-    stage.innerHTML = `<div class="fb-error">Could not load the image</div>`;
-  };
   // mtime in the URL: a file overwritten in place shows its new content
-  img.src = url({ path: e.path, raw: 1, t: e.mtime });
+  pv.innerHTML = head + `<div class="fb-pv-scroll fb-pv-img"><img alt="${esc(e.name)}"
+    src="${url({ path: e.path, raw: 1, t: e.mtime })}"/></div>`;
+  pv.querySelector("img").onerror = () => {
+    pv.querySelector(".fb-pv-img").outerHTML = `<div class="fb-error">Could not load the image</div>`;
+  };
 }
 
 function step(delta) {
@@ -318,7 +298,7 @@ function wire() {
   const pv = $(".fb-preview");
   const read = () => {
     const v = parseFloat(localStorage.getItem(SPLIT_KEY) || "");
-    return Number.isFinite(v) ? Math.min(75, Math.max(25, v)) : 55;
+    return Number.isFinite(v) ? Math.min(75, Math.max(20, v)) : 46;
   };
   pv.style.width = `${read()}%`;
   split.addEventListener("pointerdown", (ev) => {
@@ -329,7 +309,7 @@ function wire() {
     const move = (e) => {
       const r = body.getBoundingClientRect();
       if (!r.width) return;
-      const pct = Math.min(75, Math.max(25, ((r.right - e.clientX) / r.width) * 100));
+      const pct = Math.min(75, Math.max(20, ((r.right - e.clientX) / r.width) * 100));
       pv.style.width = `${pct}%`;
       localStorage.setItem(SPLIT_KEY, String(Math.round(pct)));
     };
@@ -345,7 +325,7 @@ function wire() {
   });
   split.addEventListener("dblclick", () => {
     localStorage.removeItem(SPLIT_KEY);
-    pv.style.width = "55%";
+    pv.style.width = "46%";
   });
 
   // ↑/↓ (and ←/→) step through the folder's files; Backspace goes up.
@@ -365,7 +345,6 @@ function wire() {
 export function onShow() {
   wire();
   active = true;
-  if (!selected) select(null);
   load();
 }
 

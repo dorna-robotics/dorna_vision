@@ -4,7 +4,7 @@
 import { VisionClient, VisionServerError } from "/static/js/api.js?v=72";
 import * as Cameras    from "/static/js/cameras.js?v=72";
 import * as Playground from "/static/js/playground.js?v=72";
-import * as Files      from "/static/js/files.js?v=1";
+import * as Files      from "/static/js/files.js?v=2";
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));

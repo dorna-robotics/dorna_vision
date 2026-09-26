@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/vendor/favicon.png"/>
   <link rel="stylesheet" href="/static/vendor/base.css"/>
   <link rel="stylesheet" href="/static/vendor/nav.css"/>
-  <link rel="stylesheet" href="/static/style.css?v=80"/>
+  <link rel="stylesheet" href="/static/style.css?v=81"/>
 </head>
 <body class="is-pre-init">
 
@@ -141,7 +141,6 @@
       <div class="fb-panel">
         <div class="fb-bar">
           <div class="fb-crumbs"></div>
-          <span class="fb-count"></span>
           <div class="spacer"></div>
           <button class="btn btn-ghost btn-sm btn-icon fb-reload" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
           <button class="btn btn-sm fb-mkdir" title="Create a folder here"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg> New folder</button>
@@ -151,8 +150,8 @@
         </div>
         <div class="fb-body">
           <div class="fb-list" role="listbox"></div>
-          <div class="fb-split" role="separator" aria-orientation="vertical" title="Drag to resize · double-click to reset"></div>
-          <div class="fb-preview"></div>
+          <div class="fb-split" role="separator" aria-orientation="vertical" title="Drag to resize · double-click to reset" hidden></div>
+          <div class="fb-preview" hidden></div>
         </div>
         <div class="fb-foot">
           <span class="fb-path"></span>
@@ -529,7 +528,7 @@
 <script type="module" src="/static/js/api.js?v=72"></script>
 <script type="module" src="/static/js/cameras.js?v=78"></script>
 <script type="module" src="/static/js/playground.js?v=72"></script>
-<script type="module" src="/static/js/files.js?v=1"></script>
+<script type="module" src="/static/js/files.js?v=2"></script>
 <script type="module" src="/static/js/main.js?v=73"></script>
 </body>
 </html>

@@ -1433,11 +1433,6 @@ body:has(#filesPage.active) .main-inner { max-width: 1560px; }
 .fb-crumb.is-last { color: var(--text); cursor: default; font-weight: 600; }
 .fb-crumb.is-last:hover { background: transparent; }
 .fb-sep { color: var(--muted2); font-size: var(--text-sm); }
-.fb-count {
-  font-size: var(--text-sm); color: var(--muted);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-  padding-left: var(--space-2);
-}
 
 .fb-body { display: flex; flex: 1 1 auto; min-height: 0; }
 .fb-list { flex: 1 1 auto; overflow: auto; padding: var(--space-2) var(--space-3); min-width: 0; }
@@ -1453,7 +1448,7 @@ body:has(#filesPage.active) .main-inner { max-width: 1560px; }
 .fb-split:hover::before, .fb-split.is-dragging::before { background: var(--accent); }
 .fb-body.is-resizing { cursor: col-resize; user-select: none; }
 .fb-preview {
-  width: 55%; min-width: 0; flex: 0 0 auto;
+  width: 46%; min-width: 0; flex: 0 0 auto;
   display: flex; flex-direction: column;
 }
 
@@ -1507,43 +1502,18 @@ body:has(#filesPage.active) .main-inner { max-width: 1560px; }
 }
 @keyframes fb-spin { to { transform: rotate(360deg); } }
 
-/* Preview — one image, fitted, on a quiet stage */
+/* Preview pane — same as the workspace's, the image fitted in it */
 .fb-pv-head {
-  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+  padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border2);
-  display: flex; align-items: center; gap: var(--space-3);
-  flex-shrink: 0; min-height: 49px;
+  display: flex; align-items: baseline; gap: var(--space-3);
+  flex-shrink: 0;
 }
-.fb-pv-name {
-  font-size: var(--text-md); font-weight: 600; color: var(--text);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-}
-.fb-pv-meta {
-  font-size: var(--text-xs); color: var(--muted);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-  margin-left: auto;
-}
-.fb-pv-stage {
-  flex: 1 1 auto; min-height: 0;
-  display: flex; align-items: center; justify-content: center;
-  padding: var(--space-4);
-  background: var(--surface2);
-}
-.fb-pv-stage img {
-  max-width: 100%; max-height: 100%; object-fit: contain;
-  border-radius: var(--radius-xs);
-  transition: opacity var(--motion-fast) var(--ease);
-}
-.fb-pv-stage.is-loading img { opacity: 0; }
-.fb-pv-stage.is-loading { animation: fb-shimmer 1.2s ease-in-out infinite; }
-.fb-pv-empty {
-  flex: 1 1 auto;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: var(--space-3);
-  color: var(--muted2); font-size: var(--text-md);
-}
-.fb-pv-empty span:first-of-type { color: var(--muted); }
-.fb-pv-hint { font-size: var(--text-xs); color: var(--muted2); }
+.fb-pv-name { font-size: var(--text-md); font-weight: 600; color: var(--text); }
+.fb-pv-meta { font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.fb-pv-scroll { overflow: auto; flex: 1 1 auto; }
+.fb-pv-img { display: flex; align-items: center; justify-content: center; padding: var(--space-4); }
+.fb-pv-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 .fb-foot {
   display: flex; align-items: center;
