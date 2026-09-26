@@ -9,7 +9,7 @@ import tornado.web
 from .pools import CameraPool, RobotPool
 from .ws_handler import VisionWSHandler
 from .mqtt_relay import MQTTDeviceObserver
-from .files import FilesHandler, FilesActionHandler, default_captures_dir, ensure_root
+from .files import FilesHandler, FilesSocket, UploadHandler, default_captures_dir, ensure_root
 
 
 DEFAULT_PORT = 80
@@ -58,7 +58,8 @@ def make_app(camera_pool, robot_pool, default_executor, captures_dir):
         # Files page — the captures folder (see files.py). Before the SPA
         # fallback, which would otherwise answer these with index.html.
         (r"/api/files", FilesHandler, {"root": captures_dir}),
-        (r"/api/files/(upload|mkdir|delete)", FilesActionHandler, {"root": captures_dir}),
+        (r"/api/files/upload", UploadHandler, {"root": captures_dir}),
+        (r"/ws/files", FilesSocket, {"root": captures_dir}),
         # SPA fallback: any path that isn't /ws or /static/* serves index.html
         # so /, /cameras, /robots, /playground all render the same shell and
         # the client-side router picks the section.

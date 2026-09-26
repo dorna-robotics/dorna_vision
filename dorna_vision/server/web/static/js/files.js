@@ -61,6 +61,70 @@ function toast(msg, kind = "ok") {
 }
 
 const url = (params) => `${API}?${new URLSearchParams(params)}`;
+const ROOT = "captures";
+
+// ── the folder socket (server: fslive.py, twin of the workspace's) ──
+// Listing, New folder and Delete go over one WebSocket, answered by id;
+// the server PUSHES changes to the folder on screen — a new capture
+// appears the moment it is written, without reloading. File BYTES stay
+// on HTTP (preview, download, zip, upload): streamed, with the
+// browser's own download handling and image cache. The socket is open
+// while the Files page is on screen, closed when it is left.
+class FolderSocket {
+  constructor(url, onEvent) {
+    this.url = url; this.onEvent = onEvent;
+    this.seq = 0; this.wait = new Map(); this.closed = false; this.backoff = 500;
+    this.ready = this._connect();
+  }
+  _connect() {
+    return new Promise((resolve) => {
+      const ws = new WebSocket(this.url);
+      this.ws = ws;
+      ws.onopen = () => { this.backoff = 500; resolve(); this.onEvent({ ev: "open" }); };
+      ws.onmessage = (m) => {
+        let d; try { d = JSON.parse(m.data); } catch { return; }
+        if (d.id != null && this.wait.has(d.id)) {
+          const { ok, fail } = this.wait.get(d.id); this.wait.delete(d.id);
+          d.ok ? ok(d) : fail(new Error(d.error || "request failed"));
+        } else if (d.ev) this.onEvent(d);
+      };
+      ws.onclose = () => {
+        for (const { fail } of this.wait.values()) fail(new Error("connection lost"));
+        this.wait.clear();
+        if (this.closed) return;
+        setTimeout(() => { if (!this.closed) this.ready = this._connect(); }, this.backoff);
+        this.backoff = Math.min(this.backoff * 2, 8000);
+      };
+    });
+  }
+  async request(op, args) {
+    await this.ready;
+    const id = ++this.seq;
+    return new Promise((ok, fail) => {
+      this.wait.set(id, { ok, fail });
+      this.ws.send(JSON.stringify({ id, op, ...args }));
+    });
+  }
+  close() { this.closed = true; try { this.ws.close(); } catch {} }
+}
+
+const socketUrl = () => `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/files`;
+const byOrder = (a, b) => (a.dir === b.dir ? b.mtime - a.mtime : a.dir ? -1 : 1);
+
+// PUT one file as the raw request body (streamed to disk by the server).
+function putFile(u, file, onPct) {
+  return new Promise((ok, fail) => {
+    const x = new XMLHttpRequest();
+    x.open("PUT", u);
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onPct(Math.round((e.loaded / e.total) * 100)); };
+    x.onload = () => {
+      let d = {}; try { d = JSON.parse(x.responseText); } catch {}
+      x.status < 300 ? ok(d) : fail(new Error(d.error || `upload failed (${x.status})`));
+    };
+    x.onerror = () => fail(new Error("upload failed — connection lost"));
+    x.send(file);
+  });
+}
 
 // ── state ──────────────────────────────────────────────────────────
 let path = "";          // folder shown, relative to the captures root
@@ -68,36 +132,74 @@ let entries = [];       // its listing
 let selected = null;    // the entry in the preview
 let active = false;     // page on screen (keyboard nav only then)
 let wired = false;
+let sock = null;        // the folder socket, while the page is on screen
+const rows = new Map(); // path -> its row element
 
 const $ = (s) => document.querySelector(`#filesPage ${s}`);
 
 // ── listing ────────────────────────────────────────────────────────
+// One "open" per folder; afterwards the server pushes what changed in it
+// (onEvent) and only those rows are touched.
+let opening = 0;
 async function load() {
   const list = $(".fb-list");
   crumbs();
+  const mine = ++opening;
   list.innerHTML = `<div class="fb-loading">${[0, 1, 2].map(() => '<div class="fb-skel"></div>').join("")}</div>`;
   let data;
   try {
-    const resp = await fetch(url({ path }));
-    data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || "Could not read the folder");
+    data = (await sock.request("open", { root: ROOT, path })).folder;
   } catch (err) {
+    if (mine !== opening) return;
     list.innerHTML = `<div class="fb-error">${svg(ICON.file)} ${esc(err.message)}</div>`;
     return;
   }
+  if (mine !== opening) return;
   entries = data.entries;
-  $(".fb-path").textContent = data.abs + (path ? `/${path}` : "");
-  $(".fb-path").title = $(".fb-path").textContent;
+  $(".fb-path").textContent = data.abs;
+  $(".fb-path").title = data.abs + (data.live ? "" : " — not live: reload to refresh");
   // keep the preview when the selected file is still here (reload)
   if (selected && !entries.some((e) => e.path === selected.path)) select(null);
+  render();
+}
 
+function render() {
+  const list = $(".fb-list");
+  rows.clear();
   if (!entries.length) {
     list.innerHTML = `<div class="fb-empty">Nothing here yet — <b>Upload</b> adds files, or drop them here.</div>`;
     return;
   }
+  const frag = document.createDocumentFragment();
+  for (const e of entries) frag.appendChild(row(e));
   list.innerHTML = "";
-  for (const e of entries) list.appendChild(row(e));
+  list.appendChild(frag);
   markSelected();
+}
+
+// What the server pushes for the folder on screen: rows added, changed
+// or gone — applied in place, order kept.
+function onEvent(d) {
+  if (d.ev === "open" && rows.size) { load(); return; }   // reconnected: resync
+  if (d.root !== ROOT || d.path !== path) return;
+  if (d.ev === "gone") { go(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""); return; }
+  if (d.ev !== "change") return;
+  if (d.reset) { entries = d.upsert.sort(byOrder); render(); return; }
+  const rm = new Set(d.remove || []);
+  const up = new Map((d.upsert || []).map((e) => [e.path, e]));
+  entries = entries.filter((e) => !rm.has(e.path) && !up.has(e.path))
+                   .concat([...up.values()]).sort(byOrder);
+  if (!entries.length || !rows.size) { render(); return; }
+  for (const p of rm) { rows.get(p)?.remove(); rows.delete(p); }
+  for (const [p, e] of up) { rows.get(p)?.remove(); rows.delete(p); row(e); }
+  const frag = document.createDocumentFragment();          // one reorder pass
+  for (const e of entries) frag.appendChild(rows.get(e.path));
+  $(".fb-list").appendChild(frag);
+  if (selected) {
+    if (rm.has(selected.path)) select(null);
+    else if (up.has(selected.path)) select(up.get(selected.path));
+    else markSelected();
+  }
 }
 
 function row(e) {
@@ -125,11 +227,13 @@ function row(e) {
   del.className = "btn btn-ghost btn-sm btn-icon fb-del";
   del.title = e.dir ? `Delete the folder ${e.name}` : `Delete ${e.name}`;
   del.innerHTML = svg(ICON.trash, 13);
-  del.addEventListener("click", (ev) => { ev.stopPropagation(); remove(e); });
+  del.addEventListener("click", (ev) => { ev.stopPropagation(); remove(e.path); });
   acts.appendChild(del);
   r.addEventListener("click", () => {
-    if (e.dir) { go(e.path); } else { select(e); }
+    const cur = entries.find((x) => x.path === e.path) || e;
+    if (cur.dir) { go(cur.path); } else { select(cur); }
   });
+  rows.set(e.path, r);
   return r;
 }
 
@@ -199,17 +303,11 @@ function step(delta) {
 }
 
 // ── actions ────────────────────────────────────────────────────────
-async function post(action, body, isForm = false) {
-  const u = `${API}/${action}${isForm ? `?${new URLSearchParams({ path })}` : ""}`;
-  const resp = await fetch(u, isForm
-    ? { method: "POST", body }
-    : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const d = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(d.error || `${action} failed`);
-  return d;
-}
-
-async function remove(e) {
+// New folder / Delete go over the socket; the list updates from the
+// change the server then pushes — no reload.
+async function remove(p) {
+  const e = entries.find((x) => x.path === p);
+  if (!e) return;
   const ok = await window.confirmDialog({
     title: e.dir ? `Delete the folder “${e.name}”?` : `Delete “${e.name}”?`,
     message: e.dir ? "Only an empty folder can be deleted." : "This cannot be undone.",
@@ -217,32 +315,32 @@ async function remove(e) {
   });
   if (!ok) return;
   try {
-    await post("delete", { path: e.path });
-    if (selected && selected.path === e.path) select(null);
-    toast(`Deleted ${e.name}`, "ok");
-    load();
+    await sock.request("delete", { root: ROOT, path: e.path });
   } catch (err) { toast(err.message, "bad"); }
 }
 
+// Each file is its own PUT, streamed to disk by the server; the button
+// shows which file and how far.
 async function upload(fileList) {
   const files = [...fileList];
   if (!files.length) return;
   const btn = $(".fb-upload");
   const label = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = `<span class="fb-spin"></span> Uploading ${files.length}…`;
+  let failed = 0;
   try {
-    const fd = new FormData();
-    for (const f of files) fd.append("file", f);
-    const d = await post("upload", fd, true);
-    toast(`Uploaded ${d.saved.length} file${d.saved.length === 1 ? "" : "s"}`, "ok");
-    load();
-  } catch (err) {
-    toast(err.message, "bad");
+    for (const [k, f] of files.entries()) {
+      const tag = files.length > 1 ? `${k + 1}/${files.length} ` : "";
+      try {
+        await putFile(`${API}/upload?${new URLSearchParams({ path, name: f.name })}`, f,
+          (pct) => { btn.innerHTML = `<span class="fb-spin"></span> Uploading ${tag}${pct}%`; });
+      } catch (err) { failed++; toast(`${f.name}: ${err.message}`, "bad"); }
+    }
   } finally {
     btn.disabled = false;
     btn.innerHTML = label;
   }
+  return failed;
 }
 
 function wire() {
@@ -256,8 +354,7 @@ function wire() {
     const name = window.prompt("New folder name");
     if (!name) return;
     try {
-      await post("mkdir", { path: path ? `${path}/${name}` : name });
-      load();
+      await sock.request("mkdir", { root: ROOT, path: path ? `${path}/${name}` : name });
     } catch (err) { toast(err.message, "bad"); }
   });
 
@@ -345,9 +442,12 @@ function wire() {
 export function onShow() {
   wire();
   active = true;
+  if (!sock) sock = new FolderSocket(socketUrl(), onEvent);
   load();
 }
 
 export function onHide() {
   active = false;
+  if (sock) { sock.close(); sock = null; }   // the server stops watching
+  rows.clear();
 }
