@@ -9,6 +9,7 @@ import tornado.web
 from .pools import CameraPool, RobotPool
 from .ws_handler import VisionWSHandler
 from .mqtt_relay import MQTTDeviceObserver
+from .files import FilesHandler, FilesActionHandler, default_captures_dir, ensure_root
 
 
 DEFAULT_PORT = 80
@@ -46,7 +47,7 @@ WS_PING_INTERVAL_S = 20
 WS_PING_TIMEOUT_S = 60
 
 
-def make_app(camera_pool, robot_pool, default_executor):
+def make_app(camera_pool, robot_pool, default_executor, captures_dir):
     return tornado.web.Application([
         (r"/ws", VisionWSHandler, {
             "camera_pool": camera_pool,
@@ -54,6 +55,10 @@ def make_app(camera_pool, robot_pool, default_executor):
             "default_executor": default_executor,
         }),
         (r"/static/(.*)", NoCacheStaticFileHandler, {"path": STATIC_DIR}),
+        # Files page — the captures folder (see files.py). Before the SPA
+        # fallback, which would otherwise answer these with index.html.
+        (r"/api/files", FilesHandler, {"root": captures_dir}),
+        (r"/api/files/(upload|mkdir|delete)", FilesActionHandler, {"root": captures_dir}),
         # SPA fallback: any path that isn't /ws or /static/* serves index.html
         # so /, /cameras, /robots, /playground all render the same shell and
         # the client-side router picks the section.
@@ -65,7 +70,8 @@ def make_app(camera_pool, robot_pool, default_executor):
 
 
 async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
-                     mqtt_enabled=True, mqtt_broker_host=None, mqtt_broker_port=None):
+                     mqtt_enabled=True, mqtt_broker_host=None, mqtt_broker_port=None,
+                     captures_dir=None):
     # Capture the running loop so cross-thread broadcasts can schedule on it.
     VisionWSHandler.set_ioloop(asyncio.get_running_loop())
 
@@ -93,7 +99,8 @@ async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
         VisionWSHandler.bus_observer = observer
     VisionWSHandler.set_observer(observer)
 
-    app = make_app(camera_pool, robot_pool, default_executor)
+    captures = ensure_root(captures_dir or default_captures_dir())
+    app = make_app(camera_pool, robot_pool, default_executor, captures)
     try:
         app.listen(port, address=host)
     except OSError as ex:
@@ -104,6 +111,7 @@ async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
     print("dorna_vision server listening:")
     print("  GUI:       http://%s:%d/" % (host, port))
     print("  WebSocket: ws://%s:%d/ws" % (host, port))
+    print("  Files:     %s" % captures)
 
     stop_event = asyncio.Event()
 
@@ -133,13 +141,15 @@ async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
 
 
 def main(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
-         mqtt_enabled=True, mqtt_broker_host=None, mqtt_broker_port=None):
+         mqtt_enabled=True, mqtt_broker_host=None, mqtt_broker_port=None,
+         captures_dir=None):
     try:
         asyncio.run(run_server(
             host=host, port=port, max_workers=max_workers,
             mqtt_enabled=mqtt_enabled,
             mqtt_broker_host=mqtt_broker_host,
             mqtt_broker_port=mqtt_broker_port,
+            captures_dir=captures_dir,
         ))
     except KeyboardInterrupt:
         pass

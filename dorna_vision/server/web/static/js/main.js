@@ -4,6 +4,7 @@
 import { VisionClient, VisionServerError } from "/static/js/api.js?v=72";
 import * as Cameras    from "/static/js/cameras.js?v=72";
 import * as Playground from "/static/js/playground.js?v=72";
+import * as Files      from "/static/js/files.js?v=1";
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -18,6 +19,7 @@ const PAGE_HOOKS = {
   home:       { onShow: () => refreshHome() },
   cameras:    { onShow: () => Cameras.onShow(),    onHide: () => Cameras.onHide() },
   playground: { onShow: () => Playground.onShow(), onHide: () => Playground.onHide() },
+  files:      { onShow: () => Files.onShow(),      onHide: () => Files.onHide() },
 };
 let _currentRoute = null;
 
@@ -49,13 +51,13 @@ function showPage(name) {
   }
   $$("section.page").forEach(s => s.classList.toggle("active", s.dataset.page === name));
   $$(".app-nav-link").forEach(a => a.classList.toggle("active", a.dataset.route === name));
-  const titleMap = { home: "Home", cameras: "Cameras", playground: "Playground" };
+  const titleMap = { home: "Home", cameras: "Cameras", playground: "Playground", files: "Files" };
   $("#pageTitle").textContent = titleMap[name] || "Home";
   _currentRoute = name;
   PAGE_HOOKS[name]?.onShow?.();
 }
 
-const ROUTES = ["home", "cameras", "playground"];
+const ROUTES = ["home", "cameras", "playground", "files"];
 
 function currentRoute() {
   const r = location.pathname.replace(/^\/+|\/+$/g, "") || "home";

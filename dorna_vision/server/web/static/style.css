@@ -141,6 +141,7 @@ section[data-page="home"].active {
 .home-card-cameras    .home-card-icon { background: rgba(10,132,255,0.12); color: var(--accent); }
 .home-card-playground .home-card-icon { background: rgba(52,199,89,0.12);  color: var(--green); }
 .home-card-jupyter    .home-card-icon { background: rgba(255,159,10,0.12); color: #ff9f0a; }
+.home-card-files      .home-card-icon { background: var(--surface2); color: var(--text); }
 [data-theme="light"] .home-card-cameras    .home-card-icon { background: rgba(0,122,255,0.08); }
 [data-theme="light"] .home-card-playground .home-card-icon { background: rgba(36,138,61,0.08); }
 [data-theme="light"] .home-card-jupyter    .home-card-icon { background: rgba(255,149,0,0.08); color: #c93400; }
@@ -1388,4 +1389,179 @@ select.input,
   line-height: 1.55;
   opacity: .75;
   white-space: pre;
+}
+
+/* ── Files page (js/files.js) ─────────────────────────────────────────
+   The captures folder. Same grammar as the workspace orchestrator's
+   file browser (its admin/style.css .fb-* block): breadcrumbs, one row
+   per entry, a resizable preview on the right. Here it is a PAGE, not a
+   modal, and the preview is an image stage — reviewing a dataset. */
+body:has(#filesPage.active) .main-inner { max-width: 1560px; }
+#filesPage [hidden] { display: none !important; }
+
+.fb-panel {
+  display: flex; flex-direction: column;
+  height: calc(100vh - 94px);            /* topbar 54 + .main padding 40 */
+  min-height: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color var(--motion-fast) var(--ease),
+              box-shadow var(--motion-fast) var(--ease);
+}
+/* Files dragged over the panel: accent border + glow, never colour alone
+   — the empty state also says "drop them here". */
+.fb-panel.is-dropping { border-color: var(--accent); box-shadow: var(--glow); }
+
+.fb-bar {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border2);
+  flex-shrink: 0; flex-wrap: wrap;
+}
+.fb-crumbs { display: flex; align-items: center; gap: var(--space-1); min-width: 0; overflow: hidden; }
+.fb-crumb {
+  appearance: none; background: transparent; border: 0; cursor: pointer;
+  font: 500 var(--text-md)/1 var(--font);
+  color: var(--accent);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+}
+.fb-crumb:hover { background: var(--surface2); }
+.fb-crumb.is-last { color: var(--text); cursor: default; font-weight: 600; }
+.fb-crumb.is-last:hover { background: transparent; }
+.fb-sep { color: var(--muted2); font-size: var(--text-sm); }
+.fb-count {
+  font-size: var(--text-sm); color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  padding-left: var(--space-2);
+}
+
+.fb-body { display: flex; flex: 1 1 auto; min-height: 0; }
+.fb-list { flex: 1 1 auto; overflow: auto; padding: var(--space-2) var(--space-3); min-width: 0; }
+
+.fb-split {
+  flex: 0 0 9px; cursor: col-resize; position: relative;
+}
+.fb-split::before {
+  content: ""; position: absolute; inset: 0 4px;
+  background: var(--border2);
+  transition: background var(--motion-fast) var(--ease);
+}
+.fb-split:hover::before, .fb-split.is-dragging::before { background: var(--accent); }
+.fb-body.is-resizing { cursor: col-resize; user-select: none; }
+.fb-preview {
+  width: 55%; min-width: 0; flex: 0 0 auto;
+  display: flex; flex-direction: column;
+}
+
+.fb-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto auto auto;
+  align-items: center; gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  min-height: 40px;
+  transition: background var(--motion-fast) var(--ease),
+              border-color var(--motion-fast) var(--ease);
+}
+.fb-row:hover { background: var(--surface2); }
+.fb-row.is-selected { background: var(--accent-dim); border-color: var(--accent); }
+.fb-ic { color: var(--muted); display: flex; }
+.fb-ic.is-dir { color: var(--accent); }
+.fb-row.is-selected .fb-ic { color: var(--accent); }
+.fb-name {
+  font-size: var(--text-md); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fb-size, .fb-when {
+  font-size: var(--text-sm); color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.fb-when { min-width: 92px; text-align: right; }
+.fb-acts { display: flex; gap: var(--space-1); opacity: 0; transition: opacity var(--motion-fast) var(--ease); }
+.fb-row:hover .fb-acts, .fb-row.is-selected .fb-acts { opacity: 1; }
+.fb-acts .fb-del:hover { color: var(--red); }
+
+.fb-empty, .fb-error {
+  padding: var(--space-6) var(--space-5);
+  font-size: var(--text-md); color: var(--muted); text-align: center;
+}
+.fb-empty b { color: var(--text); font-weight: 600; }
+.fb-error { color: var(--red); display: flex; align-items: center; justify-content: center; gap: var(--space-3); }
+.fb-loading { padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3); }
+.fb-skel {
+  height: 34px; border-radius: var(--radius-md);
+  background: var(--surface2);
+  animation: fb-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes fb-shimmer { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.8; } }
+.fb-spin {
+  width: 11px; height: 11px; display: inline-block;
+  border: 2px solid var(--muted2); border-top-color: var(--text);
+  border-radius: 999px; animation: fb-spin 0.7s linear infinite;
+}
+@keyframes fb-spin { to { transform: rotate(360deg); } }
+
+/* Preview — one image, fitted, on a quiet stage */
+.fb-pv-head {
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; gap: var(--space-3);
+  flex-shrink: 0; min-height: 49px;
+}
+.fb-pv-name {
+  font-size: var(--text-md); font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.fb-pv-meta {
+  font-size: var(--text-xs); color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  margin-left: auto;
+}
+.fb-pv-stage {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-4);
+  background: var(--surface2);
+}
+.fb-pv-stage img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  border-radius: var(--radius-xs);
+  transition: opacity var(--motion-fast) var(--ease);
+}
+.fb-pv-stage.is-loading img { opacity: 0; }
+.fb-pv-stage.is-loading { animation: fb-shimmer 1.2s ease-in-out infinite; }
+.fb-pv-empty {
+  flex: 1 1 auto;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-3);
+  color: var(--muted2); font-size: var(--text-md);
+}
+.fb-pv-empty span:first-of-type { color: var(--muted); }
+.fb-pv-hint { font-size: var(--text-xs); color: var(--muted2); }
+
+.fb-foot {
+  display: flex; align-items: center;
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border2);
+  flex-shrink: 0; min-width: 0;
+}
+/* The full path, never elided — it is the answer to "where did my
+   file go?", and it is selectable to copy into a shell. */
+.fb-path {
+  font: var(--text-xs)/1.4 var(--mono); color: var(--muted2);
+  white-space: nowrap; overflow-x: auto; overflow-y: hidden;
+  user-select: all; cursor: text; scrollbar-width: thin;
+}
+
+@media (max-width: 760px) {
+  .fb-body { flex-direction: column; }
+  .fb-split { display: none; }
+  .fb-preview { width: 100% !important; height: 45%; border-top: 1px solid var(--border2); }
+  .fb-when { display: none; }
 }

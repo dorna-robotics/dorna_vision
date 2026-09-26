@@ -16,6 +16,9 @@ def cli():
                              "Default: 1883.")
     parser.add_argument("--no-mqtt", action="store_true",
                         help="Disable MQTT health publishing entirely.")
+    parser.add_argument("--captures", default=None,
+                        help="Folder the Files page browses. "
+                             "Default: ~/captures of the user who started the server.")
     args = parser.parse_args()
     main(
         host=args.host,
@@ -24,6 +27,7 @@ def cli():
         mqtt_enabled=not args.no_mqtt,
         mqtt_broker_host=args.mqtt_broker,
         mqtt_broker_port=args.mqtt_port,
+        captures_dir=args.captures,
     )
 
 

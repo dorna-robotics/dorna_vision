@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/vendor/favicon.png"/>
   <link rel="stylesheet" href="/static/vendor/base.css"/>
   <link rel="stylesheet" href="/static/vendor/nav.css"/>
-  <link rel="stylesheet" href="/static/style.css?v=79"/>
+  <link rel="stylesheet" href="/static/style.css?v=80"/>
 </head>
 <body class="is-pre-init">
 
@@ -28,6 +28,10 @@
     <a href="/playground" class="app-nav-link" data-route="playground">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
       <span>Playground</span>
+    </a>
+    <a href="/files" class="app-nav-link" data-route="files">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+      <span>Files</span>
     </a>
   </div>
 </nav>
@@ -72,6 +76,15 @@
             <div class="home-card-text">
               <div class="home-card-label">Playground</div>
               <div class="home-card-hint" id="homeCardPlayground">Build and test detections</div>
+            </div>
+          </a>
+          <a class="home-card home-card-files" href="/files" data-route="files">
+            <div class="home-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+            </div>
+            <div class="home-card-text">
+              <div class="home-card-label">Files</div>
+              <div class="home-card-hint">Browse, upload and download captures</div>
             </div>
           </a>
         </div>
@@ -119,6 +132,32 @@
         </div>
       </div>
       <div class="cam-grid" id="camGrid"></div>
+    </section>
+
+    <!-- Files — the captures folder (server --captures, default
+         ~/captures). Same grammar as the workspace file browser; the
+         preview is built for images. js/files.js owns it. -->
+    <section data-page="files" class="page" id="filesPage">
+      <div class="fb-panel">
+        <div class="fb-bar">
+          <div class="fb-crumbs"></div>
+          <span class="fb-count"></span>
+          <div class="spacer"></div>
+          <button class="btn btn-ghost btn-sm btn-icon fb-reload" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+          <button class="btn btn-sm fb-mkdir" title="Create a folder here"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg> New folder</button>
+          <button class="btn btn-sm fb-zip" title="Download this folder as a zip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg> Download folder</button>
+          <button class="btn btn-sm btn-primary fb-upload" title="Upload files into this folder"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload</button>
+          <input type="file" class="fb-file" multiple hidden/>
+        </div>
+        <div class="fb-body">
+          <div class="fb-list" role="listbox"></div>
+          <div class="fb-split" role="separator" aria-orientation="vertical" title="Drag to resize · double-click to reset"></div>
+          <div class="fb-preview"></div>
+        </div>
+        <div class="fb-foot">
+          <span class="fb-path"></span>
+        </div>
+      </div>
     </section>
 
     <section data-page="playground" class="page">
@@ -490,6 +529,7 @@
 <script type="module" src="/static/js/api.js?v=72"></script>
 <script type="module" src="/static/js/cameras.js?v=78"></script>
 <script type="module" src="/static/js/playground.js?v=72"></script>
-<script type="module" src="/static/js/main.js?v=72"></script>
+<script type="module" src="/static/js/files.js?v=1"></script>
+<script type="module" src="/static/js/main.js?v=73"></script>
 </body>
 </html>

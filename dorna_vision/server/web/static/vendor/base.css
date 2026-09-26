@@ -28,6 +28,28 @@
   --shadow:    0 4px 16px rgba(0,0,0,0.35);
   --shadow-lg: 0 12px 40px rgba(0,0,0,0.5);
   --glow:      0 0 0 4px rgba(10,132,255,0.25);
+
+  /* Named scales — the same values as the workspace's vendor/base.css
+     (docs/design-system.md §2), so surfaces ported from the workspace
+     GUI render identically here. */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 17px;
+  --motion-fast: 0.12s;
+  --motion-med:  0.2s;
+  --ease:        cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 
 /* ── CSS Variables (Light) ────────────────────────────────────────────── */
