@@ -29,6 +29,7 @@ import itertools
 import json
 import os
 import threading
+import time
 
 import websocket  # websocket-client
 
@@ -604,6 +605,7 @@ class _ObjectProxy(object):
         vc.detection("d1").xyz([100, 200])
         vc.detection("d1").retval()
         vc.detection("d1").get_img("img")      # binary JPEG (not via proxy RPC)
+        vc.detection("d1").save_img("a.jpg")   # ...written on THIS computer
         vc.camera(sn).set_exposure(1000)
         vc.robot("r1").joint()
 
@@ -629,6 +631,35 @@ class _ObjectProxy(object):
         if self._target != "detection":
             raise AttributeError("get_img is only valid on a detection proxy")
         return self._client.detection_get_img(self._name, type=type, quality=quality, timeout=_timeout)
+
+    def save_img(self, path, type="img", quality=100, _timeout=None):
+        """
+        Detection-only: fetch the image and write it on THIS computer — the
+        one calling the API, not the vision unit (that is what the
+        detection's own save_img / save_img_roi display options do).
+
+            cnt.run()
+            cnt.save_img("captures/a.jpg", type="img_roi")
+
+        Full resolution, JPEG at ``quality`` (100 by default: saved images
+        are usually a dataset). ``path`` naming follows the server-side
+        save_img: a folder (trailing "/" or an existing directory) gets
+        ``<timestamp>.jpg``, ``roi_<timestamp>.jpg`` for img_roi; anything
+        else is the file, overwritten. The bytes are JPEG whatever the
+        extension. Folders are created as needed. Returns the path written.
+
+        type: "img" | "img_roi" | "img_thr" | "color_img" | "depth_img" | "ir_img"
+        """
+        jpeg, _meta = self.get_img(type=type, quality=quality, _timeout=_timeout)
+        path = os.path.expanduser(str(path))
+        if path.endswith(("/", os.sep)) or os.path.isdir(path):
+            stem = str(int(time.time() * 1000))
+            path = os.path.join(path, ("roi_" if type == "img_roi" else "") + stem + ".jpg")
+        folder = os.path.dirname(os.path.abspath(path))
+        os.makedirs(folder, exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(jpeg)
+        return path
 
     def __getattr__(self, method):
         if method.startswith("_"):
