@@ -11,6 +11,15 @@ import tornado.websocket
 from .handlers import HANDLERS, CAMERA_BOUND, BINARY_INBOUND, _to_jsonable
 from .session import ClientSession
 
+# Client save (detection display.client_save_img / client_save_img_roi):
+# at most this many frames per session queued or on the wire. Past it the
+# newest is dropped — a slow link must never grow memory or stall a camera.
+PUSH_MAX_IN_FLIGHT = 4
+
+# Formats the target's extension can ask for — what cv.imwrite would
+# write for that file name. Anything else (a folder, True) is JPEG.
+_PUSH_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
+
 
 class VisionWSHandler(tornado.websocket.WebSocketHandler):
     """
@@ -23,6 +32,18 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
     Binary replies (e.g. images) are sent as:
         1) a JSON envelope with "binary_follows": true
         2) a raw binary websocket frame immediately after
+
+    Server-initiated events carry no "id". A detection with
+    display.client_save_img / client_save_img_roi sends each run's frame to
+    the client that owns it, which writes the file — an event envelope +
+    ONE binary frame (the encoded image, full resolution):
+        {"event": "detection_img", "name": <detection>, "type": "img"|"img_roi",
+         "timestamp": <that run's capture timestamp>, "shape": [h, w, c],
+         "target": <the configured value>, "encoding": "jpg"|"png"|...,
+         "binary_follows": true}
+    Every envelope + binary pair (reply or event) is written atomically
+    under _write_lock, so a binary always belongs to the envelope just
+    before it.
 
     Binary-bound commands (like detection_run) are dispatched onto the camera's
     single-worker executor so they serialize per camera, while different cameras
@@ -95,9 +116,16 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
         # is in BINARY_INBOUND, we stash {handler, cmd, msg_id, args} here
         # and wait for the next binary frame to pair them up.
         self._pending_inbound = None
+        # Image push state — see _push_sink.
+        self._push_lock = threading.Lock()
+        self._push_inflight = 0
+        self._push_dropping = False
+        self._push_closed = False
+        self._push_executor = None      # one worker, created on first push
 
     async def open(self):
         self.session = ClientSession(self.camera_pool, self.robot_pool)
+        self.session.push_sink = self._push_sink
         # For the site-bus handshake (bus_connect): the caller's own
         # address is the default broker host, and the observer is the
         # unit's GUI feed that must follow the same broker.
@@ -128,6 +156,12 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
     def on_close(self):
         with VisionWSHandler._conn_lock:
             VisionWSHandler._connections.discard(self)
+        # Pending pushes are for this client only: discard them.
+        with self._push_lock:
+            self._push_closed = True
+            ex, self._push_executor = self._push_executor, None
+        if ex is not None:
+            ex.shutdown(wait=False, cancel_futures=True)
         if self.session is not None:
             try:
                 self.session.close()
@@ -146,6 +180,82 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
             pass
         except Exception:
             traceback.print_exc()
+
+    # ── Client save ──────────────────────────────────────────────────────
+    # A detection with display.client_save_img / client_save_img_roi hands
+    # each run's frame here (session wires det.push_fn to this sink). The
+    # owning client gets an unsolicited envelope — no "id", "event":
+    # "detection_img", carrying the target as configured — followed by ONE
+    # binary frame, written under _write_lock like a reply so the pair can
+    # never interleave with another pair. The client resolves the target
+    # and writes the file (same rules as save_img).
+    #
+    # Full resolution, encoded exactly as cv.imwrite would write the
+    # target's file name: .png is lossless PNG, a folder or .jpg is JPEG at
+    # OpenCV's default — the same bytes save_img would write, on the other
+    # computer. Called on the detection's run thread: it only reserves a
+    # slot and queues; the encode runs on this session's push worker, the
+    # write on the IOLoop — the run's own reply is never delayed by either.
+
+    def _push_sink(self, name, kind, img, timestamp, target):
+        with self._push_lock:
+            if self._push_closed:
+                return
+            if self._push_inflight >= PUSH_MAX_IN_FLIGHT:
+                if not self._push_dropping:
+                    print("[push] dropped, client/link behind (%s %s)" % (name, kind))
+                    self._push_dropping = True
+                return
+            self._push_inflight += 1
+            if self._push_executor is None:
+                self._push_executor = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="push")
+            ex = self._push_executor
+        try:
+            ex.submit(self._push_encode, name, kind, img, timestamp, target)
+        except RuntimeError:            # shut down by on_close meanwhile
+            self._push_release(ok=False)
+
+    def _push_encode(self, name, kind, img, timestamp, target):
+        """Push worker: encode as the target's file name asks, hand the
+        envelope + bytes to the IOLoop."""
+        try:
+            import os
+            import cv2 as cv
+            ext = ".jpg"
+            if isinstance(target, str) and not target.endswith(("/", "\\")):
+                e = os.path.splitext(target)[1].lower()
+                if e in _PUSH_EXTS:
+                    ext = e
+            ok, buf = cv.imencode(ext, img)
+            if not ok:
+                raise RuntimeError("encode failed (%s)" % ext)
+            envelope = {"event": "detection_img", "name": name, "type": kind,
+                        "timestamp": timestamp, "shape": list(img.shape),
+                        "target": target, "encoding": ext.lstrip("."),
+                        "binary_follows": True}
+            loop = VisionWSHandler._ioloop
+            if loop is None or self._push_closed:
+                self._push_release(ok=False)
+                return
+            fut = asyncio.run_coroutine_threadsafe(
+                self._push_write(_to_jsonable(envelope), buf.tobytes()), loop)
+            fut.add_done_callback(
+                lambda f: self._push_release(ok=not f.cancelled() and f.exception() is None))
+        except Exception:
+            traceback.print_exc()
+            self._push_release(ok=False)
+
+    async def _push_write(self, envelope, data):
+        async with self._write_lock:
+            await self._write_json(envelope)
+            await self._write_binary(data)
+
+    def _push_release(self, ok):
+        with self._push_lock:
+            self._push_inflight = max(0, self._push_inflight - 1)
+            if ok and self._push_dropping:
+                self._push_dropping = False     # caught up: the next drop logs again
 
     async def on_message(self, message):
         # Binary frame: must follow a JSON envelope that asked for one.

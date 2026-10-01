@@ -61,7 +61,13 @@ class Detection(object):
             # Moved to opt-in helpers: detection.pose_plane(...) /
             # pose_kp(...) called after run() on the result you want.
             sort={"cmd": None, "max_det":100}, # {"cmd":"conf", "ascending":False, "max_det":100}, {"cmd":"pxl", "pxl":[w,h], "ascending":True, "max_det":100}, {"cmd":"xyz", "xyz":[x,y,z], "ascending":True, "max_det":100}
-            display={"label":0, "save_img":0, "save_img_roi":0},
+            # save_img / save_img_roi save on THIS machine; client_save_img /
+            # client_save_img_roi take the same values but the file is
+            # written on the computer that owns the detection — the frame
+            # goes there through ``push_fn`` (the vision server). Off unless
+            # set; a Detection without push_fn ignores the client_ keys.
+            display={"label":0, "save_img":0, "save_img_roi":0,
+                     "client_save_img":0, "client_save_img_roi":0},
             # Per-detection focus pin (cameras with a focus surface — uEye
             # XS). Applied at CAPTURE time, before the grab, e.g.
             # {"mode": "manual", "position": 164}. None = leave the camera
@@ -126,6 +132,13 @@ class Detection(object):
 
         # thread list
         self.thread_list = []
+
+        # Client-save sink — set by the owner (the vision server's session)
+        # to receive this run's frames for display.client_save_img /
+        # client_save_img_roi: push_fn(type, img, timestamp, target).
+        # Called on the run thread, so it must only queue — the encode and
+        # the send happen elsewhere.
+        self.push_fn = None
 
         # camera data
         self.camera_data = None
@@ -961,6 +974,21 @@ class Detection(object):
             cd_out["img_roi"] = img_roi.copy()
             self.retval["camera_data"] = cd_out
             self.retval["frame_mat_inv"] = self.frame_mat_inv.copy()
+
+            # client save — THIS run's own copies (cd_out), stamped with this
+            # run's timestamp, so a receiver can never get the next run's
+            # picture under this one's name. The sink only queues; the
+            # reply to this run is never delayed by the encode or the send.
+            if self.push_fn is not None:
+                for key, kind in (("client_save_img", "img"), ("client_save_img_roi", "img_roi")):
+                    if self.display.get(key):
+                        try:
+                            self.push_fn(kind, cd_out[kind], camera_data["timestamp"],
+                                         self.display[key])
+                        except Exception:
+                            # a push problem must never fail the detection
+                            import traceback
+                            traceback.print_exc()
         except Exception:
             # Print the full traceback to the server log, then RE-RAISE.
             # Swallowing here turned hard bugs (NameError, AttributeError,

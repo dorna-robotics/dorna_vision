@@ -23,6 +23,10 @@ class ClientSession(object):
         self._lock = threading.Lock()
         self._detections = {}                      # name -> Detection
         self._detection_camera_serial = {}         # name -> camera serial_number (for executor lookup)
+        # Client save: the websocket handler sets this to its sink; every
+        # detection this session adds sends its client_save_img frames
+        # through it, so they reach only the client that owns the detection.
+        self.push_sink = None
 
     # ---------------- camera (server-global) ----------------
 
@@ -64,6 +68,9 @@ class ClientSession(object):
                 robot = self.robot_pool.acquire(host=robot_host)
 
         det = Detection(camera=cam, robot=robot, **detection_kwargs)
+        if self.push_sink is not None:
+            sink = self.push_sink
+            det.push_fn = lambda kind, img, ts, target: sink(name, kind, img, ts, target)
 
         with self._lock:
             self._detections[name] = det

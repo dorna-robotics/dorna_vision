@@ -27,6 +27,8 @@ Usage:
 """
 import itertools
 import json
+import logging
+from concurrent.futures import ThreadPoolExecutor
 import os
 import threading
 import time
@@ -37,6 +39,47 @@ import websocket  # websocket-client
 __version__ = "0.1.0"
 
 DEFAULT_TIMEOUT = 10.0
+
+
+def _hand_back(path):
+    """Under sudo, give a file or folder this process created back to the
+    invoking user — same rule as the server's save_img. Never raises."""
+    try:
+        uid = int(os.environ.get("SUDO_UID", -1))
+        gid = int(os.environ.get("SUDO_GID", -1))
+        if uid >= 0:
+            os.chown(path, uid, gid)
+    except Exception:
+        pass
+
+
+def _client_save(event, data):
+    """Write a detection_img event's bytes where its ``target`` says — the
+    rules of the detection's save_img, resolved on THIS computer:
+      True              -> output/<timestamp>.jpg (roi_<timestamp>.jpg)
+      "folder/" or dir  -> <timestamp>.jpg / roi_<timestamp>.jpg inside it
+      "file.ext"        -> that file, overwritten every run
+    Folders are created. Returns the path written."""
+    target = event.get("target")
+    prefix = "roi_" if event.get("type") == "img_roi" else ""
+    stem = prefix + str(int(event.get("timestamp") or time.time()))
+    ext = "." + (event.get("encoding") or "jpg")
+    if isinstance(target, str):
+        target = os.path.expanduser(target)
+        if target.endswith(("/", os.sep)) or os.path.isdir(target):
+            folder, path = target, os.path.join(target, stem + ext)
+        else:
+            folder, path = os.path.dirname(os.path.abspath(target)), target
+    else:
+        folder = "output"
+        path = os.path.join(folder, stem + ext)
+    if folder and not os.path.isdir(folder):
+        os.makedirs(folder, exist_ok=True)
+        _hand_back(folder)
+    with open(path, "wb") as fh:
+        fh.write(data)
+    _hand_back(path)
+    return path
 
 
 class VisionServerError(Exception):
@@ -70,6 +113,15 @@ class VisionClient(object):
         self._pending_lock = threading.Lock()
         self._pending = {}              # id -> _Pending
         self._last_binary_holder = None # _Pending waiting for its binary frame
+        # Unsolicited server events ({"event": ..., no "id"}). One that says
+        # binary_follows waits here for its frame — a SEPARATE holder from
+        # replies', so an event and a reply never take each other's binary.
+        self._event_binary_holder = None
+        self._event_listeners = []
+        # Events are delivered — files written, listeners called — on ONE
+        # background thread, in arrival order, so the reader never blocks
+        # on a disk write and replies are never delayed by an event.
+        self._event_executor = None
         self._id_counter = itertools.count(1)
         self._connected = False
         self._close_evt = threading.Event()
@@ -137,6 +189,7 @@ class VisionClient(object):
                 p.event.set()
             self._pending.clear()
             self._last_binary_holder = None
+            self._event_binary_holder = None
 
     # ---------------- read loop ----------------
 
@@ -166,10 +219,68 @@ class VisionClient(object):
                     p.error = ConnectionError(reason or "connection closed")
                     p.event.set()
 
+    def on_event(self, fn):
+        """Register ``fn(event, binary)`` for unsolicited server events:
+        ``event`` is the envelope dict (``event["event"]`` names it, e.g.
+        "detection_img"), ``binary`` the frame that came with it, or None.
+
+        A detection_img event's file (display.client_save_img /
+        client_save_img_roi) is already written when ``fn`` runs, and
+        ``event["path"]`` says where (None if the write failed). Listeners
+        run on the client's event thread, in arrival order; an exception in
+        ``fn`` is logged and never stops delivery. Returns ``fn``, so it
+        also works as a decorator."""
+        with self._pending_lock:
+            self._event_listeners.append(fn)
+        return fn
+
+    def off_event(self, fn):
+        """Remove a listener added with ``on_event``."""
+        with self._pending_lock:
+            if fn in self._event_listeners:
+                self._event_listeners.remove(fn)
+
+    def _emit_event(self, event, binary):
+        with self._pending_lock:
+            if self._event_executor is None:
+                self._event_executor = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="vision-events")
+            ex = self._event_executor
+        try:
+            ex.submit(self._deliver_event, event, binary)
+        except RuntimeError:            # client closing
+            pass
+
+    def _deliver_event(self, event, binary):
+        if event.get("event") == "detection_img" and event.get("target") and binary is not None:
+            try:
+                event["path"] = _client_save(event, binary)
+            except Exception:
+                event["path"] = None
+                logging.getLogger(__name__).exception(
+                    "could not save %s %s to %r", event.get("name"),
+                    event.get("type"), event.get("target"))
+        with self._pending_lock:
+            listeners = list(self._event_listeners)
+        for fn in listeners:
+            try:
+                fn(event, binary)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "event listener failed on %s", event.get("event"))
+
     def _on_text(self, text):
         try:
             payload = json.loads(text)
         except Exception:
+            return
+
+        if "id" not in payload and "event" in payload:
+            if payload.get("binary_follows"):
+                with self._pending_lock:
+                    self._event_binary_holder = payload
+                return
+            self._emit_event(payload, None)
             return
 
         msg_id = payload.get("id")
@@ -189,6 +300,14 @@ class VisionClient(object):
             self._pending.pop(msg_id, None)
 
     def _on_binary(self, data):
+        # The server writes every envelope + binary pair atomically, so a
+        # binary belongs to whichever envelope announced one last.
+        with self._pending_lock:
+            event = self._event_binary_holder
+            self._event_binary_holder = None
+        if event is not None:
+            self._emit_event(event, data)
+            return
         with self._pending_lock:
             pending = self._last_binary_holder
             self._last_binary_holder = None
@@ -471,12 +590,16 @@ class VisionClient(object):
         )
         return binary, {k: v for k, v in reply.items() if k not in ("id", "stat", "binary_follows")}
 
-    def detection_get_img(self, name, type="img", quality=85, timeout=None):
-        reply, binary = self._send(
-            "detection_get_img",
-            {"name": name, "type": type, "quality": quality},
-            timeout=timeout,
-        )
+    def detection_get_img(self, name, type="img", quality=85, max_side=None, timeout=None):
+        """The detection's last image as (jpeg_bytes, meta). ``max_side``
+        asks the server to downscale so the longest side is at most that
+        many px BEFORE encoding — a 3072x2048 annotated frame is ~750 KB
+        at full size; a 1536 cap is a quarter of the bytes on the wire.
+        Preview-only: coordinates from other calls stay full-resolution."""
+        args = {"name": name, "type": type, "quality": quality}
+        if max_side:
+            args["max_side"] = int(max_side)
+        reply, binary = self._send("detection_get_img", args, timeout=timeout)
         return binary, {k: v for k, v in reply.items() if k not in ("id", "stat", "binary_follows")}
 
     def detection_xyz(self, name, pxl, timeout=None):
