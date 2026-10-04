@@ -1,6 +1,6 @@
 """The provider boundary.
 
-A backend turns (preset, views, per-call extras, key) into a NEUTRAL
+A backend turns (preset, views, references, prompt, key) into a NEUTRAL
 answer. Everything provider-specific — the request format, the
 provider's structured-output schema, how ``thinking`` maps, its box
 convention, its caching, the HTTP call and its errors — lives inside
@@ -45,11 +45,13 @@ class Backend:
     """Subclass, set ``name``, implement ``answer``, then ``register``."""
     name = ""
 
-    def answer(self, preset, views: List[bytes], extra_refs: List[tuple],
-               extra_prompt: str, key: str) -> Dict[str, Any]:
+    def answer(self, preset, views: List[bytes], references: List[tuple],
+               prompt: str, key: str) -> Dict[str, Any]:
         """``views``: JPEG bytes, already capped at ``preset.image_size`` (as
-        captured when it is None).
-        ``extra_refs``: ``(label, note, jpeg)`` per call."""
+        captured when it is None). ``references``: the ``(label, note,
+        jpeg)`` to send and ``prompt`` the text to send — the config's, or
+        this call's when it gave its own (the Detection resolved that; a
+        backend reads neither from the preset)."""
         raise NotImplementedError
 
 

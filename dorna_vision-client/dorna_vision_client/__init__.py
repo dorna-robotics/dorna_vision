@@ -130,7 +130,7 @@ def _vlm_key(det):
 
 
 def _image_arg(img):
-    """One image for a vlm call (a ``data`` list entry, an ``extra_refs``
+    """One image for a vlm call (a ``data`` list entry, a ``references``
     image): a path on this computer, encoded bytes, an OpenCV / numpy
     array, or ``{"server": path}`` (a file on the vision unit, sent as-is)."""
     import base64
@@ -156,16 +156,16 @@ def _image_arg(img):
 
 def _vlm_args(kwargs):
     """Encode a vlm call's images in place: ``data=[...]`` (several views
-    of one part, each a path / bytes / array) and ``extra_refs`` images."""
+    of one part, each a path / bytes / array) and ``references`` images."""
     if isinstance(kwargs.get("data"), (list, tuple)):
         kwargs["data"] = [_image_arg(v) for v in kwargs["data"]]
-    if kwargs.get("extra_refs"):
+    if kwargs.get("references"):
         refs = []
-        for r in kwargs["extra_refs"]:
+        for r in kwargs["references"]:
             r = dict(r)
             r["image"] = _image_arg(r.get("image"))
             refs.append(r)
-        kwargs["extra_refs"] = refs
+        kwargs["references"] = refs
     return kwargs
 
 
@@ -763,6 +763,9 @@ class VisionClient(object):
         return self._send("detection_capture", args, timeout=timeout)
 
     def camera_get_img(self, serial_number, type="color_img", quality=75, timeout=None):
+        """One frame from a pooled camera, no detection involved: ``(jpeg
+        bytes, meta)``. The way to collect the views of a part for a vlm
+        ``run(data=[frame_1, frame_2, ...])``."""
         reply, binary = self._send(
             "camera_get_img",
             {"serial_number": serial_number, "type": type, "quality": quality},
@@ -946,20 +949,14 @@ class _ObjectProxy(object):
             raise AttributeError("get_img is only valid on a detection proxy")
         return self._client.detection_get_img(self._name, type=type, quality=quality, timeout=_timeout)
 
-    def add_view(self, _timeout=None, **kwargs):
-        """VLM detections: capture a frame and keep its ROI crop on the
-        server as one more view of the part. The next ``run()`` sends every
-        kept view plus its own in ONE request. Returns ``{"views": n}``."""
-        if self._target != "detection":
-            raise AttributeError("add_view is only valid on a detection proxy")
-        return self._client._call("detection", self._name, "add_view", [], kwargs, timeout=_timeout)
-
     def run(self, *args, _timeout=None, **kwargs):
         """Run the detection. ``data=`` is one image (any detection) or,
         for a vlm detection, a list of images — several views of ONE part,
         judged in one request; an image is a path, bytes or an array on
         this computer, or ``{"server": path}``. VLM detections also take
-        ``extra_refs=[{image, label, note}]`` and ``prompt="..."``."""
+        ``references=[{image, label, note}]`` and ``prompt="..."``: the
+        config's keys, and a key given REPLACES the config's for this call
+        (the config rule) — not given, the config's are used."""
         if self._target != "detection":
             return self._client._call(self._target, self._name, "run", list(args), kwargs, timeout=_timeout)
         return self._client._call("detection", self._name, "run", list(args),

@@ -232,8 +232,6 @@ class Detection(object):
         self._vlm_preset = p
         self._vlm_backend = vlm.get_backend(p.backend)
         self._vlm_key = None
-        self._vlm_views = []            # add_view() crops, sent by the next run()
-        self._vlm_current = None        # the view number of the frame a run captured
         self.detection = {"cmd": "vlm", "hash": p.hash,
                           "model": {"name": p.model, "backend": p.backend, "thinking": p.thinking},
                           "output": p.output, "labels": list(p.labels), "schema": p.schema,
@@ -245,39 +243,29 @@ class Detection(object):
         self._vlm_key = str(key) if key else None
         return True
 
-    def add_view(self, data=None, **kwargs):
-        """Capture a frame and keep its ROI crop as one more view of the
-        part; the next ``run()`` sends every kept view plus its own in ONE
-        request. Returns ``{"views": <kept so far>}``."""
-        if (self.detection or {}).get("cmd") != "vlm":
-            raise ValueError("add_view is for vlm detections")
-        with self._run_lock:
-            self._run(data=data, _vlm_hold=True, **kwargs)
-            return {"views": len(self._vlm_views)}
-
     def _vlm_image(self, arg):
-        """One image argument from a call (a ``data`` list entry, an extra_refs image)."""
+        """One image argument from a call (a ``data`` list entry, a per-call reference image)."""
         from dorna_vision import vlm
         return vlm.read_image(arg)
 
-    def _vlm_run_images(self, images, extra_refs=None, prompt=None, **kwargs):
-        """run(data=[...]): judge images from the call, several views of
-        one part — no camera."""
-        if self._vlm_views:
-            raise ValueError(f"{len(self._vlm_views)} add_view() view(s) are waiting — "
-                             "run() with no data sends them")
+    def _vlm_run_images(self, images, references=None, prompt=None, **kwargs):
+        """run(data=[...]): judge these images, several views of ONE part,
+        as given — no camera, no ROI (the config's roi is for the frame
+        a camera run captures)."""
         imgs = [self._vlm_image(v) for v in images]
         if not imgs:
             raise ValueError("data is an empty list — give at least one image")
         ts = time.time()
         vs = [{"img": im, "offset": (0, 0)} for im in imgs]
-        self._vlm_current = len(vs)
-        entries = self._vlm_answer(vs, extra_refs, prompt, ts)
+        entries = self._vlm_answer(vs, references, prompt, ts)
         self.retval = {"all": list(entries), "valid": list(entries),
                        "camera_data": {"timestamp": ts}, "frame_mat_inv": None}
         return list(entries)
 
-    def _vlm_answer(self, views, extra_refs, prompt, ts):
+    def _vlm_answer(self, views, references, prompt, ts):
+        # ``references`` / ``prompt`` given with the call REPLACE the config's
+        # for this call — the config rule (a key given wins, a list replaces
+        # whole), not an addition. Not given (None) = the config's.
         import json as _json
         from dorna_vision import vlm
         p = self._vlm_preset
@@ -285,16 +273,29 @@ class Detection(object):
             raise ValueError("no key for this detection — its config gives key, "
                              "or key_path: a file holding just the key")
         jpegs = [vlm.encode_image(v["img"], p.image_size) for v in views]
-        extras = []
-        for i, r in enumerate(extra_refs or []):
-            if not isinstance(r, dict) or set(r) != {"image", "label", "note"}:
-                raise ValueError(f"extra_refs[{i}] is {{image, label, note}}")
-            extras.append((str(r["label"]), str(r["note"]),
-                           vlm.encode_image(self._vlm_image(r["image"]), p.image_size)))
+        if prompt is None:
+            text = p.prompt
+        elif isinstance(prompt, str) and prompt.strip():
+            text = prompt
+        else:
+            raise ValueError("prompt must be text (leave it out to use the config's)")
+        if references is None:
+            refs = [(r.label, r.note, r.jpeg) for r in p.references]
+            extras = []                             # nothing new to log — the config's are on disk
+        else:
+            if not isinstance(references, list):
+                raise ValueError("references must be a list of {image, label, note} ([] for none)")
+            refs = []
+            for i, r in enumerate(references):
+                if not isinstance(r, dict) or set(r) != {"image", "label", "note"}:
+                    raise ValueError(f"references[{i}] is {{image, label, note}}")
+                refs.append((str(r["label"]), str(r["note"]),
+                             vlm.encode_image(self._vlm_image(r["image"]), p.image_size)))
+            extras = refs
         t0 = time.perf_counter()
         out, entries, error = None, [], None
         try:
-            out = self._vlm_backend.answer(p, jpegs, extras, str(prompt or ""), self._vlm_key)
+            out = self._vlm_backend.answer(p, jpegs, refs, text, self._vlm_key)
             meta = [{"shape": v["img"].shape[:2], "offset": v["offset"]} for v in views]
             entries = vlm.to_entries(p, out["answer"], meta, ts)
         except vlm.VlmError as ex:
@@ -310,7 +311,7 @@ class Detection(object):
                 "latency_ms": latency, **((out or {}).get("usage") or {})}
         for e in entries:
             e["vlm"] = info
-        # client_save_log — every call's views, per-call references and answer, on the
+        # client_save_log — every call's views, its own references (when given) and answer, on the
         # CLIENT (the computer that added the detection) through the same
         # push the client_save_img keys use; a Detection with no push_fn
         # (a notebook, no server) writes them itself.
@@ -325,8 +326,9 @@ class Detection(object):
             files = [(f"{stem}_view{k}.jpg", j) for k, j in enumerate(jpegs, 1)]
             files += [(f"{stem}_ref{k}.jpg", e[2]) for k, e in enumerate(extras, 1)]
             record = {"name": p.name, "timestamp": ts, "model": info["model"],
-                      "backend": p.backend, "output": p.output, "prompt_extra": prompt or "",
-                      "extra_refs": [{"label": e[0], "note": e[1]} for e in extras],
+                      "backend": p.backend, "output": p.output, "prompt": text,
+                      "references": [{"label": r[0], "note": r[1]} for r in refs],
+                      "references_from": "config" if references is None else "call",
                       "views": len(jpegs), "answer": out["answer"] if out else None,
                       "error": error, "entries": entries, "usage": info}
             files.append((stem + ".json", _json.dumps(record, indent=1, default=str).encode()))
@@ -921,19 +923,11 @@ class Detection(object):
                                 _roi.pxl_to_orig([x1, y1]),
                                 _roi.pxl_to_orig([x0, y1])]} for r in result]
                 elif self.detection["cmd"] == "vlm":
-                    # This run's crop is one view. add_view() keeps it and
-                    # stops; run() sends every kept view + this one in ONE
-                    # request. Kept views are cleared whatever happens, so
-                    # a retry never mixes stale views.
+                    # this frame's ROI crop is the one view judged; several
+                    # views of one part come from the caller as run(data=[...])
                     view = {"img": img_roi.copy(), "offset": (_roi.x, _roi.y)}
-                    if kwargs.get("_vlm_hold"):
-                        self._vlm_views.append(view)
-                        retval = []
-                    else:
-                        views, self._vlm_views = self._vlm_views + [view], []
-                        self._vlm_current = len(views)
-                        retval = self._vlm_answer(views, kwargs.get("extra_refs"),
-                                                  kwargs.get("prompt"), camera_data["timestamp"])
+                    retval = self._vlm_answer([view], kwargs.get("references"),
+                                              kwargs.get("prompt"), camera_data["timestamp"])
                 elif self.detection["cmd"] == "kp":
                     # New KP flow: ONE keypoint set per image (no OD
                     # first-stage iteration). The new KP class runs
@@ -1031,8 +1025,7 @@ class Detection(object):
                         continue
 
                 # draw bb
-                in_frame = r.get("view") is None or r.get("view") == getattr(self, "_vlm_current", None)
-                if in_frame and "cmd" in self.detection and self.detection["cmd"] not in ["aruco", "charuco"] and "label" in self.display and self.display["label"]>=0:
+                if "cmd" in self.detection and self.detection["cmd"] not in ["aruco", "charuco"] and "label" in self.display and self.display["label"]>=0:
                     color_label = self._color_for(r.get("cls"))
                     draw_corners(img_adjust, r["cls"], r["conf"], r["corners"], color=color_label, label=self.display["label"])
 

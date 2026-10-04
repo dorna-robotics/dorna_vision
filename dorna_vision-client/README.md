@@ -171,10 +171,12 @@ vc.detection_add("cap", camera_serial_number=sn,
 d = vc.detection("cap")
 
 d.run()                                          # one live view
-d.add_view(); d.add_view(); d.run()              # several views of ONE part, one request
-d.run(data=["a.jpg", jpeg_bytes, cv_array])      # images from this computer, no camera — several views of ONE part
-d.run(extra_refs=[{"image": "golden.jpg", "label": "pass", "note": "today's golden part"}],
-      prompt="this batch uses blue caps")
+jpeg, meta = vc.camera_get_img(sn, type="color_img", quality=100)   # a frame, no detection — pose 1
+jpeg2, _  = vc.camera_get_img(sn, type="color_img", quality=100)   # pose 2
+d.run(data=[jpeg, jpeg2])                         # several views of ONE part, one request, judged as given (no ROI)
+d.run(data=["a.jpg", jpeg_bytes, cv_array])      # images from this computer work the same way
+d.run(references=[{"image": "golden.jpg", "label": "pass", "note": "today's golden part"}],
+      prompt="Judge the cap: is it seated flat?")    # a key given REPLACES the config's for this call
 ```
 
 The key: `detection.key` when it is not empty (quick tests only — a config

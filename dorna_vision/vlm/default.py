@@ -8,9 +8,10 @@ and its errors. Swapping providers is a new module beside this one.
 
 Caching: the provider caches a repeated request PREFIX on its own
 (implicit caching; from 4,096 tokens on its Flash models). The request
-is built stable-part-first — prompt, then the preset's references — so
-every call of one preset shares that prefix; ``tokens_cached`` in the
-result shows whether it hit.
+is built stable-part-first — prompt, then references — so every call
+that uses the config's own shares that prefix; a call that gives its
+own prompt or references is a different prefix. ``tokens_cached`` in
+the result shows whether it hit.
 """
 from __future__ import annotations
 
@@ -125,24 +126,17 @@ def _neutral(preset, ans: dict) -> dict:
 class DefaultBackend(Backend):
     name = "default"
 
-    def answer(self, preset, views, extra_refs, extra_prompt, key):
+    def answer(self, preset, views, references, prompt, key):
         if preset.model not in MODELS:
             raise VlmError(f"backend default has no model.name {preset.model!r} "
                            f"(known: {', '.join(MODELS)})")
         if not key:
             raise VlmError("no vlm_key")
         n = len(views)
-        parts = [_text(preset.prompt)]
-        i = 0
-        for r in preset.references:                       # ── the stable prefix
-            i += 1
-            parts += [_text(f"Reference {i} — {r.label}: {r.note}"), _image(r.jpeg)]
-        for label, note, jpeg in extra_refs:              # ── per call from here
-            i += 1
+        parts = [_text(prompt)]
+        for i, (label, note, jpeg) in enumerate(references, 1):     # ── the prefix
             parts += [_text(f"Reference {i} — {label}: {note}"), _image(jpeg)]
-        if extra_prompt:
-            parts.append(_text(extra_prompt))
-        for k, jpeg in enumerate(views, 1):
+        for k, jpeg in enumerate(views, 1):                          # ── per call from here
             parts += [_text(f"Part to judge — view {k} of {n}"), _image(jpeg)]
         parts.append(_text(_instruction(preset, n)))
         body = {
