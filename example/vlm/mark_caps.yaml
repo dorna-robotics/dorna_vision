@@ -17,7 +17,6 @@ detection:
     box each one tightly. Label it capped when a cap covers it, uncapped
     when the opening is bare or the cap is clearly off.
   references: []
-  image_size: 1024                  # boxes need pixels: larger than cap_check's 768
   timeout_s: 30
 display:
   label: 1                          # draws each box with its label + confidence on the frame

@@ -172,7 +172,7 @@ d = vc.detection("cap")
 
 d.run()                                          # one live view
 d.add_view(); d.add_view(); d.run()              # several views of ONE part, one request
-d.run(views=["a.jpg", jpeg_bytes, cv_array])     # images from this computer, no camera
+d.run(data=["a.jpg", jpeg_bytes, cv_array])      # images from this computer, no camera — several views of ONE part
 d.run(extra_refs=[{"image": "golden.jpg", "label": "pass", "note": "today's golden part"}],
       prompt="this batch uses blue caps")
 ```
@@ -189,5 +189,6 @@ array needs `cv2` here), or `{"server": path}`. Every result entry carries
 tokens_out}`. `display.client_save_log` saves every call on this computer —
 `false` (default), `true` (`output/`) or a folder: the views as sent
 (`<ms>_view<n>.jpg`), per-call references (`<ms>_ref<n>.jpg`) and the answer
-(`<ms>.json`). A failed model call raises `VisionServerError` — nothing is
-guessed.
+(`<ms>.json`). A model call with no usable answer (provider down, timed out, cut off, outside
+the labels) returns `[]`, like any detection with nothing to report; the reason is
+in the server log and the client log's `error`. Misconfiguration fails the add.

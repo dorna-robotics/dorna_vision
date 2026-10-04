@@ -35,8 +35,10 @@ BACKENDS: Dict[str, Any] = {}
 
 class VlmError(RuntimeError):
     """The model did not produce a usable answer: network, provider
-    error, timeout, refusal, or an answer outside the config's labels.
-    Raised — the workflow pauses like a camera failure."""
+    error, timeout, an answer cut off, or one outside the config's labels.
+    The Detection turns it into an EMPTY result (reason printed and
+    logged), the same as any detection with nothing to report —
+    misconfiguration is a ValueError and does fail."""
 
 
 class Backend:
@@ -45,7 +47,8 @@ class Backend:
 
     def answer(self, preset, views: List[bytes], extra_refs: List[tuple],
                extra_prompt: str, key: str) -> Dict[str, Any]:
-        """``views``: JPEG bytes, already at ``preset.image_size``.
+        """``views``: JPEG bytes, already capped at ``preset.image_size`` (as
+        captured when it is None).
         ``extra_refs``: ``(label, note, jpeg)`` per call."""
         raise NotImplementedError
 

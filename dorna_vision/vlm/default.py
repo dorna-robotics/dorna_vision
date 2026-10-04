@@ -33,7 +33,7 @@ MODELS = {
     "flash-lite-3.5": "gemini-3.5-flash-lite",
     "pro-3.1": "gemini-3.1-pro-preview",
 }
-MAX_OUTPUT_TOKENS = 4096
+MAX_OUTPUT_TOKENS = 16384       # room for ~300 boxes; a longer answer is reported as cut off, never parsed
 
 _local = threading.local()
 
@@ -167,18 +167,26 @@ class DefaultBackend(Backend):
         if r.status_code != 200:
             msg = (data.get("error") or {}).get("message") if isinstance(data, dict) else None
             raise VlmError(f"backend HTTP {r.status_code}: {msg or 'error'}")
+        u = data.get("usage") or {}
+        status = data.get("status")
+        if status and status != "completed":
+            # "incomplete" = the provider stopped the answer at the output
+            # cap while the model was still writing (too many objects or
+            # lines for one answer). Say so; a cut-off list is never parsed.
+            raise VlmError(f"answer {status}: stopped after {u.get('total_output_tokens', '?')} output "
+                           f"tokens (cap {MAX_OUTPUT_TOKENS}) — the model was still listing; ask for "
+                           f"fewer things (prompt, labels, a tighter ROI)")
         text = data.get("output_text")
         if not text:
             text = "".join(c.get("text", "")
                            for s in data.get("steps", []) if s.get("type") == "model_output"
                            for c in s.get("content", []) if c.get("type") == "text")
         if not text:
-            raise VlmError(f"backend gave no answer (status {data.get('status', '?')})")
+            raise VlmError("backend gave no answer (status completed, no text)")
         try:
             ans = json.loads(text)
         except ValueError:
-            raise VlmError("backend answer is not JSON") from None
-        u = data.get("usage") or {}
+            raise VlmError(f"backend answer is not JSON ({len(text)} chars, status {status})") from None
         return {"answer": _neutral(preset, ans), "model": data.get("model") or MODELS[preset.model],
                 "usage": {"tokens_in": u.get("total_input_tokens"),
                           "tokens_cached": u.get("total_cached_tokens"),

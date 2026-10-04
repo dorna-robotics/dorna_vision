@@ -5,13 +5,15 @@ detection, written inline or in a config file (vision-guide §9)::
     output: cls            # cls | od | ocr — the same names as the other detections
     labels: [...]          # the allowed answers; [] = the model answers in its own words
     schema: {}             # JSON schema of extra ``data`` on every entry; {} = none
-    prompt, references, image_size, timeout_s
+    prompt, references, timeout_s
+    image_size: 768        # OPTIONAL — the one field that may be left out: absent = frames sent as captured
 
 By the time it reaches here the dict is final: the config file (if any)
 is merged with the inline keys, the key is gone (it travels separately,
 see ``preset_key``), and every reference image is ``{"b64": ...}``
 (shipped by the client) or ``{"server": path}`` (a file on this unit).
-Every field is required (the explicit-values rule); unknown fields are
+Every field is required (the explicit-values rule) except ``image_size``:
+absent, images are sent as captured, no resize. Unknown fields are
 refused. Reference images are decoded and resized ONCE; settings are
 cached by a hash of their contents.
 """
@@ -31,6 +33,7 @@ import numpy as np
 # the vlm fields of a detection dict, besides "cmd"
 FIELDS = ("model", "output", "labels", "schema", "prompt", "references",
           "image_size", "timeout_s")
+OPTIONAL = ("image_size",)                # absent = send images as captured
 MODEL_FIELDS = ("name", "backend", "thinking")   # model: {name, backend, thinking}
 KEY_FIELDS = ("key", "key_path")        # resolved and removed before the server sees them
 OUTPUTS = ("cls", "od", "ocr")          # the same names as the other detections
@@ -41,7 +44,7 @@ THINKING = ("minimal", "low", "medium", "high")
 class Reference:
     label: str
     note: str
-    jpeg: bytes                     # resized to image_size, JPEG
+    jpeg: bytes                     # JPEG, long side at most image_size when one is set
 
 
 @dataclass
@@ -56,17 +59,18 @@ class Preset:
     schema: Dict[str, Any]          # JSON schema of extra ``data`` on every entry; {} = none
     prompt: str
     references: List[Reference]
-    image_size: int
+    image_size: Optional[int]       # long side cap, px; None = as captured
     timeout_s: float
 
 
-def encode_image(img: np.ndarray, image_size: int) -> bytes:
-    """Resize so the long side is at most ``image_size`` and encode JPEG —
-    what every image (reference or view) is sent as."""
+def encode_image(img: np.ndarray, image_size: Optional[int]) -> bytes:
+    """Encode JPEG — what every image (reference or view) is sent as —
+    shrinking first so the long side is at most ``image_size`` when one is
+    set (never enlarged); ``None`` sends it as it is."""
     if img is None or img.size == 0:
         raise ValueError("empty image")
     h, w = img.shape[:2]
-    if max(h, w) > image_size:
+    if image_size is not None and max(h, w) > image_size:
         s = image_size / float(max(h, w))
         img = cv.resize(img, (max(1, round(w * s)), max(1, round(h * s))),
                         interpolation=cv.INTER_AREA)
@@ -125,7 +129,7 @@ def _validate(det: dict, name: str) -> dict:
     if leaked:
         raise ValueError(f"{where}: {', '.join(leaked)} must be resolved before the server")
     extra = sorted(set(raw) - set(FIELDS))
-    missing = [f for f in FIELDS if f not in raw]
+    missing = [f for f in FIELDS if f not in raw and f not in OPTIONAL]
     if extra or missing:
         hint = (" — model is a mapping: {name, backend, thinking}"
                 if {"backend", "thinking"} & set(extra) else "")
@@ -156,8 +160,9 @@ def _validate(det: dict, name: str) -> dict:
     for i, r in enumerate(raw["references"]):
         if not isinstance(r, dict) or set(r) != {"image", "label", "note"}:
             raise ValueError(f"{where}: references[{i}] is {{image, label, note}}")
-    if not isinstance(raw["image_size"], int) or raw["image_size"] < 64:
-        raise ValueError(f"{where}: image_size must be an integer (px), at least 64")
+    if "image_size" in raw and (not isinstance(raw["image_size"], int) or raw["image_size"] < 64):
+        raise ValueError(f"{where}: image_size must be an integer (px), at least 64 — "
+                         f"or leave it out to send images as captured")
     if not isinstance(raw["timeout_s"], (int, float)) or raw["timeout_s"] <= 0:
         raise ValueError(f"{where}: timeout_s must be a positive number")
     return raw
@@ -183,11 +188,11 @@ def load_preset(det: dict, name: str) -> Preset:
             img = read_image(r["image"])
         except ValueError as ex:
             raise ValueError(f"vlm detection {name!r}: references[{i}]: {ex}") from None
-        refs.append(Reference(str(r["label"]), str(r["note"]), encode_image(img, raw["image_size"])))
+        refs.append(Reference(str(r["label"]), str(r["note"]), encode_image(img, raw.get("image_size"))))
     m = raw["model"]
     p = Preset(name=name, hash=key, model=m["name"], backend=m["backend"], thinking=m["thinking"],
                output=raw["output"], labels=list(raw["labels"]), schema=raw["schema"],
-               prompt=raw["prompt"], references=refs, image_size=raw["image_size"],
+               prompt=raw["prompt"], references=refs, image_size=raw.get("image_size"),
                timeout_s=float(raw["timeout_s"]))
     with _CACHE_LOCK:
         if len(_CACHE) >= _CACHE_MAX:

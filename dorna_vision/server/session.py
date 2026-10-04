@@ -75,7 +75,10 @@ class ClientSession(object):
         if isinstance(det_cfg, dict) and det_cfg.get("cmd") == "vlm":
             detection_kwargs["detection"] = {**det_cfg, "log_name": name}
         det = Detection(camera=cam, robot=robot, **detection_kwargs)
-        if vlm_key:
+        if isinstance(det_cfg, dict) and det_cfg.get("cmd") == "vlm":
+            if not vlm_key:                 # misconfiguration fails the ADD, never a run
+                raise ValueError(f"vlm detection {name!r}: no key — give key, or key_path "
+                                 f"(a file holding just the key)")
             det.set_vlm_key(vlm_key)
         if self.push_sink is not None:
             sink = self.push_sink

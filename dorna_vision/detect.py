@@ -256,18 +256,19 @@ class Detection(object):
             return {"views": len(self._vlm_views)}
 
     def _vlm_image(self, arg):
-        """One image argument from a call (views / extra_refs)."""
+        """One image argument from a call (a ``data`` list entry, an extra_refs image)."""
         from dorna_vision import vlm
         return vlm.read_image(arg)
 
-    def _vlm_run_views(self, views, extra_refs=None, prompt=None, **kwargs):
-        """run(views=[...]): judge images from the call — no camera."""
+    def _vlm_run_images(self, images, extra_refs=None, prompt=None, **kwargs):
+        """run(data=[...]): judge images from the call, several views of
+        one part — no camera."""
         if self._vlm_views:
             raise ValueError(f"{len(self._vlm_views)} add_view() view(s) are waiting — "
-                             "run() without views sends them")
-        imgs = [self._vlm_image(v) for v in views]
+                             "run() with no data sends them")
+        imgs = [self._vlm_image(v) for v in images]
         if not imgs:
-            raise ValueError("views is empty")
+            raise ValueError("data is an empty list — give at least one image")
         ts = time.time()
         vs = [{"img": im, "offset": (0, 0)} for im in imgs]
         self._vlm_current = len(vs)
@@ -280,9 +281,9 @@ class Detection(object):
         import json as _json
         from dorna_vision import vlm
         p = self._vlm_preset
-        if not self._vlm_key:
-            raise vlm.VlmError("no key for this detection — its config gives key, "
-                               "or key_path: a file holding just the key")
+        if not self._vlm_key:                       # misconfiguration, not a model failure
+            raise ValueError("no key for this detection — its config gives key, "
+                             "or key_path: a file holding just the key")
         jpegs = [vlm.encode_image(v["img"], p.image_size) for v in views]
         extras = []
         for i, r in enumerate(extra_refs or []):
@@ -291,12 +292,22 @@ class Detection(object):
             extras.append((str(r["label"]), str(r["note"]),
                            vlm.encode_image(self._vlm_image(r["image"]), p.image_size)))
         t0 = time.perf_counter()
-        out = self._vlm_backend.answer(p, jpegs, extras, str(prompt or ""), self._vlm_key)
+        out, entries, error = None, [], None
+        try:
+            out = self._vlm_backend.answer(p, jpegs, extras, str(prompt or ""), self._vlm_key)
+            meta = [{"shape": v["img"].shape[:2], "offset": v["offset"]} for v in views]
+            entries = vlm.to_entries(p, out["answer"], meta, ts)
+        except vlm.VlmError as ex:
+            # No usable answer (provider down, timed out, answer cut off or
+            # outside the labels): an EMPTY result, like a frame with nothing
+            # in it — what every detection returns when it has nothing. The
+            # reason goes to the server log and the client log, never into a
+            # guessed entry. Misconfiguration and bad arguments still raise.
+            error = str(ex)
+            print(f"[vlm] {p.name}: no usable answer — {error}", flush=True)
         latency = int((time.perf_counter() - t0) * 1000)
-        meta = [{"shape": v["img"].shape[:2], "offset": v["offset"]} for v in views]
-        entries = vlm.to_entries(p, out["answer"], meta, ts)
-        info = {"model": out["model"], "backend": p.backend, "latency_ms": latency,
-                **(out.get("usage") or {})}
+        info = {"model": out["model"] if out else None, "backend": p.backend,
+                "latency_ms": latency, **((out or {}).get("usage") or {})}
         for e in entries:
             e["vlm"] = info
         # client_save_log — every call's views, per-call references and answer, on the
@@ -316,8 +327,8 @@ class Detection(object):
             record = {"name": p.name, "timestamp": ts, "model": info["model"],
                       "backend": p.backend, "output": p.output, "prompt_extra": prompt or "",
                       "extra_refs": [{"label": e[0], "note": e[1]} for e in extras],
-                      "views": len(jpegs), "answer": out["answer"], "entries": entries,
-                      "usage": info}
+                      "views": len(jpegs), "answer": out["answer"] if out else None,
+                      "error": error, "entries": entries, "usage": info}
             files.append((stem + ".json", _json.dumps(record, indent=1, default=str).encode()))
             for path, data in files:
                 try:
@@ -632,8 +643,13 @@ class Detection(object):
                 "unknown parameter 'frame' — it was renamed to 'base_in_world'."
             )
         with self._run_lock:
-            if (self.detection or {}).get("cmd") == "vlm" and kwargs.get("views") is not None:
-                return self._vlm_run_views(**kwargs)
+            if isinstance(data, (list, tuple)):
+                # several images in one call = several views of ONE part; only a
+                # vlm detection judges a set, every other detection runs one frame
+                if (self.detection or {}).get("cmd") != "vlm":
+                    raise TypeError("data is one image for this detection — a list of images "
+                                    "(several views of one part) is for vlm detections")
+                return self._vlm_run_images(list(data), **kwargs)
             return self._run(data=data, **kwargs)
 
     def _run(self, data=None, **kwargs):

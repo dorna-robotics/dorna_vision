@@ -130,9 +130,9 @@ def _vlm_key(det):
 
 
 def _image_arg(img):
-    """One image for a vlm call (``views`` entry, ``extra_refs`` image):
-    a path on this computer, encoded bytes, an OpenCV / numpy array, or
-    ``{"server": path}`` (a file on the vision unit, sent as-is)."""
+    """One image for a vlm call (a ``data`` list entry, an ``extra_refs``
+    image): a path on this computer, encoded bytes, an OpenCV / numpy
+    array, or ``{"server": path}`` (a file on the vision unit, sent as-is)."""
     import base64
     if isinstance(img, dict) and "server" in img:
         return {"server": str(img["server"])}
@@ -155,9 +155,10 @@ def _image_arg(img):
 
 
 def _vlm_args(kwargs):
-    """Encode a vlm call's ``views`` / ``extra_refs`` images in place."""
-    if kwargs.get("views") is not None:
-        kwargs["views"] = [_image_arg(v) for v in kwargs["views"]]
+    """Encode a vlm call's images in place: ``data=[...]`` (several views
+    of one part, each a path / bytes / array) and ``extra_refs`` images."""
+    if isinstance(kwargs.get("data"), (list, tuple)):
+        kwargs["data"] = [_image_arg(v) for v in kwargs["data"]]
     if kwargs.get("extra_refs"):
         refs = []
         for r in kwargs["extra_refs"]:
@@ -253,6 +254,10 @@ class VisionClient(object):
         self._connected = False
         self._close_evt = threading.Event()
         self._default_timeout = DEFAULT_TIMEOUT
+        # vlm detections: how long a run may take = the detection's own
+        # timeout_s (the model's budget, from its config) + the ordinary
+        # call timeout for transport. Recorded at add, used by run().
+        self._run_timeouts = {}
         self._last_error = None         # last reason the connection dropped
 
     # ---------------- connection ----------------
@@ -699,9 +704,21 @@ class VisionClient(object):
             reply = self._send("detection_add", args, timeout=timeout)
         if effective is not None and isinstance(reply, dict):
             reply["config"] = effective                  # what the merge produced (never the key)
+        final = ((reply.get("config") or {}).get("detection") if isinstance(reply, dict) else None) \
+            or args.get("detection") or {}
+        if final.get("cmd") == "vlm" and isinstance(final.get("timeout_s"), (int, float)):
+            self._run_timeouts[name] = float(final["timeout_s"]) + self._default_timeout
+        else:
+            self._run_timeouts.pop(name, None)
         return reply
 
+    def _run_timeout(self, name, timeout):
+        """The wait for a run: the caller's ``timeout`` when given, else the
+        detection's recorded budget (vlm), else the client default."""
+        return timeout if timeout is not None else self._run_timeouts.get(name)
+
     def detection_run(self, name, use_last=False, timeout=None, **run_kwargs):
+        timeout = self._run_timeout(name, timeout)
         args = _vlm_args(dict(run_kwargs))
         args["name"] = name
         if use_last:
@@ -805,6 +822,7 @@ class VisionClient(object):
         return self._send("detection_grasp", args, timeout=timeout).get("rvec")
 
     def detection_remove(self, name, timeout=None):
+        self._run_timeouts.pop(name, None)
         return self._send("detection_remove", {"name": name}, timeout=timeout)
 
     def detection_list(self, timeout=None):
@@ -833,6 +851,16 @@ class VisionClient(object):
         # server's `call` handler decodes them straight into the
         # detection's frame buffer — no temp file, no disk staging.
         data_val = kw.get("data")
+        if hasattr(data_val, "shape"):              # an OpenCV / numpy array: one frame, as PNG bytes
+            try:
+                import cv2
+            except ImportError:
+                raise TypeError("an array image needs OpenCV (cv2) on this computer — "
+                                "or pass a file path / encoded bytes")
+            ok, buf = cv2.imencode(".png", data_val)
+            if not ok:
+                raise ValueError("could not encode the array")
+            data_val = buf.tobytes()
         if isinstance(data_val, (bytes, bytearray)):
             payload = bytes(data_val)
             kw["data"] = "<binary>"      # placeholder; server overwrites with bytes
@@ -927,14 +955,16 @@ class _ObjectProxy(object):
         return self._client._call("detection", self._name, "add_view", [], kwargs, timeout=_timeout)
 
     def run(self, *args, _timeout=None, **kwargs):
-        """Run the detection. VLM detections also take ``views=[...]``
-        (judge these images, no camera), ``extra_refs=[{image, label,
-        note}]`` and ``prompt="..."``; an image is a path, bytes or an
-        array on this computer, or ``{"server": path}``."""
+        """Run the detection. ``data=`` is one image (any detection) or,
+        for a vlm detection, a list of images — several views of ONE part,
+        judged in one request; an image is a path, bytes or an array on
+        this computer, or ``{"server": path}``. VLM detections also take
+        ``extra_refs=[{image, label, note}]`` and ``prompt="..."``."""
         if self._target != "detection":
             return self._client._call(self._target, self._name, "run", list(args), kwargs, timeout=_timeout)
         return self._client._call("detection", self._name, "run", list(args),
-                                  _vlm_args(dict(kwargs)), timeout=_timeout)
+                                  _vlm_args(dict(kwargs)),
+                                  timeout=self._client._run_timeout(self._name, _timeout))
 
     def save_img(self, path, type="img", quality=100, _timeout=None):
         """
