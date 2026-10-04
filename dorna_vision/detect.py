@@ -67,7 +67,7 @@ class Detection(object):
             # goes there through ``push_fn`` (the vision server). Off unless
             # set; a Detection without push_fn ignores the client_ keys.
             display={"label":0, "save_img":0, "save_img_roi":0,
-                     "client_save_img":0, "client_save_img_roi":0},
+                     "client_save_img":0, "client_save_img_roi":0, "client_save_log":0},
             # Per-detection focus pin (cameras with a focus surface — uEye
             # XS). Applied at CAPTURE time, before the grab, e.g.
             # {"mode": "manual", "position": 164}. None = leave the camera
@@ -162,6 +162,8 @@ class Detection(object):
             self.init_kp(self.detection["path"])
         elif "cmd" in self.detection and self.detection["cmd"] == "ocr":
             self.init_ocr()
+        if "cmd" in self.detection and self.detection["cmd"] == "vlm":
+            self.init_vlm()
 
 
     def set_camera_mount(self, camera_mount):
@@ -211,6 +213,124 @@ class Detection(object):
 
     def init_ocr(self):
         self.ocr = OCR()
+
+    # ── VLM (docs/vision-guide.md §9) ────────────────────────────────
+    # ``detection = {"cmd": "vlm", model: {name, backend, thinking}, output,
+    # labels, schema, prompt, references, image_size, timeout_s}`` — final
+    # (config file merged, references as {"b64"} / {"server"}), plus
+    # ``log_name`` (the detection's name) from the session. Its log is
+    # display.client_save_log. Parsed once
+    # (dorna_vision.vlm); the public ``detection`` keeps only what
+    # identifies it. The key arrives through set_vlm_key and stays private
+    # (``_vlm_key``) — the generic proxy refuses ``_`` names, so it can be
+    # set but never read back.
+
+    def init_vlm(self):
+        from dorna_vision import vlm
+        name = self.detection.get("log_name") or "vlm"
+        p = vlm.load_preset(self.detection, name)
+        self._vlm_preset = p
+        self._vlm_backend = vlm.get_backend(p.backend)
+        self._vlm_key = None
+        self._vlm_views = []            # add_view() crops, sent by the next run()
+        self._vlm_current = None        # the view number of the frame a run captured
+        self.detection = {"cmd": "vlm", "hash": p.hash,
+                          "model": {"name": p.model, "backend": p.backend, "thinking": p.thinking},
+                          "output": p.output, "labels": list(p.labels), "schema": p.schema,
+                          "references": len(p.references)}
+
+    def set_vlm_key(self, key):
+        """The provider key for this detection — held privately, never
+        returned, logged or written."""
+        self._vlm_key = str(key) if key else None
+        return True
+
+    def add_view(self, data=None, **kwargs):
+        """Capture a frame and keep its ROI crop as one more view of the
+        part; the next ``run()`` sends every kept view plus its own in ONE
+        request. Returns ``{"views": <kept so far>}``."""
+        if (self.detection or {}).get("cmd") != "vlm":
+            raise ValueError("add_view is for vlm detections")
+        with self._run_lock:
+            self._run(data=data, _vlm_hold=True, **kwargs)
+            return {"views": len(self._vlm_views)}
+
+    def _vlm_image(self, arg):
+        """One image argument from a call (views / extra_refs)."""
+        from dorna_vision import vlm
+        return vlm.read_image(arg)
+
+    def _vlm_run_views(self, views, extra_refs=None, prompt=None, **kwargs):
+        """run(views=[...]): judge images from the call — no camera."""
+        if self._vlm_views:
+            raise ValueError(f"{len(self._vlm_views)} add_view() view(s) are waiting — "
+                             "run() without views sends them")
+        imgs = [self._vlm_image(v) for v in views]
+        if not imgs:
+            raise ValueError("views is empty")
+        ts = time.time()
+        vs = [{"img": im, "offset": (0, 0)} for im in imgs]
+        self._vlm_current = len(vs)
+        entries = self._vlm_answer(vs, extra_refs, prompt, ts)
+        self.retval = {"all": list(entries), "valid": list(entries),
+                       "camera_data": {"timestamp": ts}, "frame_mat_inv": None}
+        return list(entries)
+
+    def _vlm_answer(self, views, extra_refs, prompt, ts):
+        import json as _json
+        from dorna_vision import vlm
+        p = self._vlm_preset
+        if not self._vlm_key:
+            raise vlm.VlmError("no key for this detection — its config gives key, "
+                               "or key_path: a file holding just the key")
+        jpegs = [vlm.encode_image(v["img"], p.image_size) for v in views]
+        extras = []
+        for i, r in enumerate(extra_refs or []):
+            if not isinstance(r, dict) or set(r) != {"image", "label", "note"}:
+                raise ValueError(f"extra_refs[{i}] is {{image, label, note}}")
+            extras.append((str(r["label"]), str(r["note"]),
+                           vlm.encode_image(self._vlm_image(r["image"]), p.image_size)))
+        t0 = time.perf_counter()
+        out = self._vlm_backend.answer(p, jpegs, extras, str(prompt or ""), self._vlm_key)
+        latency = int((time.perf_counter() - t0) * 1000)
+        meta = [{"shape": v["img"].shape[:2], "offset": v["offset"]} for v in views]
+        entries = vlm.to_entries(p, out["answer"], meta, ts)
+        info = {"model": out["model"], "backend": p.backend, "latency_ms": latency,
+                **(out.get("usage") or {})}
+        for e in entries:
+            e["vlm"] = info
+        # client_save_log — every call's views, per-call references and answer, on the
+        # CLIENT (the computer that added the detection) through the same
+        # push the client_save_img keys use; a Detection with no push_fn
+        # (a notebook, no server) writes them itself.
+        # display.client_save_log: False (off) | True -> "output/" | a folder,
+        # on the computer that added the detection — the client_save_img rule.
+        v = (self.display or {}).get("client_save_log")
+        target = None if not v else ("output/" if v is True or v == 1 else str(v))
+        if target and not target.endswith(("/", "\\")):
+            target += "/"
+        if target:
+            stem = target + str(int(ts * 1000))
+            files = [(f"{stem}_view{k}.jpg", j) for k, j in enumerate(jpegs, 1)]
+            files += [(f"{stem}_ref{k}.jpg", e[2]) for k, e in enumerate(extras, 1)]
+            record = {"name": p.name, "timestamp": ts, "model": info["model"],
+                      "backend": p.backend, "output": p.output, "prompt_extra": prompt or "",
+                      "extra_refs": [{"label": e[0], "note": e[1]} for e in extras],
+                      "views": len(jpegs), "answer": out["answer"], "entries": entries,
+                      "usage": info}
+            files.append((stem + ".json", _json.dumps(record, indent=1, default=str).encode()))
+            for path, data in files:
+                try:
+                    if self.push_fn is not None:
+                        self.push_fn("vlm_log", data, ts, path)
+                    else:
+                        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+                        with open(path, "wb") as fh:
+                            fh.write(data)
+                except Exception:
+                    import traceback
+                    traceback.print_exc()           # a log problem never fails the run
+        return entries
 
 
     def threshold(self):
@@ -512,6 +632,8 @@ class Detection(object):
                 "unknown parameter 'frame' — it was renamed to 'base_in_world'."
             )
         with self._run_lock:
+            if (self.detection or {}).get("cmd") == "vlm" and kwargs.get("views") is not None:
+                return self._vlm_run_views(**kwargs)
             return self._run(data=data, **kwargs)
 
     def _run(self, data=None, **kwargs):
@@ -782,6 +904,20 @@ class Detection(object):
                                 _roi.pxl_to_orig([x1, y0]),
                                 _roi.pxl_to_orig([x1, y1]),
                                 _roi.pxl_to_orig([x0, y1])]} for r in result]
+                elif self.detection["cmd"] == "vlm":
+                    # This run's crop is one view. add_view() keeps it and
+                    # stops; run() sends every kept view + this one in ONE
+                    # request. Kept views are cleared whatever happens, so
+                    # a retry never mixes stale views.
+                    view = {"img": img_roi.copy(), "offset": (_roi.x, _roi.y)}
+                    if kwargs.get("_vlm_hold"):
+                        self._vlm_views.append(view)
+                        retval = []
+                    else:
+                        views, self._vlm_views = self._vlm_views + [view], []
+                        self._vlm_current = len(views)
+                        retval = self._vlm_answer(views, kwargs.get("extra_refs"),
+                                                  kwargs.get("prompt"), camera_data["timestamp"])
                 elif self.detection["cmd"] == "kp":
                     # New KP flow: ONE keypoint set per image (no OD
                     # first-stage iteration). The new KP class runs
@@ -879,7 +1015,8 @@ class Detection(object):
                         continue
 
                 # draw bb
-                if "cmd" in self.detection and self.detection["cmd"] not in ["aruco", "charuco"] and "label" in self.display and self.display["label"]>=0:
+                in_frame = r.get("view") is None or r.get("view") == getattr(self, "_vlm_current", None)
+                if in_frame and "cmd" in self.detection and self.detection["cmd"] not in ["aruco", "charuco"] and "label" in self.display and self.display["label"]>=0:
                     color_label = self._color_for(r.get("cls"))
                     draw_corners(img_adjust, r["cls"], r["conf"], r["corners"], color=color_label, label=self.display["label"])
 

@@ -41,6 +41,133 @@ __version__ = "0.1.0"
 DEFAULT_TIMEOUT = 10.0
 
 
+def _deep_merge(base, over):
+    """``over`` wins, key by key at every depth; lists replaced whole —
+    the same rule as the server's dorna_vision.config.deep_merge."""
+    import copy
+    out = copy.deepcopy(base)
+    for k, v in (over or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = copy.deepcopy(v)
+    return out
+
+
+CLIENT_SAVE_KEYS = ("client_save_img", "client_save_img_roi", "client_save_log")
+
+
+def _load_config(path):
+    """A config file on THIS computer: any of a detection's settings, same
+    keys and nesting as detection_add.
+
+    ONE rule for every path in it: a relative path is relative to the
+    file it is written in — this file's folder. That covers the paths the
+    server reads (detection.path, detection.references[].image,
+    detection.key_path) and the places THIS computer writes
+    (display.client_save_img / _roi / _log), so the file means the same
+    thing whoever adds it, from whatever folder. A trailing "/" (a folder
+    of timestamped files) is kept. ``true`` is the folder "output/" and
+    follows the same rule; ``false`` and absolute paths pass through."""
+    import yaml
+    path = os.path.abspath(os.path.expanduser(str(path)))
+    if not os.path.isfile(path):
+        raise FileNotFoundError("config %r: no such file" % path)
+    with open(path) as fh:
+        cfg = yaml.safe_load(fh) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("config %r: must be a mapping of a detection's settings" % path)
+    base = os.path.dirname(path)
+
+    def ab(p):
+        p = os.path.expanduser(str(p))
+        if os.path.isabs(p):
+            return p
+        out = os.path.normpath(os.path.join(base, p))
+        return out + "/" if p.endswith(("/", os.sep)) else out
+    det = cfg.get("detection")
+    if isinstance(det, dict):
+        if isinstance(det.get("path"), str) and det["path"]:
+            det["path"] = ab(det["path"])
+        if isinstance(det.get("key_path"), str) and det["key_path"].strip():
+            det["key_path"] = ab(det["key_path"])
+        for r in det.get("references") or []:
+            if isinstance(r, dict) and isinstance(r.get("image"), str):
+                r["image"] = ab(r["image"])
+    disp = cfg.get("display")
+    if isinstance(disp, dict):
+        for k in CLIENT_SAVE_KEYS:
+            v = disp.get(k)
+            if v is True or v == 1:
+                disp[k] = ab("output/")
+            elif isinstance(v, str) and v.strip():
+                disp[k] = ab(v)
+    return cfg
+
+
+def _vlm_key(det):
+    """Take ``key`` / ``key_path`` out of a vlm detection dict and return the
+    key: ``key`` when not empty, else the plain-text file ``key_path`` names
+    (absolute by now when it came from a config; written inline, relative
+    to the working folder — the folder the calling program runs in). Both
+    are written out (the explicit-values rule)."""
+    missing = [k for k in ("key", "key_path") if k not in det]
+    if missing:
+        raise ValueError("vlm detection: missing %s (write both; \"\" when unused)" % ", ".join(missing))
+    key, key_path = str(det.pop("key") or ""), str(det.pop("key_path") or "")
+    if key.strip():
+        return key.strip()
+    if not key_path.strip():
+        raise ValueError("vlm detection: give key, or key_path (a file holding just the key)")
+    p = os.path.expanduser(key_path)
+    if not os.path.isfile(p):
+        raise FileNotFoundError("key_path %r: no such file" % key_path)
+    with open(p) as fh:
+        k = fh.read().strip()
+    if not k:
+        raise ValueError("key_path %r: the file is empty" % key_path)
+    return k
+
+
+def _image_arg(img):
+    """One image for a vlm call (``views`` entry, ``extra_refs`` image):
+    a path on this computer, encoded bytes, an OpenCV / numpy array, or
+    ``{"server": path}`` (a file on the vision unit, sent as-is)."""
+    import base64
+    if isinstance(img, dict) and "server" in img:
+        return {"server": str(img["server"])}
+    if isinstance(img, (bytes, bytearray)):
+        return {"b64": base64.b64encode(bytes(img)).decode()}
+    if isinstance(img, str):
+        with open(os.path.expanduser(img), "rb") as fh:
+            return {"b64": base64.b64encode(fh.read()).decode()}
+    if hasattr(img, "shape"):
+        try:
+            import cv2
+        except ImportError:
+            raise TypeError("an array image needs OpenCV (cv2) on this computer — "
+                            "or pass a file path / encoded bytes")
+        ok, buf = cv2.imencode(".png", img)
+        if not ok:
+            raise ValueError("could not encode the array")
+        return {"b64": base64.b64encode(buf.tobytes()).decode()}
+    raise TypeError("an image is a path, bytes, an array or {'server': path}")
+
+
+def _vlm_args(kwargs):
+    """Encode a vlm call's ``views`` / ``extra_refs`` images in place."""
+    if kwargs.get("views") is not None:
+        kwargs["views"] = [_image_arg(v) for v in kwargs["views"]]
+    if kwargs.get("extra_refs"):
+        refs = []
+        for r in kwargs["extra_refs"]:
+            r = dict(r)
+            r["image"] = _image_arg(r.get("image"))
+            refs.append(r)
+        kwargs["extra_refs"] = refs
+    return kwargs
+
+
 def _hand_back(path):
     """Under sudo, give a file or folder this process created back to the
     invoking user — same rule as the server's save_img. Never raises."""
@@ -507,9 +634,18 @@ class VisionClient(object):
     def robot_remove(self, host, timeout=None):
         return self._send("robot_remove", {"host": host}, timeout=timeout)
 
-    def detection_add(self, name, camera_serial_number=None, robot_host=None, timeout=None, **detection_kwargs):
+    def detection_add(self, name, camera_serial_number=None, robot_host=None, timeout=None,
+                      config=None, **detection_kwargs):
         """
         Create a server-side Detection.
+
+        `config` names a YAML file holding any of the detection's settings,
+        same keys and nesting as this call (`detection`, `roi`, `display`,
+        ...). Its file paths (detection.path, a vlm detection's
+        references[].image and key_path) resolve against the file's folder.
+        Keys given here win, key by key at every depth; a list is replaced
+        whole. `config={"server": path}` names a file on the vision unit,
+        merged there. The reply's `config` is the merged result.
 
         If `detection={"cmd":"od|cls|kp", "path":"<local file>"}` and the
         path resolves to an actual file on this machine, the file's
@@ -517,8 +653,31 @@ class VisionClient(object):
         into the Detection then drops them. The path string in the
         envelope becomes a filename hint so the loader picks the right
         suffix; nothing is staged on the server's filesystem.
+
+        `detection={"cmd": "vlm", ...}`: its reference images are shipped
+        with the call; its key (`key`, else the plain-text file `key_path`)
+        is read here and sent as its own argument — held privately by the
+        server for this session, never echoed.
         """
         args = dict(detection_kwargs)
+        effective = None
+        if isinstance(config, dict) and "server" in config:
+            args["config"] = {"server": str(config["server"])}
+        elif config is not None:
+            args = _deep_merge(_load_config(config), args)
+        det_pkg = args.get("detection") or {}
+        if det_pkg.get("cmd") == "vlm":
+            det = dict(det_pkg)
+            vlm_key = _vlm_key(det)
+            if config is not None and not isinstance(config, dict):
+                effective = dict(args)
+                effective["detection"] = dict(det)      # key and key_path already taken out
+            det["references"] = [dict(r, image=_image_arg(r.get("image")))
+                                 for r in det.get("references") or []]
+            args["detection"] = det
+            args["vlm_key"] = vlm_key
+        elif config is not None and not isinstance(config, dict):
+            effective = dict(args)
         args["name"] = name
         if camera_serial_number is not None:
             args["camera_serial_number"] = camera_serial_number
@@ -527,7 +686,7 @@ class VisionClient(object):
 
         det_pkg = args.get("detection") or {}
         path = det_pkg.get("path")
-        if path and isinstance(path, str) and os.path.isfile(path):
+        if det_pkg.get("cmd") != "vlm" and path and isinstance(path, str) and os.path.isfile(path):
             with open(path, "rb") as f:
                 model_bytes = f.read()
             # Replace the absolute local path with just the basename —
@@ -535,11 +694,15 @@ class VisionClient(object):
             new_det = dict(det_pkg)
             new_det["path"] = os.path.basename(path)
             args["detection"] = new_det
-            return self._send_with_binary("detection_add", args, model_bytes, timeout=timeout)
-        return self._send("detection_add", args, timeout=timeout)
+            reply = self._send_with_binary("detection_add", args, model_bytes, timeout=timeout)
+        else:
+            reply = self._send("detection_add", args, timeout=timeout)
+        if effective is not None and isinstance(reply, dict):
+            reply["config"] = effective                  # what the merge produced (never the key)
+        return reply
 
     def detection_run(self, name, use_last=False, timeout=None, **run_kwargs):
-        args = dict(run_kwargs)
+        args = _vlm_args(dict(run_kwargs))
         args["name"] = name
         if use_last:
             args["use_last"] = True
@@ -754,6 +917,24 @@ class _ObjectProxy(object):
         if self._target != "detection":
             raise AttributeError("get_img is only valid on a detection proxy")
         return self._client.detection_get_img(self._name, type=type, quality=quality, timeout=_timeout)
+
+    def add_view(self, _timeout=None, **kwargs):
+        """VLM detections: capture a frame and keep its ROI crop on the
+        server as one more view of the part. The next ``run()`` sends every
+        kept view plus its own in ONE request. Returns ``{"views": n}``."""
+        if self._target != "detection":
+            raise AttributeError("add_view is only valid on a detection proxy")
+        return self._client._call("detection", self._name, "add_view", [], kwargs, timeout=_timeout)
+
+    def run(self, *args, _timeout=None, **kwargs):
+        """Run the detection. VLM detections also take ``views=[...]``
+        (judge these images, no camera), ``extra_refs=[{image, label,
+        note}]`` and ``prompt="..."``; an image is a path, bytes or an
+        array on this computer, or ``{"server": path}``."""
+        if self._target != "detection":
+            return self._client._call(self._target, self._name, "run", list(args), kwargs, timeout=_timeout)
+        return self._client._call("detection", self._name, "run", list(args),
+                                  _vlm_args(dict(kwargs)), timeout=_timeout)
 
     def save_img(self, path, type="img", quality=100, _timeout=None):
         """

@@ -67,7 +67,16 @@ class ClientSession(object):
                 # For non-defaults, the client can call robot_add explicitly first.
                 robot = self.robot_pool.acquire(host=robot_host)
 
+        # The key of a vlm detection travels as its own argument and is
+        # handed to the Detection privately — never inside detection_kwargs
+        # (kept public on the Detection) or anything echoed back.
+        vlm_key = detection_kwargs.pop("vlm_key", None)
+        det_cfg = detection_kwargs.get("detection")
+        if isinstance(det_cfg, dict) and det_cfg.get("cmd") == "vlm":
+            detection_kwargs["detection"] = {**det_cfg, "log_name": name}
         det = Detection(camera=cam, robot=robot, **detection_kwargs)
+        if vlm_key:
+            det.set_vlm_key(vlm_key)
         if self.push_sink is not None:
             sink = self.push_sink
             det.push_fn = lambda kind, img, ts, target: sink(name, kind, img, ts, target)

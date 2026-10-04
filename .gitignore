@@ -162,3 +162,8 @@ draft/**
 
 # Claude Code local session data
 .claude/
+# client_save_* true writes here (relative to the working folder) — run output, not source
+output/
+
+# keys (vlm.key ...) beside the config that names them — workspace docs/vision-guide.md §9
+*.key

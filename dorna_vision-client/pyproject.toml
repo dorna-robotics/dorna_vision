@@ -18,6 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "websocket-client",
+    "pyyaml",               # a vlm preset's key_file is read here
 ]
 
 [project.urls]

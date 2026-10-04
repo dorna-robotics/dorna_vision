@@ -1,0 +1,25 @@
+# Mark every cap in the frame — output od: one entry per cap, with its box.
+# No references: the prompt alone says what a cap is. Same key as cap_check.
+# (workspace docs/vision-guide.md §9; paths resolve against THIS folder)
+detection:
+  cmd: vlm
+  model:
+    name: flash-3.8
+    backend: default
+    thinking: low
+  key: ""
+  key_path: vlm.key
+  output: od                        # boxes: one entry per object found, corners in frame pixels
+  labels: [capped, uncapped]        # each box is labelled with one of these; [] would let the model name what it finds
+  schema: {}
+  prompt: |
+    You see sample tubes in a rack from above. Find every tube opening:
+    box each one tightly. Label it capped when a cap covers it, uncapped
+    when the opening is bare or the cap is clearly off.
+  references: []
+  image_size: 1024                  # boxes need pixels: larger than cap_check's 768
+  timeout_s: 30
+display:
+  label: 1                          # draws each box with its label + confidence on the frame
+  client_save_img: true             # the drawn frame on THIS computer -> output/ beside this file
+  client_save_log: true

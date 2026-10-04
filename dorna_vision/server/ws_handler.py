@@ -14,7 +14,7 @@ from .session import ClientSession
 # Client save (detection display.client_save_img / client_save_img_roi):
 # at most this many frames per session queued or on the wire. Past it the
 # newest is dropped — a slow link must never grow memory or stall a camera.
-PUSH_MAX_IN_FLIGHT = 4
+PUSH_MAX_IN_FLIGHT = 16
 
 # Formats the target's extension can ask for — what cv.imwrite would
 # write for that file name. Anything else (a folder, True) is JPEG.
@@ -227,11 +227,20 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
                 e = os.path.splitext(target)[1].lower()
                 if e in _PUSH_EXTS:
                     ext = e
-            ok, buf = cv.imencode(ext, img)
-            if not ok:
-                raise RuntimeError("encode failed (%s)" % ext)
+            if isinstance(img, (bytes, bytearray)):
+                # already encoded (a vlm log file — JPEG views, the JSON
+                # record): sent as-is, named by the target
+                data = bytes(img)
+                shape = None
+                ext = os.path.splitext(str(target))[1].lower() or ext
+            else:
+                ok, buf = cv.imencode(ext, img)
+                if not ok:
+                    raise RuntimeError("encode failed (%s)" % ext)
+                data = buf.tobytes()
+                shape = list(img.shape)
             envelope = {"event": "detection_img", "name": name, "type": kind,
-                        "timestamp": timestamp, "shape": list(img.shape),
+                        "timestamp": timestamp, "shape": shape,
                         "target": target, "encoding": ext.lstrip("."),
                         "binary_follows": True}
             loop = VisionWSHandler._ioloop
@@ -239,7 +248,7 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
                 self._push_release(ok=False)
                 return
             fut = asyncio.run_coroutine_threadsafe(
-                self._push_write(_to_jsonable(envelope), buf.tobytes()), loop)
+                self._push_write(_to_jsonable(envelope), data), loop)
             fut.add_done_callback(
                 lambda f: self._push_release(ok=not f.cancelled() and f.exception() is None))
         except Exception:

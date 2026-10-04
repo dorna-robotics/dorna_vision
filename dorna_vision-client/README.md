@@ -103,7 +103,7 @@ lossless for `.png` (about 300 ms, 5 MB — use it when you need the exact
 pixels). Folders are created. `<timestamp>` is whole seconds, as with
 `save_img`, so two runs in the same second share a name.
 
-The server keeps at most 4 frames per client queued; past that it drops the
+The server keeps at most 16 frames per client queued; past that it drops the
 newest and logs `[push] dropped` once, so a slow link never grows memory or
 stalls a camera.
 
@@ -125,3 +125,69 @@ The envelope: `{"event": "detection_img", "name", "type": "img" | "img_roi",
 <the configured value>, "encoding": "jpg" | "png" | ...}` and `path` added by
 the client. Listeners run on the client's event thread, in arrival order; an
 exception in one is logged and never stops delivery.
+
+## Config files — a detection's settings in a file
+
+`config` names a YAML file holding any of a detection's settings, with the
+same keys and nesting `detection_add` takes. Keys given in the call win, key
+by key at every depth; a list is replaced whole. Works for every detection
+type.
+
+```yaml
+# vision/tube_od.yaml
+detection: {cmd: od, path: tube.pkl, conf: 0.5}   # the model beside this file
+roi: {corners: [[100, 50], [700, 600]], inv: 0, crop: 1}
+display: {label: 1, client_save_img: "tube_od/"}
+```
+```python
+vc.detection_add("tube_od", camera_serial_number=sn, config="vision/tube_od.yaml")
+vc.detection_add("tube_od", camera_serial_number=sn, config="vision/tube_od.yaml",
+                 detection={"conf": 0.6})                   # only conf changes
+```
+
+- Every relative path in it is relative to the file's folder:
+  `detection.path`, a vlm detection's `references[].image` and `key_path`,
+  and the `display.client_save_*` folders written on this computer
+  (`true` = `output/`). A relative `config=` passed here is relative to
+  the folder this program runs in, like any path in Python.
+- The file is read on THIS computer and what it references is shipped with
+  the call; `config={"server": "/abs/file.yaml"}` names one on the vision unit.
+- The reply's `config` is the merged result (never a key).
+
+## VLM detections — a vision-language model as a detection
+
+A `vlm` detection asks a hosted vision-language model about the frame instead
+of running a local model. It is a detection like any other — ROI,
+`client_save_img`, the same result list. The full contract is the workspace's
+`docs/vision-guide.md` §9; example configs are `example/vlm/cap_check.yaml` (`cls`, a
+verdict with one reference) and `example/vlm/mark_caps.yaml` (`od`, every cap boxed,
+no references).
+
+```python
+vc.detection_add("cap", camera_serial_number=sn,
+                 config="example/vlm/cap_check.yaml",    # detection: {cmd: vlm, ...}
+                 roi={"corners": [[100, 50], [700, 600]], "inv": 0, "crop": 1},
+                 display={"client_save_log": "~/captures/cap/"})   # each call's views + answer, here
+d = vc.detection("cap")
+
+d.run()                                          # one live view
+d.add_view(); d.add_view(); d.run()              # several views of ONE part, one request
+d.run(views=["a.jpg", jpeg_bytes, cv_array])     # images from this computer, no camera
+d.run(extra_refs=[{"image": "golden.jpg", "label": "pass", "note": "today's golden part"}],
+      prompt="this batch uses blue caps")
+```
+
+The key: `detection.key` when it is not empty (quick tests only — a config
+gets committed), else `detection.key_path`, a plain-text file holding just the
+key (beside the config, e.g. `vlm.key`, with `*.key` git-ignored). It is read where
+the config is and sent as its own argument; the server holds it in memory for
+the session only, never writes, logs or returns it.
+
+An image argument is a path or bytes or an OpenCV array on this computer (an
+array needs `cv2` here), or `{"server": path}`. Every result entry carries
+`reason` and `vlm: {model, backend, latency_ms, tokens_in, tokens_cached,
+tokens_out}`. `display.client_save_log` saves every call on this computer —
+`false` (default), `true` (`output/`) or a folder: the views as sent
+(`<ms>_view<n>.jpg`), per-call references (`<ms>_ref<n>.jpg`) and the answer
+(`<ms>.json`). A failed model call raises `VisionServerError` — nothing is
+guessed.

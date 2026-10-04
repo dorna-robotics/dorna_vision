@@ -361,6 +361,28 @@ def detection_add(session, args, data=None):
     name = args.pop("name", None)
     if not name:
         raise ValueError("name is required")
+    # A config file ON THIS UNIT (``config: {"server": path}``): its
+    # settings, file paths made absolute against its folder, with the
+    # inline keys winning key by key (dorna_vision.config). A config on
+    # the client's computer arrives already merged by the client.
+    effective = None
+    cfg_ref = args.pop("config", None)
+    if cfg_ref is not None:
+        from dorna_vision.config import deep_merge, load_config
+        if not (isinstance(cfg_ref, dict) and "server" in cfg_ref):
+            raise ValueError('config here is {"server": path}; a file on the client is read by the client')
+        args = deep_merge(load_config(cfg_ref["server"], server_images=True), args)
+        det = args.get("detection") or {}
+        if det.get("cmd") == "vlm":
+            # the key of a config on this unit is read here, and travels
+            # on as vlm_key like a client's — never inside the detection
+            from dorna_vision.vlm import preset_key
+            det = dict(det)
+            k, kp = det.pop("key", ""), det.pop("key_path", "")
+            args["vlm_key"] = preset_key(k, kp, os.path.dirname(os.path.abspath(
+                os.path.expanduser(cfg_ref["server"]))))
+            args["detection"] = det
+        effective = {k: v for k, v in args.items() if k != "vlm_key"}
     camera_serial_number = args.pop("camera_serial_number", None)
     robot_host = args.pop("robot_host", None)
 
@@ -412,8 +434,12 @@ def detection_add(session, args, data=None):
 
     # Echo the detected/effective cmd back so the GUI can filter the
     # runtime method picker without having to ask the user up front.
+    # (Never the args themselves: a vlm detection's carry its key.)
     cmd = (args.get("detection") or {}).get("cmd")
-    return {"name": name, "cmd": cmd}
+    out = {"name": name, "cmd": cmd}
+    if effective is not None:
+        out["config"] = _to_jsonable(effective)      # what the merge produced (never the key)
+    return out
 
 
 def detection_run(session, args):

@@ -1,0 +1,25 @@
+# An example detection config (workspace docs/vision-guide.md §5 "Config files", §9).
+# Any of a detection's settings, same keys and nesting as detection_add.
+# File paths below resolve against THIS file's folder (or are absolute).
+detection:
+  cmd: vlm
+  model:
+    name: flash-3.8                 # backend default: flash-3.8 | flash-3.7 | flash-3.6 | flash-lite-3.5 | pro-3.1
+    backend: default                # which server module answers (dorna_vision/vlm/)
+    thinking: low                   # minimal | low | medium | high — how much the model reasons first
+  key: ""                           # the key itself — wins when not empty; quick tests only: this file gets committed
+  key_path: vlm.key                 # else: a plain-text file holding just the key, beside this file — *.key is git-ignored
+  output: cls                       # cls (one verdict for the part) | od (boxes) | ocr (text lines)
+  labels: [capped, uncapped, crooked]   # the allowed answers; [] = the model answers in its own words
+  schema: {}                        # extra data on every entry, as a JSON schema — {} for none, e.g.
+                                    #   {type: object, properties: {tubes: {type: integer}, full: {type: boolean}}}
+  prompt: |
+    You inspect sample tubes in a rack, seen from above. Each tube must
+    carry its cap, seated flat and fully screwed on.
+  references:
+    - {image: refs/capped_1.jpg, label: capped, note: "caps seated flat, thread hidden"}
+  image_size: 768                   # long side of every image sent, px
+  timeout_s: 20
+display:
+  label: 1
+  client_save_log: true             # each call's views + answer json on THIS computer — false | true (output/) | a folder
