@@ -739,8 +739,39 @@ def charuco(img, camera_matrix, dist_coeffs, **kwargs):
     return retval
 
 #[[pxl, corners, (major_axis, minor_axis, rot)], ...]    
-def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = True, sigma=1, gradient_threshold_value=20, pf_mode = False, **kwargs):
-        retval = [] 
+def _sector_support(edge_img, rect, sector_deg, tol):
+    """How much of an ellipse's outline the image shows, in its WORST
+    sector: the outline is sampled about every pixel, a sample counts when
+    an edge pixel lies within ``tol`` px of it, and each ``sector_deg``
+    sector (angle around the centre) scores its counted share. Returns the
+    lowest sector's share, 0..1 — a chip, a break or a dent in one place
+    pulls it down even when the rest of the outline is perfect."""
+    (cx, cy), (major, minor), rot = rect
+    a, b = major / 2.0, minor / 2.0
+    n = max(360, int(np.pi * (a + b)))            # about one sample per pixel of outline
+    t = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    r = np.deg2rad(rot)
+    xs = cx + a * np.cos(t) * np.cos(r) - b * np.sin(t) * np.sin(r)
+    ys = cy + a * np.cos(t) * np.sin(r) + b * np.sin(t) * np.cos(r)
+    near = cv.dilate(edge_img, np.ones((2 * tol + 1, 2 * tol + 1), np.uint8))
+    h, w = near.shape[:2]
+    xi, yi = np.round(xs).astype(int), np.round(ys).astype(int)
+    inside = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
+    seen = np.zeros(n, bool)
+    seen[inside] = near[yi[inside], xi[inside]] > 0      # off the image: not seen
+    sector = ((np.degrees(np.arctan2(ys - cy, xs - cx)) % 360) // sector_deg).astype(int)
+    return float(min(seen[sector == k].mean() for k in np.unique(sector)))
+
+
+def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = True, sigma=1, gradient_threshold_value=20, pf_mode = False,
+            sector_deg=None, sector_tol=3, **kwargs):
+        """Edge-based ellipses. ``sector_deg`` None (default): every
+        ellipse's conf is 1. Set (e.g. 10): conf is how much of its outline
+        the image shows in its worst ``sector_deg`` sector — 1.0 a whole
+        outline, lower where a sector is missing its edge (_sector_support;
+        ``sector_tol`` px is how far an edge may be from the outline: 3, as
+        a real edge wanders 2–3 px from a perfect circle)."""
+        retval = []
 
         # init
         e_d = cv.ximgproc.createEdgeDrawing()
@@ -789,8 +820,18 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
             # Convert to list of tuples
             corners = [[point[0], point[1]] for point in box]
 
+            # conf: 1, or the worst sector's share of the outline the image
+            # shows — scored on the UNROUNDED ellipse: the edge is one pixel
+            # wide, and the integer centre above alone moved a whole disc's
+            # score from 0.83 to 0.59
+            conf = 1
+            if sector_deg is not None:
+                cx, cy, r0, a0, b0, th = (float(v) for v in elp[0])
+                exact = ((cx, cy), (2 * (r0 + a0), 2 * (r0 + b0)), th)
+                conf = round(_sector_support(e_d.getEdgeImage(), exact, float(sector_deg), int(sector_tol)), 3)
+
             # add to return
-            retval.append([center, corners, rect])
+            retval.append([center, corners, rect, conf])
             
         return retval
 

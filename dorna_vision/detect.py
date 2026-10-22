@@ -742,7 +742,7 @@ class Detection(object):
                 if self.detection["cmd"] == "elp":
                     # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
                     result = ellipse(img_roi, **self.detection)
-                    retval = [{"timestamp": camera_data["timestamp"], "cls": self.detection["cmd"], "conf": 1, "center": _roi.pxl_to_orig(r[0]), 
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": self.detection["cmd"], "conf": r[3], "center": _roi.pxl_to_orig(r[0]),
                     "corners": [_roi.pxl_to_orig(x) for x in r[1]]} for r in result]
 
                 if self.detection["cmd"] in ["poly", "cnt"]:

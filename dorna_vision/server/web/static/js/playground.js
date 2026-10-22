@@ -141,6 +141,15 @@ const CMD_SCHEMAS = {
         showWhen: (v) => v.method === "edge" },
       { key: "gradient_threshold_value",label: "Gradient",               kind: "slider", min: 1,  max: 100,  step: 1, default: 20,
         showWhen: (v) => v.method === "edge" },
+      // Blank = off: every ellipse's conf is 1. Set: conf is the share of
+      // its outline the image shows in its worst sector of this many
+      // degrees — a chip or a break pulls it down.
+      { key: "sector_deg",              label: "Coverage sector (°)",    kind: "number", default: null,
+        help: "Blank: conf is 1. Set (e.g. 10): conf is how much of the ellipse's outline the image shows in its worst sector of this many degrees.",
+        showWhen: (v) => v.method === "edge" },
+      { key: "sector_tol",              label: "Coverage tolerance (px)", kind: "slider", min: 1, max: 10, step: 1, default: 3,
+        help: "How far an edge may be from the outline and still count.",
+        showWhen: (v) => v.method === "edge" && v.sector_deg != null && v.sector_deg !== "" },
 
       // Contour fit (cmd="elp_fit")
       { key: "use_otsu",         label: "Otsu thresholding",       kind: "bool",   default: true,
