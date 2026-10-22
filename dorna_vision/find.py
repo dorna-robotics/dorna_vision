@@ -1,3 +1,4 @@
+import math
 import cv2 as cv
 import numpy as np
 from dorna_vision.board import Aruco, Charuco
@@ -745,13 +746,22 @@ def charuco(img, camera_matrix, dist_coeffs, **kwargs):
 SECTOR_TOL = 3
 
 
-def _sector_support(edge_img, rect, sector_deg, tol=SECTOR_TOL):
-    """How much of an ellipse's outline the image shows, in its WORST
-    sector: the outline is sampled about every pixel, a sample counts when
-    an edge pixel lies within ``tol`` px of it, and each ``sector_deg``
-    sector (angle around the centre) scores its counted share. Returns the
-    lowest sector's share, 0..1 — a chip, a break or a dent in one place
-    pulls it down even when the rest of the outline is perfect."""
+def _near_edges(edge_img, tol=SECTOR_TOL):
+    """The edge image grown by ``tol`` px — every pixel within ``tol`` of an
+    edge. Made ONCE per image and shared by every ellipse's _sector_support:
+    a busy frame finds dozens of ellipses (86 on a machined holder), and
+    growing it per ellipse cost ~1.5 ms each."""
+    return cv.dilate(edge_img, np.ones((2 * tol + 1, 2 * tol + 1), np.uint8))
+
+
+def _sector_support(near, rect, sector_deg):
+    """How much of an ellipse's outline the image shows, sector by sector:
+    the outline is sampled about every pixel, a sample counts when it falls
+    on ``near`` (_near_edges: an edge within SECTOR_TOL px), and each ``sector_deg`` sector
+    (angle around the centre, from +x towards +y) scores its counted share,
+    0..1. Returns the list, sector 0 first — its minimum is the ellipse's
+    conf: a chip, a break or a dent in one place pulls it down even when the
+    rest of the outline is perfect."""
     (cx, cy), (major, minor), rot = rect
     a, b = major / 2.0, minor / 2.0
     n = max(360, int(np.pi * (a + b)))            # about one sample per pixel of outline
@@ -759,14 +769,16 @@ def _sector_support(edge_img, rect, sector_deg, tol=SECTOR_TOL):
     r = np.deg2rad(rot)
     xs = cx + a * np.cos(t) * np.cos(r) - b * np.sin(t) * np.sin(r)
     ys = cy + a * np.cos(t) * np.sin(r) + b * np.sin(t) * np.cos(r)
-    near = cv.dilate(edge_img, np.ones((2 * tol + 1, 2 * tol + 1), np.uint8))
     h, w = near.shape[:2]
     xi, yi = np.round(xs).astype(int), np.round(ys).astype(int)
     inside = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
     seen = np.zeros(n, bool)
     seen[inside] = near[yi[inside], xi[inside]] > 0      # off the image: not seen
     sector = ((np.degrees(np.arctan2(ys - cy, xs - cx)) % 360) // sector_deg).astype(int)
-    return float(min(seen[sector == k].mean() for k in np.unique(sector)))
+    k = int(math.ceil(360 / sector_deg))
+    total = np.bincount(sector, minlength=k)
+    hit = np.bincount(sector, weights=seen, minlength=k)
+    return [round(float(h / t), 3) for h, t in zip(hit, total) if t]
 
 
 def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = True, sigma=1, gradient_threshold_value=20, pf_mode = False,
@@ -804,6 +816,8 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
         if elps is None:
             return retval
 
+        near = _near_edges(e_d.getEdgeImage()) if sector_deg is not None else None
+
         # format
         for elp in elps:
             # axes
@@ -828,15 +842,17 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
             # conf: 1, or the worst sector's share of the outline the image
             # shows — scored on the UNROUNDED ellipse: the edge is one pixel
             # wide, and the integer centre above alone moved a whole disc's
-            # score from 0.83 to 0.59
-            conf = 1
+            # score from 0.83 to 0.59. ``sectors``: every sector's share,
+            # for a view that draws them (None when sector_deg is unset)
+            conf, sectors = 1, None
             if sector_deg is not None:
                 cx, cy, r0, a0, b0, th = (float(v) for v in elp[0])
                 exact = ((cx, cy), (2 * (r0 + a0), 2 * (r0 + b0)), th)
-                conf = round(_sector_support(e_d.getEdgeImage(), exact, float(sector_deg)), 3)
+                sectors = _sector_support(near, exact, float(sector_deg))
+                conf = min(sectors)
 
             # add to return
-            retval.append([center, corners, rect, conf])
+            retval.append([center, corners, rect, conf, sectors])
             
         return retval
 
