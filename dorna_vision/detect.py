@@ -1033,8 +1033,9 @@ class Detection(object):
                 if camera_data["depth_frame"] is not None and camera_data["K"] is not None:
                     r["xyz"] = self.xyz(r["center"])
 
-                # xyz limit
-                if "xyz" in self.limit:
+                # xyz limit — an empty one is no limit, as bb and center
+                # (the playground sends {} for a section that is off)
+                if self.limit.get("xyz"):
                     if "xyz" not in r or not Valid().xyz(r["xyz"], **self.limit["xyz"]):
                         continue
 

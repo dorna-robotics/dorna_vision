@@ -739,7 +739,13 @@ def charuco(img, camera_matrix, dist_coeffs, **kwargs):
     return retval
 
 #[[pxl, corners, (major_axis, minor_axis, rot)], ...]    
-def _sector_support(edge_img, rect, sector_deg, tol):
+# How far an image edge may be from an ellipse's outline and still count
+# for it (_sector_support): a real edge wanders 2–3 px from a perfect
+# circle — at 2 a good disc's inner circle scored 0.64, at 3 it scores 1.0.
+SECTOR_TOL = 3
+
+
+def _sector_support(edge_img, rect, sector_deg, tol=SECTOR_TOL):
     """How much of an ellipse's outline the image shows, in its WORST
     sector: the outline is sampled about every pixel, a sample counts when
     an edge pixel lies within ``tol`` px of it, and each ``sector_deg``
@@ -764,13 +770,12 @@ def _sector_support(edge_img, rect, sector_deg, tol):
 
 
 def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = True, sigma=1, gradient_threshold_value=20, pf_mode = False,
-            sector_deg=None, sector_tol=3, **kwargs):
+            sector_deg=None, **kwargs):
         """Edge-based ellipses. ``sector_deg`` None (default): every
         ellipse's conf is 1. Set (e.g. 10): conf is how much of its outline
         the image shows in its worst ``sector_deg`` sector — 1.0 a whole
-        outline, lower where a sector is missing its edge (_sector_support;
-        ``sector_tol`` px is how far an edge may be from the outline: 3, as
-        a real edge wanders 2–3 px from a perfect circle)."""
+        outline, lower where a sector is missing its edge (_sector_support,
+        an edge counting within SECTOR_TOL px of the outline)."""
         retval = []
 
         # init
@@ -828,7 +833,7 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
             if sector_deg is not None:
                 cx, cy, r0, a0, b0, th = (float(v) for v in elp[0])
                 exact = ((cx, cy), (2 * (r0 + a0), 2 * (r0 + b0)), th)
-                conf = round(_sector_support(e_d.getEdgeImage(), exact, float(sector_deg), int(sector_tol)), 3)
+                conf = round(_sector_support(e_d.getEdgeImage(), exact, float(sector_deg)), 3)
 
             # add to return
             retval.append([center, corners, rect, conf])
