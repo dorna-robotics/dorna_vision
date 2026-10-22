@@ -85,7 +85,7 @@ const CMD_SCHEMAS = {
         showWhen: (v) => v.method === "standard" },
       // OpenCV's blob detector enforces `0 < minArea` — start at 1
       // instead of 0 so the lo handle can't produce an invalid config.
-      { key: "area",      label: "Area (px², min..max)",  kind: "range", min: 1, max: 50000, step: 10, default: [100, 5000],
+      { key: "area",      label: "Area (px², min..max)",  kind: "range", min: 1, max: 50000, span: "area", step: 10, default: [100, 5000],
         showWhen: (v) => v.method === "standard" },
       // OpenCV's blob detector enforces `0 < minCircularity` — start at
       // 0.01 instead of 0 so the slider can't produce an invalid config.
@@ -101,7 +101,7 @@ const CMD_SCHEMAS = {
         showWhen: (v) => v.method === "lighting_tolerant" },
       // Note: the "area" key is shared between methods (different
       // defaults). showWhen disambiguates which one is active.
-      { key: "area",          label: "Area (px², min..max)", kind: "range", min: 1, max: 100000, step: 10, default: [60, 14400],
+      { key: "area",          label: "Area (px², min..max)", kind: "range", min: 1, max: 100000, span: "area", step: 10, default: [60, 14400],
         showWhen: (v) => v.method === "lighting_tolerant" },
       { key: "max_variation", label: "Max area variation",  kind: "slider", min: 0.05, max: 1, step: 0.01, default: 0.25,
         showWhen: (v) => v.method === "lighting_tolerant" },
@@ -133,9 +133,9 @@ const CMD_SCHEMAS = {
         showWhen: (v) => v.method === "edge" },
       { key: "nfa_validation",          label: "False alarm validation", kind: "bool",   default: true,
         showWhen: (v) => v.method === "edge" },
-      { key: "min_path_length",         label: "Min path length",        kind: "slider", min: 1,  max: 1000, step: 1, default: 50,
+      { key: "min_path_length",         label: "Min path length",        kind: "slider", min: 1,  max: 1000, span: "side", step: 1, default: 50,
         showWhen: (v) => v.method === "edge" },
-      { key: "min_line_length",         label: "Min line length",        kind: "slider", min: 1,  max: 1000, step: 1, default: 10,
+      { key: "min_line_length",         label: "Min line length",        kind: "slider", min: 1,  max: 1000, span: "side", step: 1, default: 10,
         showWhen: (v) => v.method === "edge" },
       { key: "sigma",                   label: "Blur",                   kind: "slider", min: 0,  max: 20,   step: 0.1, default: 1,
         showWhen: (v) => v.method === "edge" },
@@ -154,7 +154,7 @@ const CMD_SCHEMAS = {
       // Contour fit (cmd="elp_fit")
       { key: "use_otsu",         label: "Otsu thresholding",       kind: "bool",   default: true,
         showWhen: (v) => v.method === "fit" },
-      { key: "area_range",       label: "Area (px², min..max)",    kind: "range",  min: 1, max: 1000000, step: 100, default: [300, 500000],
+      { key: "area_range",       label: "Area (px², min..max)",    kind: "range",  min: 1, max: 1000000, span: "area", step: 100, default: [300, 500000],
         showWhen: (v) => v.method === "fit" },
       { key: "aspect_ratio_tol", label: "Aspect ratio tolerance",  kind: "slider", min: 0, max: 1, step: 0.01, default: 0.1,
         showWhen: (v) => v.method === "fit" },
@@ -270,7 +270,7 @@ const SECTION_SCHEMAS = [
 
   // Image
   {
-    tab: "image", key: null, label: "Orientation", enable: true,
+    tab: "image", key: null, label: "Orientation", enable: true, off: { rot: 0 },
     desc: "Rotate the source image clockwise as needed.",
     fields: [
       { key: "rot",  label: "Clockwise rotation", kind: "select",
@@ -278,7 +278,7 @@ const SECTION_SCHEMAS = [
     ],
   },
   {
-    tab: "image", key: "roi", label: "Region of Interest", enable: true,
+    tab: "image", key: "roi", label: "Region of Interest", enable: true, off: { corners: [], inv: 0, crop: 0 },
     desc: "Restrict detection to a sub-area of the image. Pick a polygon on the output image, or give a 3D box (resolved to its outer pixel polygon at run time).",
     fields: [
       // `mode` is UI-only (transient): it picks which source field shows and
@@ -296,7 +296,7 @@ const SECTION_SCHEMAS = [
     ],
   },
   {
-    tab: "image", key: "intensity", label: "Intensity", enable: true,
+    tab: "image", key: "intensity", label: "Intensity", enable: true, off: { a: 1.0, b: 0 },
     desc: "Adjust brightness and contrast to enhance image details before detection runs.",
     fields: [
       { key: "a", label: "Contrast (a)",  kind: "slider", min: 0, max: 4,   step: 0.01, default: 1 },
@@ -304,7 +304,7 @@ const SECTION_SCHEMAS = [
     ],
   },
   {
-    tab: "image", key: "color", label: "Color Mask", enable: true,
+    tab: "image", key: "color", label: "Color Mask", enable: true, off: { low_hsv: [0, 0, 0], high_hsv: [255, 255, 255], inv: 0 },
     desc: "Filter the image to a hue/saturation/value range. Use this to isolate a specific colour before detection.",
     fields: [
       { key: "low_hsv",  label: "Low  H · S · V",  kind: "vec3", min: 0, max: 255, default: [0, 0, 0] },
@@ -315,7 +315,7 @@ const SECTION_SCHEMAS = [
 
   // Setting
   {
-    tab: "setting", key: "sort", label: "Sorting Result", enable: true,
+    tab: "setting", key: "sort", label: "Sorting Result", enable: true, off: { cmd: null, max_det: 100 },
     desc: "Arrange detected objects by confidence, pixel distance, bounding-box area, or 3D distance.",
     fields: [
       { key: "cmd", label: "Sort by", kind: "select",
@@ -334,24 +334,24 @@ const SECTION_SCHEMAS = [
     ],
   },
   {
-    tab: "setting", key: "limit.bb", label: "Bounding Box Limits", enable: true,
+    tab: "setting", key: "limit.bb", label: "Bounding Box Limits", enable: true, off: {},
     desc: "Filter detected objects by their bounding-box shape (aspect ratio) and size (area in pixels²).",
     fields: [
-      { key: "area",         label: "Area (px²)",   kind: "range", min: 0, max: 100000, step: 100, default: [0, 100000] },
+      { key: "area",         label: "Area (px²)",   kind: "range", min: 0, max: 100000, span: "area", step: 100 },
       { key: "aspect_ratio", label: "Aspect ratio", kind: "range", min: 0, max: 1,     step: 0.01, default: [0, 1] },
     ],
   },
   {
-    tab: "setting", key: "limit.center", label: "Center Pixel Limits", enable: true,
+    tab: "setting", key: "limit.center", label: "Center Pixel Limits", enable: true, off: {},
     desc: "Restrict detections to those whose bounding-box center falls inside the given pixel area.",
     fields: [
-      { key: "width",  label: "Width (px)",  kind: "range", min: 0, max: 2000, step: 1, default: [0, 2000] },
-      { key: "height", label: "Height (px)", kind: "range", min: 0, max: 2000, step: 1, default: [0, 2000] },
+      { key: "width",  label: "Width (px)",  kind: "range", min: 0, max: 2000, span: "w", step: 1 },
+      { key: "height", label: "Height (px)", kind: "range", min: 0, max: 2000, span: "h", step: 1 },
       { key: "inv",    label: "Invert range", kind: "bool", default: false, asInt: true },
     ],
   },
   {
-    tab: "setting", key: "limit.xyz", label: "XYZ Limits", enable: true,
+    tab: "setting", key: "limit.xyz", label: "XYZ Limits", enable: true, off: {},
     desc: "Apply 3D constraints to remove detections outside the specified x, y, z range in the world frame (as set by Base in world).",
     fields: [
       { key: "x", label: "x (mm)", kind: "range", min: -1000, max: 1000, step: 1, default: [-1000, 1000] },
@@ -372,6 +372,7 @@ const SECTION_SCHEMAS = [
   // automatically because pose is intrinsic to those detectors.
   {
     tab: "setting", key: "display", label: "Display", enable: true,
+    off: { label: 0, save_img: 0, save_img_roi: 0, client_save_img: 0, client_save_img_roi: 0, client_save_log: 0 },
     desc: "Configure how inference results are presented and saved.",
     fields: [
       { key: "label", label: "Display style", kind: "select",
@@ -542,6 +543,26 @@ const _eyedrop = { active: false, target: null };  // 'low' | 'high'
 
 function fieldId(section, key) { return `pgF_${section}_${key}`.replace(/[^a-zA-Z0-9_]/g, "_"); }
 
+// The full frame the detection runs on, {w, h} — from the image reply's
+// source_shape (the live preview is downscaled, the frame is not). null
+// until the first image. A field with ``span`` takes its max from it:
+// "w" / "h" a pixel coordinate, "side" a length along the long edge,
+// "area" pixels² — so a bigger camera gets bigger ranges, no field caps
+// a detection below its own frame. Before the first image: the schema max.
+let _frame = null;
+function fieldMax(field, value) {
+  let max = field.max;
+  if (field.span && _frame) {
+    max = { w: _frame.w, h: _frame.h, side: Math.max(_frame.w, _frame.h),
+            area: _frame.w * _frame.h }[field.span] ?? field.max;
+  }
+  // a value already beyond it (a config from a bigger frame) widens the
+  // range rather than being clamped silently
+  const vals = Array.isArray(value) ? value : [value];
+  for (const v of vals) if (typeof v === "number" && v > max) max = v;
+  return max;
+}
+
 function renderField(sectionKey, field, value) {
   const id = fieldId(sectionKey, field.key);
   // Compound widgets put the id on a wrapper div, not on a single form
@@ -580,9 +601,10 @@ function renderField(sectionKey, field, value) {
     }
     case "slider": {
       const v = (value === null || value === undefined) ? field.default : value;
+      const max = fieldMax(field, v);
       ctrl = `<div class="pg-slider-row">
-        <input class="pg-slider" id="${id}" name="${id}" type="range" min="${field.min}" max="${field.max}" step="${field.step}" value="${v}"/>
-        <input class="input pg-slider-num" name="${id}_n" type="number" min="${field.min}" max="${field.max}" step="${field.step}" value="${v}" data-for="${id}"/>
+        <input class="pg-slider" id="${id}" name="${id}" type="range" min="${field.min}" max="${max}" step="${field.step}" value="${v}"/>
+        <input class="input pg-slider-num" name="${id}_n" type="number" min="${field.min}" max="${max}" step="${field.step}" value="${v}" data-for="${id}"/>
       </div>`;
       break;
     }
@@ -619,9 +641,10 @@ function renderField(sectionKey, field, value) {
     }
     case "range": {
       // [ number ] [ ─── dual-handle slider ─── ] [ number ]   on one line.
-      const v = Array.isArray(value) && value.length === 2 ? value : [field.min, field.max];
+      const max = fieldMax(field, value);
+      const v = Array.isArray(value) && value.length === 2 ? value : [field.min, max];
       const lo = v[0], hi = v[1];
-      const min = field.min, max = field.max, step = field.step ?? 1;
+      const min = field.min, step = field.step ?? 1;
       ctrl = `<div class="pg-rs-wrap">
         <input type="number" name="${id}_lo_n" class="input pg-rs-num pg-rs-nlow"  min="${min}" max="${max}" step="${step}" value="${lo}"/>
         <div class="pg-rs" id="${id}" data-min="${min}" data-max="${max}" data-step="${step}">
@@ -1129,26 +1152,12 @@ function renderSections() {
             }
           }
         } else {
-          // Apply OFF: write the section's schema defaults into _cfg
-          // explicitly (instead of deleting), so the next Run sends a
-          // complete dict and the server's setattr replaces stale state
-          // from a prior "Apply ON → Run". Keeps the playground and the
-          // copy-pasted snippet in sync without touching the Detection
-          // class.
-          if (sec.key) {
-            const target = ensurePath(_cfg, sec.key);
-            for (const k of Object.keys(target)) delete target[k];
-            for (const f of sec.fields) {
-              if (f.transient) continue;
-              if (f.default !== undefined) target[f.key] = f.default;
-            }
-          } else {
-            for (const f of sec.fields) {
-              if (f.transient) continue;
-              if (f.default !== undefined) _cfg[f.key] = f.default;
-              else delete _cfg[f.key];
-            }
-          }
+          // Apply OFF: the section leaves _cfg, as Reset does; every Run
+          // sends its ``off`` value in its place (_buildRunArgs), so the
+          // server's stale state from a prior "Apply ON → Run" is replaced
+          // by what does nothing — never by a default that still filters.
+          if (sec.key) deletePath(_cfg, sec.key);
+          else for (const f of sec.fields) delete _cfg[f.key];
         }
         syncJson();
       });
@@ -1807,7 +1816,20 @@ function _buildRunArgs() {
   const args = {};
   for (const [k, v] of Object.entries(_cfg)) {
     if (INIT_PARAM_KEYS.includes(k)) continue;
-    args[k] = v;
+    args[k] = structuredClone(v);
+  }
+  // A section that is off or reset is ABSENT from _cfg, and the server
+  // keeps whatever it was last sent (Detection.run setattr()s only the
+  // keys it gets). So every Run carries every section: its value, or its
+  // ``off`` value — the Detection's own default, which does nothing. The
+  // server always matches the form.
+  for (const sec of SECTION_SCHEMAS) {
+    if (!sec.off) continue;
+    if (sec.key) {
+      if (getPath(_cfg, sec.key) === undefined) Object.assign(ensurePath(args, sec.key), structuredClone(sec.off));
+    } else {
+      for (const [k, v] of Object.entries(sec.off)) if (!(k in _cfg)) args[k] = structuredClone(v);
+    }
   }
   // ROI source is selected server-side by KEY PRESENCE, and corners always
   // wins. So send exactly ONE of the two keys, matching the ROI-source mode:
@@ -1992,6 +2014,18 @@ function _resetOutputUI() {
   renderResults([]);
 }
 
+// A new frame size re-draws the form so every ``span`` field's range
+// follows it; the sections that were open stay open. Same size: nothing.
+function _setFrame(shape) {
+  if (!Array.isArray(shape) || shape.length < 2) return;
+  const f = { w: Number(shape[1]), h: Number(shape[0]) };
+  if (!(f.w > 0 && f.h > 0) || (_frame && _frame.w === f.w && _frame.h === f.h)) return;
+  _frame = f;
+  const open = _snapshotOpenSections();
+  syncForm();
+  _restoreOpenSections(open);
+}
+
 async function refreshOutput() {
   // Bail before hitting the server when there's nothing to fetch.
   // Pre-init: detection_get_img would throw "detection not found".
@@ -2000,9 +2034,12 @@ async function refreshOutput() {
   if (!_initializedFlag() || !_hasRun) return;
   const tab = _currentImgTab;
   try {
-    const { binary } = await _vc.detectionGetImg(
+    const { json, binary } = await _vc.detectionGetImg(
       PG_NAME, tab, 80, undefined, _live ? LIVE_PREVIEW_MAX_SIDE : null);
     if (!binary) return;
+    // The full frame's size (the annotated image is the frame; the ROI
+    // tab's is a crop) — the pixel fields' ranges follow it (fieldMax).
+    if (tab === "img") _setFrame(json?.source_shape);
     if (_imgObjUrl) URL.revokeObjectURL(_imgObjUrl);
     _imgObjUrl = URL.createObjectURL(new Blob([binary], { type: "image/jpeg" }));
     const img = $("#pgImg");
