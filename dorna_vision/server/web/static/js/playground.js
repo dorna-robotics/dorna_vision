@@ -113,20 +113,37 @@ const CMD_SCHEMAS = {
         showWhen: (v) => v.method === "lighting_tolerant" },
     ],
   },
-  // `elp` is a UI-only union of two backend cmds: edge-based EDLines
-  // (cmd="elp") and contour-fit (cmd="elp_fit"). The `method` field is
-  // transient — it's not sent as a kwarg; instead the field-change
-  // handler rewrites _cfg.detection.cmd between "elp" and "elp_fit"
-  // via methodMap. showWhen hides parameters that don't apply.
+  // `elp` is a UI-only union of three backend cmds: edge-based EDLines
+  // (cmd="elp"), contour-fit (cmd="elp_fit") and a band's two edges along
+  // rays (cmd="ring"). The `method` field is transient — it's not sent as
+  // a kwarg; instead the field-change handler rewrites
+  // _cfg.detection.cmd via methodMap. showWhen hides parameters that
+  // don't apply.
   elp: {
     label: "Ellipse",
-    methodMap: { edge: "elp", fit: "elp_fit" },
+    methodMap: { edge: "elp", fit: "elp_fit", ring: "ring" },
     fields: [
       { key: "method", label: "Method", kind: "select", transient: true,
         options: [
           { v: "edge", t: "Edge-based" },
           { v: "fit",  t: "Contour fit" },
+          { v: "ring", t: "Ring — a band's two edges" },
         ], default: "edge" },
+
+      // Ring (cmd="ring"): the ROI is the part, roughly centred; each edge
+      // is read on its own channel, the outer one up to `width` px past
+      // the inner. Returns the band's inner and outer circle.
+      { key: "inner", label: "Inner edge channel", kind: "select",
+        options: [{v:"l",t:"Lightness (Lab L)"},{v:"gray",t:"Gray"},{v:"v",t:"Value"},{v:"s",t:"Saturation"},{v:"h",t:"Hue"},{v:"a",t:"Lab a (green–red)"},{v:"b",t:"Lab b (blue–yellow)"}], default: "l",
+        help: "The channel the band's inner edge stands out in — the strongest edge in the part (a bright face against the band: Lightness).",
+        showWhen: (v) => v.method === "ring" },
+      { key: "outer", label: "Outer edge channel", kind: "select",
+        options: [{v:"b",t:"Lab b (blue–yellow)"},{v:"a",t:"Lab a (green–red)"},{v:"l",t:"Lightness (Lab L)"},{v:"gray",t:"Gray"},{v:"v",t:"Value"},{v:"s",t:"Saturation"},{v:"h",t:"Hue"}], default: "b",
+        help: "The channel the band's outer edge stands out in — a yellowish band on a grey or bluish part: Lab b.",
+        showWhen: (v) => v.method === "ring" },
+      { key: "width", label: "Band search (px)", kind: "slider", min: 10, max: 120, step: 1, default: 40,
+        help: "How far past the inner edge the outer edge is looked for — a bit more than the band is wide.",
+        showWhen: (v) => v.method === "ring" },
 
       // Edge-based (cmd="elp")
       { key: "pf_mode",                 label: "Auto detection",         kind: "bool",   default: false,
@@ -151,7 +168,7 @@ const CMD_SCHEMAS = {
       // `dent_at` (°) — its edge's deepest dent, read on that channel of
       // the image before the colour mask.
       { key: "dent",                    label: "Dent channel",           kind: "select",
-        options: [{v:null,t:"Off"},{v:"s",t:"Saturation"},{v:"v",t:"Value"},{v:"h",t:"Hue"},{v:"gray",t:"Gray"}], default: null,
+        options: [{v:null,t:"Off"},{v:"s",t:"Saturation"},{v:"v",t:"Value"},{v:"h",t:"Hue"},{v:"gray",t:"Gray"},{v:"l",t:"Lightness (Lab L)"},{v:"a",t:"Lab a (green–red)"},{v:"b",t:"Lab b (blue–yellow)"}], default: null,
         help: "Off: no dent. A channel: each ellipse also gets dent (px) and dent_at (°) — its edge's deepest local dent, on that channel of the image before the colour mask. Pick the channel the edge stands out in (a coloured band: Saturation).",
         showWhen: (v) => v.method === "edge" },
 

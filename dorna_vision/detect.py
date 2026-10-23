@@ -802,6 +802,14 @@ class Detection(object):
                     retval = [{"timestamp": camera_data["timestamp"], "cls": "mser", "conf": 1, "center": _roi.pxl_to_orig(r["center"]),
                     "corners": [_roi.pxl_to_orig(x) for x in r["corners"]]} for r in result]
 
+                elif self.detection["cmd"] == "ring":
+                    # a band's two edges, read on the ROI before the colour
+                    # mask (as elp's dent: a mask's cut is an edge of its own)
+                    result = ring(ROI(img_intensity.copy(), **roi_kwargs).img, **self.detection)
+                    retval = [{"timestamp": camera_data["timestamp"], "cls": "ring", "conf": r["conf"],
+                               "center": _roi.pxl_to_orig(r["center"]), "corners": [_roi.pxl_to_orig(x) for x in r["corners"]],
+                               "edge": r["edge"], "rms": r["rms"]} for r in result]
+
                 elif self.detection["cmd"] == "elp_fit":
                     # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
                     result = elp_fit(img_roi, **self.detection)

@@ -801,12 +801,30 @@ DENT_CONTRAST = 25
 
 
 def _channel(bgr_img, name):
-    """One channel of the image by name: "gray", or "h" / "s" / "v" (HSV)."""
+    """One channel of the image by name: "gray", "h" / "s" / "v" (HSV), or
+    "l" / "a" / "b" (Lab — b is yellow against blue)."""
     if name == "gray":
         return cv.cvtColor(bgr_img, cv.COLOR_BGR2GRAY)
     if name in ("h", "s", "v"):
         return cv.cvtColor(bgr_img, cv.COLOR_BGR2HSV)[..., "hsv".index(name)]
-    raise ValueError(f"dent channel {name!r}: gray, h, s or v")
+    if name in ("l", "a", "b"):
+        return cv.cvtColor(bgr_img, cv.COLOR_BGR2LAB)[..., "lab".index(name)]
+    raise ValueError(f"channel {name!r}: gray, h, s, v, l, a or b")
+
+
+def _half_cross(prof, lvl_in, lvl_out):
+    """Where each row of ``prof`` (samples along a ray, its middle on the
+    outline) crosses half-way from ``lvl_in`` to ``lvl_out`` — the crossing
+    nearest the middle, to a fraction of a px: ``(edge, crossed)``, edge in
+    px from the middle (+ outward), crossed False on a row that never does."""
+    n = len(prof)
+    above = (prof - ((lvl_in + lvl_out) / 2)[:, None]) * np.sign(lvl_in - lvl_out)[:, None]
+    flip = (above[:, :-1] >= 0) & (above[:, 1:] < 0)
+    mid = (prof.shape[1] - 1) / 2
+    idx = np.arange(prof.shape[1] - 1)
+    j = np.where(flip, np.abs(idx + 0.5 - mid), np.inf).argmin(1)
+    y0, y1 = above[np.arange(n), j], above[np.arange(n), j + 1]
+    return j + y0 / np.where(y0 - y1 == 0, 1, y0 - y1) - mid, flip[np.arange(n), j]
 
 
 def _dent(chan, rect):
@@ -838,17 +856,11 @@ def _dent(chan, rect):
     half = prof[:, :prof.shape[1] // 2]
     lvl_in = half[np.arange(len(half)), np.abs(half - lvl_out[:, None]).argmax(1)]
     edged = np.abs(lvl_in - lvl_out) >= DENT_CONTRAST
-    # the half-way crossing nearest the outline, to a fraction of a px
-    above = (prof - ((lvl_in + lvl_out) / 2)[:, None]) * np.sign(lvl_in - lvl_out)[:, None]
-    flip = (above[:, :-1] >= 0) & (above[:, 1:] < 0)
-    mid = (prof.shape[1] - 1) / 2
-    idx = np.arange(prof.shape[1] - 1)
-    j = np.where(flip, np.abs(idx + 0.5 - mid), np.inf).argmin(1)
-    edged &= flip[np.arange(n), j]
+    # the half-way crossing nearest the outline, px from it, + outward
+    edge, crossed = _half_cross(prof, lvl_in, lvl_out)
+    edged &= crossed
     if not (inside & edged).any():
         return 0.0, None
-    y0, y1 = above[np.arange(n), j], above[np.arange(n), j + 1]
-    edge = j + y0 / np.where(y0 - y1 == 0, 1, y0 - y1) - mid           # px from the outline, + outward
     edge[~(inside & edged)] = np.median(edge[inside & edged])
     k = int(round(DENT_SMOOTH / DENT_STEP))
     ref = np.median(np.lib.stride_tricks.sliding_window_view(np.concatenate([edge[-k:], edge, edge[:k]]), 2 * k + 1), 1)
@@ -946,3 +958,119 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
             
         return retval
 
+
+# ── ring: a band's two edges, measured along rays ─────────────────────
+# For a band too thin or too faint for elp to find its edges (the apc
+# disc's top: a ~9 px olive band between a bright face and a machined
+# holder). The ROI is the part, roughly centred. (1) Every RING_STEP° a ray
+# from the ROI's centre, RING_FROM..RING_TO of its half-size, finds the
+# inner channel's steepest step — the face's edge, the strongest edge
+# there — and a circle is fit to those. (2) From that circle, the rays are
+# averaged in RING_BIN° bins; on each, the INNER edge is where the inner
+# channel crosses half-way between its levels RING_WIN px each side (the
+# median of the RING_END px at each end), and the OUTER edge where the
+# outer channel, past the band's extreme, first crosses half-way to the
+# outside's level (the median of RING_LVL px past ``width``). The band is
+# sought from RING_END px past that bin's inner edge (the face is behind
+# it) to ``width`` px past it, on the side of the outside the band lies on
+# in most bins (a bluish machining streak beside a yellowish band is the
+# other side, never the band); a bin whose band stands out less than
+# RING_WEAK of the bins' median is skipped. A
+# circle is fit to each (_fit_circle); one whose points sit further than
+# RING_MAX_RMS px from it on average is no circle the image shows (a
+# shadow across the part) and is left out. Tuned on the apc disc's top
+# (2026-10-23, 89 images): fits 0.2–2.1 px on 87, 7.5 / 11.3 px on the two
+# with a shadow or no band; split-half centres agree to 0.05 px (inner)
+# and 0.2 px (outer).
+RING_STEP = 0.5
+RING_FROM, RING_TO = 0.5, 0.98
+RING_BIN = 2
+RING_WIN = 15
+RING_END = 4
+RING_LVL = 8
+RING_WEAK = 0.5
+RING_MIN_SHARE = 1 / 3          # a circle needs this share of its bins
+RING_MAX_RMS = 4
+
+
+def _rays(chan, cx, cy, r0, r1, n):
+    """``chan`` sampled along n rays from (cx, cy), radius r0..r1 in 1 px
+    steps, 3 px smoothed along each: ``(prof, angles)``, prof (n, samples)."""
+    t = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    s = np.arange(r0, r1 + 1, dtype=np.float32)
+    mx = (cx + np.cos(t)[:, None] * s).astype(np.float32)
+    my = (cy + np.sin(t)[:, None] * s).astype(np.float32)
+    prof = cv.remap(chan.astype(np.float32), mx, my, cv.INTER_LINEAR, borderMode=cv.BORDER_REPLICATE)
+    return cv.blur(prof, (3, 1)), t
+
+
+def _fit_circle(xs, ys):
+    """The least-squares circle through points, refit three times without
+    the points over 3 MAD (at least 1 px) off it: ``(cx, cy, r, rms,
+    kept)`` — rms of the kept points' distance from it, px."""
+    keep = np.ones(len(xs), bool)
+    for _ in range(3):
+        A = np.c_[2 * xs[keep], 2 * ys[keep], np.ones(keep.sum())]
+        cx, cy, c = np.linalg.lstsq(A, xs[keep] ** 2 + ys[keep] ** 2, rcond=None)[0]
+        r = math.sqrt(c + cx * cx + cy * cy)
+        res = np.hypot(xs - cx, ys - cy) - r
+        keep = np.abs(res) <= max(3 * 1.4826 * np.median(np.abs(res[keep])), 1.0)
+    return cx, cy, r, float(np.sqrt(np.mean(res[keep] ** 2))), keep
+
+
+def ring(bgr_img, inner="l", outer="b", width=40, **kwargs):
+    """A band's two edges as two circles (see RING_*): ``inner`` / ``outer``
+    the channel each edge is read on (_channel), ``width`` how far past the
+    inner edge the outer one is looked for, px. Returns a list of up to two
+    {"edge": "inner" | "outer", "center", "corners", "r", "rms", "conf"} —
+    conf the share of the bins its fit kept; a circle with under
+    RING_MIN_SHARE of them, or a fit over RING_MAX_RMS px, is left out."""
+    h, w = bgr_img.shape[:2]
+    half = min(w, h) / 2
+    ci, co = _channel(bgr_img, inner), _channel(bgr_img, outer)
+    n = int(round(360 / RING_STEP))
+
+    # (1) the inner edge, roughly: each ray's steepest step
+    r0 = int(RING_FROM * half)
+    prof, t = _rays(ci, w / 2, h / 2, r0, int(RING_TO * half), n)
+    j = np.abs(np.diff(prof, axis=1)).argmax(1) + r0 + 0.5
+    cx, cy, r, _, _ = _fit_circle(w / 2 + j * np.cos(t), h / 2 + j * np.sin(t))
+
+    # (2) both edges from that circle, in bins
+    k = int(round(RING_BIN / RING_STEP))
+    bins = lambda p: p.reshape(n // k, k, -1).mean(1)
+    a = (np.arange(n // k) + 0.5) * RING_BIN * np.pi / 180
+    pin, _ = _rays(ci, cx, cy, int(r) - RING_WIN, int(r) + RING_WIN, n)
+    pin = bins(pin)
+    e_in, ok_in = _half_cross(pin, np.median(pin[:, :RING_END], 1), np.median(pin[:, -RING_END:], 1))
+    r_in = int(r) + e_in
+    base = int(r) - RING_WIN                                            # the outer profile's first px
+    pout, _ = _rays(co, cx, cy, base, int(r) + width + RING_END, n)
+    pout = bins(pout)
+    lvl = np.median(pout[:, -RING_LVL:], 1)
+    pos = np.arange(pout.shape[1])[None, :]
+    start = np.round(r_in - base).astype(int)[:, None] + RING_END       # past each bin's inner edge
+    inband = (pos >= start) & (pos < start - RING_END + width)
+    dev = pout - lvl[:, None]
+    side = 1.0 if np.median([d[b].mean() for d, b in zip(dev, inband) if b.any()]) >= 0 else -1.0
+    ext = np.where(inband, dev * side, -np.inf).argmax(1)
+    peak = pout[np.arange(len(pout)), ext]
+    rise = (peak - lvl) * side                                         # how far the band stands out
+    above = (pout - ((peak + lvl) / 2)[:, None]) * side
+    flip = (pos[:, :-1] >= ext[:, None]) & (above[:, :-1] >= 0) & (above[:, 1:] < 0)
+    ok_out = flip.any(1) & ok_in & (rise >= RING_WEAK * np.median(rise[ok_in]))
+    m = flip.argmax(1)
+    y0, y1 = above[np.arange(len(m)), m], above[np.arange(len(m)), m + 1]
+    r_out = base + m + y0 / np.where(y0 - y1 == 0, 1, y0 - y1)
+
+    out = []
+    for edge, rr, ok in (("inner", r_in, ok_in), ("outer", r_out, ok_out)):
+        if ok.mean() < RING_MIN_SHARE:
+            continue
+        fx, fy, fr, rms, keep = _fit_circle((cx + rr * np.cos(a))[ok], (cy + rr * np.sin(a))[ok])
+        if keep.sum() < RING_MIN_SHARE * len(a) or rms > RING_MAX_RMS:
+            continue
+        out.append({"edge": edge, "center": (fx, fy), "r": fr, "rms": round(rms, 2),
+                    "conf": round(float(keep.sum() / len(a)), 3),
+                    "corners": [[fx - fr, fy - fr], [fx + fr, fy - fr], [fx + fr, fy + fr], [fx - fr, fy + fr]]})
+    return out
