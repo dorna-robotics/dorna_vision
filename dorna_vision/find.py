@@ -781,13 +781,100 @@ def _sector_support(near, rect, sector_deg):
     return [round(float(h / t), 3) for h, t in zip(hit, total) if t]
 
 
+# The edge's DENTS (_dent): every DENT_STEP° a ray crosses the outline,
+# sampling the image DENT_WIN px each side of it; the edge on that ray is
+# where the profile crosses half-way between its level inside and outside
+# (the outer DENT_EDGE px of each end) — so the edge follows the image's
+# own contrast, whatever the background. A dent is the edge's distance from
+# its running median over ±DENT_SMOOTH° (the outline's slow wander — a
+# tilt, a lens — is not a dent), held over DENT_HOLD° (one noisy ray is
+# not). A ray that shows no edge near the outline — its two levels closer
+# than DENT_CONTRAST, or no crossing — has its edge at least DENT_WIN px
+# away: a dent that deep (a bite that took the band). Rays off the image
+# are skipped.
+DENT_STEP = 0.5
+DENT_WIN = 15
+DENT_EDGE = 4
+DENT_SMOOTH = 15
+DENT_HOLD = 1.5
+DENT_CONTRAST = 25
+
+
+def _channel(bgr_img, name):
+    """One channel of the image by name: "gray", or "h" / "s" / "v" (HSV)."""
+    if name == "gray":
+        return cv.cvtColor(bgr_img, cv.COLOR_BGR2GRAY)
+    if name in ("h", "s", "v"):
+        return cv.cvtColor(bgr_img, cv.COLOR_BGR2HSV)[..., "hsv".index(name)]
+    raise ValueError(f"dent channel {name!r}: gray, h, s or v")
+
+
+def _dent(chan, rect):
+    """The deepest dent in an ellipse's edge, on one image channel (see
+    DENT_*): ``(depth, at)`` — depth in px (at most DENT_WIN), at its angle
+    around the centre (from +x towards +y, degrees, as _sector_support's
+    sectors). (0.0, None) when no ray shows an edge."""
+    (cx, cy), (major, minor), rot = rect
+    a, b = major / 2.0, minor / 2.0
+    n = int(round(360 / DENT_STEP))
+    t = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    r = np.deg2rad(rot)
+    px = cx + a * np.cos(t) * np.cos(r) - b * np.sin(t) * np.sin(r)
+    py = cy + a * np.cos(t) * np.sin(r) + b * np.sin(t) * np.cos(r)
+    dx, dy = px - cx, py - cy
+    rad = np.hypot(dx, dy)
+    ux, uy = dx / rad, dy / rad
+    s = np.arange(-DENT_WIN, DENT_WIN + 1, dtype=np.float32)
+    mx = (px[:, None] + ux[:, None] * s).astype(np.float32)
+    my = (py[:, None] + uy[:, None] * s).astype(np.float32)
+    h, w = chan.shape[:2]
+    inside = (mx.min(1) >= 0) & (mx.max(1) <= w - 1) & (my.min(1) >= 0) & (my.max(1) <= h - 1)
+    prof = cv.remap(chan.astype(np.float32), mx, my, cv.INTER_LINEAR)
+    prof = (prof[:, :-2] + prof[:, 1:-1] + prof[:, 2:]) / 3            # 3 px along the ray
+    # outside: the far end's level; inside: the inside half's value farthest
+    # from it — a band (a ridge, not a step) is judged by its own peak, not by
+    # whatever lies past it
+    lvl_out = np.median(prof[:, -DENT_EDGE:], 1)
+    half = prof[:, :prof.shape[1] // 2]
+    lvl_in = half[np.arange(len(half)), np.abs(half - lvl_out[:, None]).argmax(1)]
+    edged = np.abs(lvl_in - lvl_out) >= DENT_CONTRAST
+    # the half-way crossing nearest the outline, to a fraction of a px
+    above = (prof - ((lvl_in + lvl_out) / 2)[:, None]) * np.sign(lvl_in - lvl_out)[:, None]
+    flip = (above[:, :-1] >= 0) & (above[:, 1:] < 0)
+    mid = (prof.shape[1] - 1) / 2
+    idx = np.arange(prof.shape[1] - 1)
+    j = np.where(flip, np.abs(idx + 0.5 - mid), np.inf).argmin(1)
+    edged &= flip[np.arange(n), j]
+    if not (inside & edged).any():
+        return 0.0, None
+    y0, y1 = above[np.arange(n), j], above[np.arange(n), j + 1]
+    edge = j + y0 / np.where(y0 - y1 == 0, 1, y0 - y1) - mid           # px from the outline, + outward
+    edge[~(inside & edged)] = np.median(edge[inside & edged])
+    k = int(round(DENT_SMOOTH / DENT_STEP))
+    ref = np.median(np.lib.stride_tricks.sliding_window_view(np.concatenate([edge[-k:], edge, edge[:k]]), 2 * k + 1), 1)
+    dev = np.minimum(np.abs(edge - ref), DENT_WIN)
+    dev[inside & ~edged] = DENT_WIN                                    # no edge near the outline
+    dev[~inside] = 0
+    hold = max(1, int(round(DENT_HOLD / DENT_STEP)))
+    held = np.lib.stride_tricks.sliding_window_view(np.concatenate([dev, dev[:hold - 1]]), hold).min(1)
+    i = int(held.argmax())
+    at = float(np.degrees(np.arctan2(dy[i], dx[i])) % 360)
+    return round(float(held[i]), 2), round(at, 1)
+
+
 def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = True, sigma=1, gradient_threshold_value=20, pf_mode = False,
-            sector_deg=None, **kwargs):
+            sector_deg=None, dent=None, dent_img=None, **kwargs):
         """Edge-based ellipses. ``sector_deg`` None (default): every
         ellipse's conf is 1. Set (e.g. 10): conf is how much of its outline
         the image shows in its worst ``sector_deg`` sector — 1.0 a whole
         outline, lower where a sector is missing its edge (_sector_support,
-        an edge counting within SECTOR_TOL px of the outline)."""
+        an edge counting within SECTOR_TOL px of the outline). ``dent``
+        None (default): off. Set to a channel ("gray", "h", "s", "v"): each
+        ellipse also gets its edge's deepest dent on that channel (_dent),
+        read on ``dent_img`` — the same view before any colour mask (a
+        mask's cut is a hard edge of its own: the shadow beside the apc
+        band sits at the cut and speckles into dents) — or on ``bgr_img``
+        when None."""
         retval = []
 
         # init
@@ -817,6 +904,7 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
             return retval
 
         near = _near_edges(e_d.getEdgeImage()) if sector_deg is not None else None
+        chan = _channel(bgr_img if dent_img is None else dent_img, dent) if dent is not None else None
 
         # format
         for elp in elps:
@@ -844,15 +932,17 @@ def ellipse(bgr_img, min_path_length=50, min_line_length = 10, nfa_validation = 
             # wide, and the integer centre above alone moved a whole disc's
             # score from 0.83 to 0.59. ``sectors``: every sector's share,
             # for a view that draws them (None when sector_deg is unset)
+            cx, cy, r0, a0, b0, th = (float(v) for v in elp[0])
+            exact = ((cx, cy), (2 * (r0 + a0), 2 * (r0 + b0)), th)
             conf, sectors = 1, None
             if sector_deg is not None:
-                cx, cy, r0, a0, b0, th = (float(v) for v in elp[0])
-                exact = ((cx, cy), (2 * (r0 + a0), 2 * (r0 + b0)), th)
                 sectors = _sector_support(near, exact, float(sector_deg))
                 conf = min(sectors)
+            # the edge's deepest dent (None when ``dent`` is unset)
+            dent_r = _dent(chan, exact) if chan is not None else None
 
             # add to return
-            retval.append([center, corners, rect, conf, sectors])
+            retval.append([center, corners, rect, conf, sectors, dent_r])
             
         return retval
 

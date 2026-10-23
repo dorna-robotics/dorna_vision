@@ -712,10 +712,10 @@ class Detection(object):
                     self.frame_mat_inv = np.matmul(self.frame_mat_inv, T_cam_to_base)
 
             # intensity
-            img_adjust = intensity(_img.copy(), **self.intensity)
+            img_intensity = intensity(_img.copy(), **self.intensity)
 
             # color
-            img_adjust = color_mask(img_adjust, **self.color)
+            img_adjust = color_mask(img_intensity, **self.color)
             height, width = img_adjust.shape[0:2]
 
             # roi
@@ -741,10 +741,14 @@ class Detection(object):
                 # detection
                 if self.detection["cmd"] == "elp":
                     # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
-                    result = ellipse(img_roi, **self.detection)
+                    # the dent reads the image's own edge — the ROI before
+                    # the colour mask (its hard cut is an edge of its own)
+                    dent_img = ROI(img_intensity.copy(), **roi_kwargs).img if self.detection.get("dent") else None
+                    result = ellipse(img_roi, dent_img=dent_img, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": self.detection["cmd"], "conf": r[3], "center": _roi.pxl_to_orig(r[0]),
                     "corners": [_roi.pxl_to_orig(x) for x in r[1]],
-                    **({"sectors": r[4]} if r[4] is not None else {})} for r in result]
+                    **({"sectors": r[4]} if r[4] is not None else {}),
+                    **({"dent": r[5][0], "dent_at": r[5][1]} if r[5] is not None else {})} for r in result]
 
                 if self.detection["cmd"] in ["poly", "cnt"]:
                     # thr

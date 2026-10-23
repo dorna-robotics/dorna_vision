@@ -147,6 +147,13 @@ const CMD_SCHEMAS = {
       { key: "sector_deg",              label: "Coverage sector (°)",    kind: "number", default: null,
         help: "Blank: conf is 1. Set (e.g. 10): conf is how much of the ellipse's outline the image shows in its worst sector of this many degrees.",
         showWhen: (v) => v.method === "edge" },
+      // Off: no dent. A channel: each ellipse also gets `dent` (px) and
+      // `dent_at` (°) — its edge's deepest dent, read on that channel of
+      // the image before the colour mask.
+      { key: "dent",                    label: "Dent channel",           kind: "select",
+        options: [{v:null,t:"Off"},{v:"s",t:"Saturation"},{v:"v",t:"Value"},{v:"h",t:"Hue"},{v:"gray",t:"Gray"}], default: null,
+        help: "Off: no dent. A channel: each ellipse also gets dent (px) and dent_at (°) — its edge's deepest local dent, on that channel of the image before the colour mask. Pick the channel the edge stands out in (a coloured band: Saturation).",
+        showWhen: (v) => v.method === "edge" },
 
       // Contour fit (cmd="elp_fit")
       { key: "use_otsu",         label: "Otsu thresholding",       kind: "bool",   default: true,
