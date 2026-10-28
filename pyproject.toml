@@ -26,8 +26,8 @@ dependencies = [
     "pyyaml",              # config files; the OCR models' own config
     "onnx",                # prepare(): the camera-image input prepended to a model's graph
     # TensorRT itself is JetPack's (apt python3-libnvinfer) — there is no
-    # Jetson wheel on PyPI. cuda-python matches JetPack 6's CUDA 12.6.
-    "cuda-python>=12.6,<12.7",
+    # Jetson wheel on PyPI. cuda-python matches JetPack 7.2's CUDA 13.2.
+    "cuda-python>=13.2,<13.3",
     "tornado",
     "paho-mqtt>=2.0",      # device health publishing per docs/device-mqtt-spec.md
     "dorna_devices>=0.1",  # device protocol + MQTTDeviceAdapter + AutoRecover
