@@ -639,6 +639,23 @@ class VisionClient(object):
     def robot_remove(self, host, timeout=None):
         return self._send("robot_remove", {"host": host}, timeout=timeout)
 
+    def model_prepare(self, path, timeout=900):
+        """
+        Prepare an ML model on the vision unit: build and cache its
+        TensorRT engine for the unit's GPU. Once per new .pkl, and it
+        takes minutes; a model detection_add loads must be prepared
+        (loading never builds). Already prepared: returns at once.
+
+        `path` is a .pkl on this machine (its bytes are shipped with the
+        call), else a path on the vision unit. Returns
+        {"built": bool, "seconds": float} — built False when the model was
+        already prepared.
+        """
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                return self._send_with_binary("model_prepare", {}, f.read(), timeout=timeout)
+        return self._send("model_prepare", {"path": path}, timeout=timeout)
+
     def detection_add(self, name, camera_serial_number=None, robot_host=None, timeout=None,
                       config=None, **detection_kwargs):
         """

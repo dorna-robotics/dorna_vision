@@ -1,51 +1,50 @@
 """
-ML inference primitives for the dorna_vision pipeline.
+ML inference primitives for the dorna_vision pipeline (Jetson).
 
-Each class is a single-purpose, init-once / call-many wrapper around an
-OpenVINO IR model packaged in a pickle. The pickle schema (produced by the
-training notebooks under draft/) is:
+Each class is a single-purpose, init-once / call-many wrapper around a
+model packaged in a pickle. On the Jetson the models run on the GPU with
+TensorRT: the pickle carries a portable ONNX graph and the precision to
+build it at (meta["precision"]), and prepare() builds the TensorRT engine
+from it on this computer, once per model (an engine is tied to the GPU
+and the TensorRT version that built it), and caches it. Loading a model never builds — an unprepared one raises
+ModelNotPreparedError. The pickle schema (produced by the training
+notebooks under training_notebooks/) is:
 
     {
-        "xml":     "<openvino IR XML, str>",
-        "bin":     <openvino IR weights, bytes>,
+        "onnx":    <ONNX graph, bytes>,
         "cls":     ["class_a", "class_b", ...]      # for OD/ROD/CLS/ANOM
         "colors":  {"class_a": "#aabbcc", ...}      # dict OR list of hex
-        "meta":    {"image_size": ..., ...},        # see each class
+        "meta":    {"image_size": ..., "precision": "fp16"|"bf16"|"fp32", ...},
 
         # KP-only:
         "keypoint_names": [...],
         "skeleton":       [(1,2), ...]
     }
 
-The new classes follow the inference paths in:
-    draft/mmdetection/inference_custom    -> OD
-    draft/mmrotate/inference_custom       -> ROD
-    draft/mmpose/inference_custom         -> KP
-    draft/cls/inference_classification    -> CLS
-    draft/anomaly/stfpm/inference_anomaly -> ANOM
+    OD   — RF-DETR (TensorRT)
+    CLS  — DINOv3 ViT-S/16 + a linear head (TensorRT)
+    ROD, KP, ANOM, OCR — still OpenVINO IR ("xml"/"bin" in the
+    pickle) until each moves to TensorRT; OpenVINO is imported only when
+    one of them loads, and is not installed on the Jetson.
 
 Composition: OD/ROD give you boxes; crop the image around a box (with
 padding) and feed the crop to KP. CLS labels a whole image (or a crop).
 ANOM scores a whole image and returns hot-spots.
-
-Legacy implementations are kept as OD_v1, CLS_v1, KP_v1 (and the older
-NCNN ones as OD_NCNN, CLS_NCNN) for back-compat — these will be retired
-once existing pickles are migrated.
 """
 
+import hashlib
 import math
 import os
 import pickle
 import importlib
 import threading
+import time
 from types import SimpleNamespace
 
 import cv2
 import numpy as np
-from openvino import Core
-
-import ncnn
-from ncnn.utils.objects import Detect_Object
+import tensorrt as trt
+from cuda.bindings import runtime as cudart
 
 from dorna_vision.visual import *
 from dorna_vision.util import *
@@ -130,7 +129,7 @@ def _letterbox_centered(img, size):
 def _load_pickle(path):
     """
     Load a model pickle. Accepts either a filesystem path or a pre-loaded
-    dict (used internally by the legacy KP_v1 wrapper).
+    dict.
     """
     if isinstance(path, dict):
         return path
@@ -206,6 +205,7 @@ def _read_openvino_from_pickle(model_dict, input_shape, device_name="CPU", devic
             "Re-export the model from the current training notebook."
         )
 
+    from openvino import Core   # the models not yet on TensorRT only
     core = Core()
     try:
         model = core.read_model(
@@ -234,6 +234,245 @@ def _release_openvino(*objs):
             pass
 
 
+# ───────────────────────────────────────────────────────────────────────
+# TensorRT — the Jetson GPU
+# ───────────────────────────────────────────────────────────────────────
+
+# Engines built from a pickle's ONNX, cached by the ONNX bytes + the
+# TensorRT version + the GPU + the build settings: an engine runs only on
+# the GPU and the TensorRT that built it, so it is built here, never shipped.
+_TRT_CACHE = os.path.join(os.path.expanduser("~"), ".cache", "dorna_vision", "trt")
+
+# The builder's scratch memory while it times candidate kernels. The GPU
+# shares the Jetson's 8 GB with everything else; unbounded, the builder
+# grabs what happens to be free and skips the kernels that did not fit —
+# the engine would depend on what else was running. Fixed, it does not.
+_TRT_WORKSPACE = 1 << 30
+
+# One build at a time: a build holds the GPU for minutes.
+_TRT_BUILD_LOCK = threading.Lock()
+
+_TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+
+
+def _cuda(result):
+    """Unwrap a cuda-python call: raise on an error, return the value(s)."""
+    err, *rest = result
+    if err != cudart.cudaError_t.cudaSuccess:
+        raise RuntimeError("CUDA: %s" % cudart.cudaGetErrorString(err)[1].decode())
+    return rest[0] if len(rest) == 1 else None
+
+
+class ModelNotPreparedError(ValueError):
+    """The model's TensorRT engine is not built on this computer yet."""
+
+
+# The precisions a model may declare (pickle meta["precision"]), as the
+# builder flag each sets; "fp32" sets none. The training notebook picks
+# it for its architecture: FP16 where the activations fit its range
+# (RF-DETR), BF16 — FP32's range, half the bits, as fast on Orin — where
+# they do not: DINOv3's attention scores (Q·Kᵀ, queries and keys in the
+# hundreds) overflow FP16's 65504 and every output turns NaN.
+_TRT_PRECISIONS = {"fp16": trt.BuilderFlag.FP16, "bf16": trt.BuilderFlag.BF16, "fp32": None}
+
+
+def _trt_precision(data):
+    """The model's declared engine precision (pickle meta["precision"])."""
+    precision = (data.get("meta") or {}).get("precision")
+    if precision not in _TRT_PRECISIONS:
+        raise ValueError(
+            "Invalid model: meta['precision'] must be one of %s (got %r) — "
+            "re-export it from its training notebook." % (sorted(_TRT_PRECISIONS), precision)
+        )
+    return precision
+
+
+def _trt_engine_path(onnx_bytes, precision):
+    """Where the engine for this ONNX graph at this precision lives in the cache."""
+    prop = _cuda(cudart.cudaGetDeviceProperties(0))
+    key = hashlib.sha256()
+    key.update(onnx_bytes)
+    key.update(("%s|%s|%d.%d|%s|%d|uint8-bgr-nhwc" % (trt.__version__, prop.name.decode(), prop.major,
+                                                       prop.minor, precision, _TRT_WORKSPACE)).encode())
+    return os.path.join(_TRT_CACHE, key.hexdigest()[:16] + ".engine")
+
+
+def _image_input(network):
+    """
+    Give the engine the camera's image as its input: uint8, (1, H, W, 3),
+    BGR — what OpenCV hands us. The model's own input — float (1, 3, H, W),
+    RGB, ImageNet mean/std, every ONNX model's contract here — is computed
+    from it on the GPU: cast, BGR→RGB, x·(1/255σ) − μ/σ, NHWC→NCHW. The CPU
+    only resizes / letterboxes (OpenCV, uint8), and a quarter of the bytes
+    cross to the GPU. Returns the constant arrays TensorRT reads at build
+    time — they must live until the engine is built.
+    """
+    model_input = network.get_input(0)
+    n, c, h, w = model_input.shape
+    if network.num_inputs != 1 or c != 3 or model_input.dtype != trt.float32:
+        raise ValueError("Invalid ONNX model: one float input (1, 3, H, W) expected, got %s %s"
+                         % (model_input.dtype, tuple(model_input.shape)))
+    order = np.array([2, 1, 0], dtype=np.int32)
+    scale = (1.0 / (255.0 * np.array([0.229, 0.224, 0.225], dtype=np.float32))).reshape(1, 1, 1, 3)
+    shift = (-np.array([0.485, 0.456, 0.406], dtype=np.float32)
+             / np.array([0.229, 0.224, 0.225], dtype=np.float32)).reshape(1, 1, 1, 3)
+
+    image = network.add_input("image", trt.uint8, (n, h, w, 3))
+    x = network.add_cast(image, trt.float32).get_output(0)
+    x = network.add_gather(x, network.add_constant((3,), order).get_output(0), 3).get_output(0)
+    x = network.add_elementwise(x, network.add_constant(scale.shape, scale).get_output(0),
+                                trt.ElementWiseOperation.PROD).get_output(0)
+    x = network.add_elementwise(x, network.add_constant(shift.shape, shift).get_output(0),
+                                trt.ElementWiseOperation.SUM).get_output(0)
+    layout = network.add_shuffle(x)
+    layout.first_transpose = (0, 3, 1, 2)
+    x = layout.get_output(0)
+
+    for i in range(network.num_layers):
+        layer = network.get_layer(i)
+        for j in range(layer.num_inputs):
+            if layer.get_input(j) is not None and layer.get_input(j).name == model_input.name:
+                layer.set_input(j, x)
+    network.remove_tensor(model_input)
+    return order, scale, shift
+
+
+def prepare(path):
+    """
+    Build and cache a model's TensorRT engine on this computer — the
+    one-time step for a new .pkl (minutes). Loading a model never builds:
+    a Detection loads only a prepared one, in well under a second.
+
+    Returns {"built": bool, "seconds": float}: built is False when the
+    engine was already cached, or when the model has no ONNX to build
+    (one still on OpenVINO).
+    """
+    data = _load_pickle(path)
+    onnx_bytes = data.get("onnx")
+    if onnx_bytes is None:
+        return {"built": False, "seconds": 0.0}
+    precision = _trt_precision(data)
+    engine_path = _trt_engine_path(onnx_bytes, precision)
+    started = time.time()
+    with _TRT_BUILD_LOCK:
+        if os.path.exists(engine_path):
+            return {"built": False, "seconds": 0.0}
+        builder = trt.Builder(_TRT_LOGGER)
+        network = builder.create_network(0)
+        parser = trt.OnnxParser(network, _TRT_LOGGER)
+        if not parser.parse(onnx_bytes):
+            errors = "; ".join(str(parser.get_error(i)) for i in range(parser.num_errors))
+            raise ValueError("Invalid ONNX model: %s" % errors)
+        constants = _image_input(network)   # noqa: F841 — read by the build below
+        config = builder.create_builder_config()
+        if _TRT_PRECISIONS[precision] is not None:
+            config.set_flag(_TRT_PRECISIONS[precision])
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, _TRT_WORKSPACE)
+        plan = builder.build_serialized_network(network, config)
+        if plan is None:
+            raise ValueError("TensorRT could not build an engine from this model.")
+        os.makedirs(_TRT_CACHE, exist_ok=True)
+        tmp = engine_path + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(plan)
+        os.replace(tmp, engine_path)
+    return {"built": True, "seconds": round(time.time() - started, 1)}
+
+
+def _trt_engine(onnx_bytes, precision):
+    """
+    The prepared TensorRT engine for an ONNX graph, from the cache.
+    Returns (runtime, engine) — the runtime must outlive the engine.
+    Raises ModelNotPreparedError when prepare() has not built it here.
+    """
+    path = _trt_engine_path(onnx_bytes, precision)
+    if not os.path.exists(path):
+        raise ModelNotPreparedError(
+            "This model is not prepared on this unit: run model_prepare with its .pkl "
+            "once (it builds the TensorRT engine for this GPU, a few minutes)."
+        )
+    with open(path, "rb") as f:
+        plan = f.read()
+
+    runtime = trt.Runtime(_TRT_LOGGER)
+    engine = runtime.deserialize_cuda_engine(plan)
+    if engine is None:
+        raise ValueError("Failed to load the TensorRT engine %s" % path)
+    return runtime, engine
+
+
+class _TRTModel:
+    """A TensorRT engine that infers on one execution context PER THREAD.
+
+    The vision server answers each websocket call on a thread-pool worker,
+    so two detections against the same model overlap as a matter of
+    course, and an execution context is not thread-safe. Each thread gets
+    its own context — with its own device buffers and CUDA stream — made
+    on first use; the engine (the weights) is shared. Inference stays
+    concurrent: no lock, no queue. The pool's threads live as long as the
+    server, so the contexts are freed together, in close().
+
+    Built from a model pickle (its "onnx" and meta["precision"]). Call
+    with the input arrays in engine order; returns {output name: array}.
+    """
+
+    def __init__(self, data):
+        self._runtime, self._engine = _trt_engine(data["onnx"], _trt_precision(data))
+        self.inputs, self.outputs = [], []
+        for i in range(self._engine.num_io_tensors):
+            name = self._engine.get_tensor_name(i)
+            tensor = (name, tuple(self._engine.get_tensor_shape(name)),
+                      np.dtype(trt.nptype(self._engine.get_tensor_dtype(name))))
+            if self._engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+                self.inputs.append(tensor)
+            else:
+                self.outputs.append(tensor)
+        self._local = threading.local()
+        self._slots = []
+        self._slots_lock = threading.Lock()
+
+    def _slot(self):
+        slot = getattr(self._local, "slot", None)
+        if slot is None:
+            slot = SimpleNamespace(context=self._engine.create_execution_context(),
+                                   stream=_cuda(cudart.cudaStreamCreate()),
+                                   device={}, host={})
+            for name, shape, dtype in self.inputs + self.outputs:
+                slot.host[name] = np.empty(shape, dtype)
+                slot.device[name] = _cuda(cudart.cudaMalloc(slot.host[name].nbytes))
+                slot.context.set_tensor_address(name, slot.device[name])
+            self._local.slot = slot
+            with self._slots_lock:
+                self._slots.append(slot)
+        return slot
+
+    def __call__(self, *arrays):
+        slot = self._slot()
+        for (name, _, dtype), array in zip(self.inputs, arrays):
+            array = np.ascontiguousarray(array, dtype=dtype)
+            _cuda(cudart.cudaMemcpyAsync(slot.device[name], array.ctypes.data, array.nbytes,
+                                         cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, slot.stream))
+        if not slot.context.execute_async_v3(slot.stream):
+            raise RuntimeError("TensorRT inference failed")
+        for name, _, _ in self.outputs:
+            host = slot.host[name]
+            _cuda(cudart.cudaMemcpyAsync(host.ctypes.data, slot.device[name], host.nbytes,
+                                         cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, slot.stream))
+        _cuda(cudart.cudaStreamSynchronize(slot.stream))
+        return {name: slot.host[name].copy() for name, _, _ in self.outputs}
+
+    def close(self):
+        with self._slots_lock:
+            for slot in self._slots:
+                for pointer in slot.device.values():
+                    cudart.cudaFree(pointer)
+                cudart.cudaStreamDestroy(slot.stream)
+                slot.context = None
+            self._slots = []
+        self._engine = None
+        self._runtime = None
+
+
 def _bbox_to_corners(x, y, w, h):
     return [
         [x,         y],
@@ -244,109 +483,78 @@ def _bbox_to_corners(x, y, w, h):
 
 
 # ───────────────────────────────────────────────────────────────────────
-# OD — Object detection (mmdetection / draft pickle format)
+# OD — Object detection (RF-DETR on TensorRT)
 # ───────────────────────────────────────────────────────────────────────
 
 class OD(object):
     """
-    Axis-aligned object detector. Single forward pass, per-class NMS.
+    Axis-aligned object detector: RF-DETR, on the GPU with TensorRT.
+    Single forward pass. DETR predicts a SET of objects — one query per
+    object — so there is no NMS.
 
     Pickle:
-        xml, bin                 — OpenVINO IR
-        cls    : list[str]
+        onnx   : bytes — RF-DETR's ONNX export: input "input" (1, 3, S, S);
+                 outputs "dets" (1, Q, 4) cx, cy, w, h normalized to 0..1,
+                 "labels" (1, Q, C) class logits
+        cls    : list[str] — logit slot i is cls[i]; slots past it are unused
         colors : dict|list of hex strings
-        meta   : {image_size: int, model_type: str, precision: str}
+        meta   : {image_size: S, arch: "rf-detr", variant: str, precision: "fp16"}
 
     Call:
-        OD(img, conf=0.3, nms_iou=0.5, cls=None, max_det=None) ->
+        OD(img, conf=0.3, cls=None, max_det=None) ->
         list[SimpleNamespace(prob, cls, rect, color)]
 
     `rect` is a SimpleNamespace(x, y, w, h) in original-image pixel coords.
     """
 
-    def __init__(self, path, device_name="CPU", device_config=None, **kwargs):
+    def __init__(self, path, **kwargs):
         data = _load_pickle(path)
+        if data.get("onnx") is None:
+            raise ValueError(
+                "Unsupported model: no 'onnx' entry. On the Jetson, OD is RF-DETR — "
+                "train and export it with training_notebooks/train_object_detection.ipynb."
+            )
         self.cls    = list(data["cls"])
         self.colors = data.get("colors", {})
-        meta = data.get("meta", {})
-        self.image_size = int(meta.get("image_size", 640))
-
-        self.core, self.model, self.compiled_model = _read_openvino_from_pickle(
-            data,
-            input_shape=[1, 3, self.image_size, self.image_size],
-            device_name=device_name,
-            device_config=device_config,
-        )
+        self.image_size = int(data["meta"]["image_size"])
+        self.model = _TRTModel(data)
 
     def __del__(self):
-        _release_openvino(getattr(self, "model", None), getattr(self, "compiled_model", None))
-        self.core = None
+        model = getattr(self, "model", None)
+        if model is not None:
+            model.close()
+            self.model = None
 
     def _preprocess(self, img):
-        padded, ratio = _letterbox(img, self.image_size)
-        tensor = ((padded.astype(np.float32) - _DET_MEAN) / _DET_STD).transpose(2, 0, 1)[None]
-        return tensor, ratio
+        # RF-DETR's own predict(): a plain (not letterboxed) bilinear resize
+        # to S x S. RGB and ImageNet mean/std happen in the engine (_image_input).
+        return cv2.resize(img, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)[None]
 
-    @staticmethod
-    def _nms_per_class(boxes_xyxy, scores, class_ids, iou_thr):
-        keep = []
-        for cid in np.unique(class_ids):
-            idx = np.where(class_ids == cid)[0]
-            if len(idx) == 0:
-                continue
-            b = boxes_xyxy[idx]
-            s = scores[idx]
-            xywh = [[float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
-                    for x1, y1, x2, y2 in b]
-            picked = cv2.dnn.NMSBoxes(xywh, s.tolist(),
-                                      score_threshold=0.0,
-                                      nms_threshold=float(iou_thr))
-            if len(picked) == 0:
-                continue
-            picked = np.array(picked).reshape(-1)
-            keep.extend(idx[picked].tolist())
-        return np.array(keep, dtype=np.int64)
-
-    def __call__(self, img, conf=0.3, nms_thr=0.3, cls=None, max_det=None, **kwargs):
-        # `nms_iou` accepted as a kwarg alias for back-compat with newer call sites.
-        nms_thr = float(kwargs.pop("nms_iou", nms_thr))
+    def __call__(self, img, conf=0.3, cls=None, max_det=None, **kwargs):
         if img is None or img.size == 0:
             return []
 
-        tensor, ratio = self._preprocess(img)
-        results = self.compiled_model([tensor])
-        raw = np.asarray(list(results.values())[0])   # (1, N, 4+1+C)
-        pred = raw[0]
+        out = self.model(self._preprocess(img))
+        boxes  = out["dets"][0]       # (Q, 4) cx, cy, w, h in 0..1
+        logits = out["labels"][0]     # (Q, C)
+        num_queries, num_slots = logits.shape
 
-        cx, cy, w, h = pred[:, 0], pred[:, 1], pred[:, 2], pred[:, 3]
-        obj = pred[:, 4]
-        cls_scores = pred[:, 5:]
-
-        class_ids = cls_scores.argmax(axis=1)
-        max_cls   = cls_scores.max(axis=1)
-        scores    = obj * max_cls
-
-        keep_mask = scores > conf
-        if not keep_mask.any():
+        # RF-DETR's selection: every (query, class) pair scored with a
+        # sigmoid, best first, at most Q of them — one query may report
+        # more than one class.
+        scores = 1.0 / (1.0 + np.exp(-logits.reshape(-1)))
+        pairs = np.flatnonzero(scores > conf)
+        if len(pairs) == 0:
             return []
-        cx, cy, w, h = cx[keep_mask], cy[keep_mask], w[keep_mask], h[keep_mask]
-        scores, class_ids = scores[keep_mask], class_ids[keep_mask]
-
-        x1 = cx - w * 0.5
-        y1 = cy - h * 0.5
-        x2 = cx + w * 0.5
-        y2 = cy + h * 0.5
-        boxes = np.stack([x1, y1, x2, y2], axis=1) / ratio
+        pairs = pairs[np.argsort(-scores[pairs], kind="stable")][:num_queries]
+        queries, class_ids = pairs // num_slots, pairs % num_slots
 
         H, W = img.shape[:2]
-        boxes[:, 0::2] = boxes[:, 0::2].clip(0, W - 1)
-        boxes[:, 1::2] = boxes[:, 1::2].clip(0, H - 1)
-
-        keep_idx = self._nms_per_class(boxes, scores, class_ids, nms_thr)
-        if len(keep_idx) == 0:
-            return []
-
-        boxes, scores, class_ids = boxes[keep_idx], scores[keep_idx], class_ids[keep_idx]
+        cx, cy, w, h = boxes[queries].T
+        x1 = ((cx - w * 0.5) * W).clip(0, W - 1)
+        y1 = ((cy - h * 0.5) * H).clip(0, H - 1)
+        x2 = ((cx + w * 0.5) * W).clip(0, W - 1)
+        y2 = ((cy + h * 0.5) * H).clip(0, H - 1)
 
         objects = []
         # Three-state semantics:
@@ -354,20 +562,20 @@ class OD(object):
         #   cls=[]    → empty filter, return nothing
         #   cls=[...] → only these labels pass
         cls_filter = None if cls is None else set(cls)
-        for i in range(len(boxes)):
+        for i, pair in enumerate(pairs):
+            if class_ids[i] >= len(self.cls):
+                continue
             label = self.cls[int(class_ids[i])]
             if cls_filter is not None and label not in cls_filter:
                 continue
-            x1, y1, x2, y2 = boxes[i].tolist()
             objects.append(SimpleNamespace(
-                prob=float(scores[i]),
+                prob=float(scores[pair]),
                 cls=label,
-                rect=SimpleNamespace(x=float(x1), y=float(y1),
-                                     w=float(x2 - x1), h=float(y2 - y1)),
+                rect=SimpleNamespace(x=float(x1[i]), y=float(y1[i]),
+                                     w=float(x2[i] - x1[i]), h=float(y2[i] - y1[i])),
                 color=_color_for_class(class_ids[i], self.cls, self.colors),
             ))
 
-        objects.sort(key=lambda o: o.prob, reverse=True)
         if max_det:
             objects = objects[:max_det]
         return objects
@@ -672,13 +880,16 @@ class KP(object):
 
 class CLS(object):
     """
-    Image classifier (softmax over named classes).
+    Image classifier (softmax over named classes): DINOv3 ViT-S/16 features
+    and a linear head, one graph, on the GPU with TensorRT.
 
     Pickle:
-        xml, bin
+        onnx   : bytes — input "input" (1, 3, H, W): the centred letterbox,
+                 RGB, ImageNet mean/std; output "logits" (1, C)
         cls    : list[str]
         colors : dict|list of hex strings
-        meta   : {image_size: (W, H), type: "cls", model, precision}
+        meta   : {image_size: (W, H), type: "cls", arch: "dinov3-linear", model,
+                  precision: "bf16"}
 
     Call:
         CLS(img, conf=0.5, top_k=1) -> list[[name, prob, color], ...]
@@ -687,28 +898,27 @@ class CLS(object):
     Empty list when no class clears `conf`. `top_k` caps the result.
     """
 
-    def __init__(self, path, device_name="CPU", device_config=None, **kwargs):
+    def __init__(self, path, **kwargs):
         data = _load_pickle(path)
+        if data.get("onnx") is None:
+            raise ValueError(
+                "Unsupported model: no 'onnx' entry. On the Jetson, CLS is DINOv3 — "
+                "train and export it with training_notebooks/train_classification.ipynb."
+            )
         self.cls    = list(data["cls"])
         self.colors = data.get("colors", {})
-        meta = data.get("meta", {})
-        self.image_size = tuple(meta.get("image_size", (224, 224)))   # (W, H)
-
-        self.core, self.model, self.compiled_model = _read_openvino_from_pickle(
-            data,
-            input_shape=[1, 3, self.image_size[1], self.image_size[0]],
-            device_name=device_name,
-            device_config=device_config,
-        )
+        self.image_size = tuple(data["meta"]["image_size"])   # (W, H)
+        self.model = _TRTModel(data)
 
     def __del__(self):
-        _release_openvino(getattr(self, "model", None), getattr(self, "compiled_model", None))
-        self.core = None
+        model = getattr(self, "model", None)
+        if model is not None:
+            model.close()
+            self.model = None
 
     def _preprocess(self, img):
-        padded = _letterbox_centered(img, self.image_size)
-        rgb = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB).astype(np.float32)
-        return ((rgb - _IMNET_MEAN) / _IMNET_STD).transpose(2, 0, 1)[None]
+        # RGB and ImageNet mean/std happen in the engine (_image_input)
+        return _letterbox_centered(img, self.image_size)[None]
 
     @staticmethod
     def _softmax(x):
@@ -719,9 +929,7 @@ class CLS(object):
     def __call__(self, img, conf=0.5, top_k=1, **kwargs):
         if img is None or img.size == 0:
             return []
-        tensor = self._preprocess(img)
-        results = self.compiled_model([tensor])
-        logits = np.asarray(list(results.values())[0]).reshape(-1)
+        logits = self.model(self._preprocess(img))["logits"].reshape(-1)
         probs  = self._softmax(logits)
 
         order = np.argsort(probs)[::-1]
@@ -852,13 +1060,8 @@ class ANOM(object):
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# Legacy implementations — preserved for back-compat with existing pickles.
-# Slated for removal once consumers have migrated to the new classes above.
-# ═══════════════════════════════════════════════════════════════════════
-
 def letterbox_image(image, target_size=(640, 640), pad_color=(128, 128, 128)):
-    """Legacy letterbox helper used by OD_v1 / CLS_v1 / OCR."""
+    """Centered letterbox used by OCR."""
     ih, iw = image.shape[:2]
     tw, th = target_size
     scale = min(tw / iw, th / ih)
@@ -876,234 +1079,6 @@ def letterbox_image(image, target_size=(640, 640), pad_color=(128, 128, 128)):
     new_image = cv2.copyMakeBorder(image_resized, top, bottom, left, right,
                                    borderType=cv2.BORDER_CONSTANT, value=pad_color)
     return new_image, scale, pad_w, pad_h
-
-
-def hex_to_bgr(hex_color):
-    """Legacy alias kept for code that imported it directly."""
-    return _hex_to_bgr(hex_color)
-
-
-class KP_v1(object):
-    """Legacy bundled OD+KP (one pickle, both models). Pre-mmdetection format."""
-    def __init__(self, path=None, device_name="CPU", **kwargs):
-        with open(path, "rb") as file:
-            data = pickle.load(file)
-        self.detection = {
-            "od": OD_v1(path=None, device_name=device_name,
-                        data={"bin": data["bin"], "xml": data["xml"], "cls": data["cls"],
-                              "colors": data["colors"], "meta": data["meta"]}),
-            "kp": {k: OD_v1(path=None, device_name=device_name, data=data["kp"][k])
-                   for k in data["kp"] if data["kp"][k]},
-        }
-
-    def od(self, img, conf=0.5, cls=[], **kwargs):
-        return self.detection["od"](img, conf=conf, cls=cls, **kwargs)
-
-    def kp(self, img, label, bb, offset=20, conf=0.5, cls=[], **kwargs):
-        retval = []
-        roi = ROI(img, corners=bb, crop=True, offset=offset)
-        if label not in self.detection["kp"]:
-            return []
-        valid_cls = list(self.detection["kp"][label].cls)
-        if not cls:
-            valid_cls = [c for c in cls if c in valid_cls]
-        retval = self.detection["kp"][label](roi.img, conf=conf, cls=valid_cls)
-        for r in retval:
-            r.center = roi.pxl_to_orig([r.rect.x + r.rect.w / 2, r.rect.y + r.rect.h / 2])
-        return retval
-
-    def __del__(self):
-        try:
-            self.detection["od"].__del__()
-            for k in self.detection["kp"]:
-                self.detection["kp"][k].__del__()
-        except Exception:
-            pass
-
-
-class OD_v1(object):
-    """Legacy YOLOX-style OpenVINO object detector."""
-    def __init__(self, path=None, device_name="CPU", **kwargs):
-        if path is not None:
-            with open(path, "rb") as file:
-                data = pickle.load(file)
-        else:
-            data = kwargs["data"]
-
-        self.cls = data["cls"]
-        self.colors = {k: hex_to_bgr(data["colors"][k]) for k in data["colors"]}
-
-        self.core = Core()
-        self.model = self.core.read_model(model=bytes(data["xml"], "utf-8"), weights=bytes(data["bin"]))
-        self.compiled_model = _PerThreadModel(
-            self.core.compile_model(model=self.model, device_name=device_name))
-        self.input_shape = self.compiled_model.input(0).shape
-
-    def __del__(self):
-        try:
-            del self.model
-            del self.compiled_model
-            self.core = None
-        except Exception:
-            pass
-
-    def _postprocess(self, outputs, img_size, p6=False):
-        grids = []
-        expanded_strides = []
-        strides = [8, 16, 32] if not p6 else [8, 16, 32, 64]
-        hsizes = [img_size[0] // stride for stride in strides]
-        wsizes = [img_size[1] // stride for stride in strides]
-        for hsize, wsize, stride in zip(hsizes, wsizes, strides):
-            xv, yv = np.meshgrid(np.arange(wsize), np.arange(hsize))
-            grid = np.stack((xv, yv), 2).reshape(1, -1, 2)
-            grids.append(grid)
-            shape = grid.shape[:2]
-            expanded_strides.append(np.full((*shape, 1), stride))
-        grids = np.concatenate(grids, 1)
-        expanded_strides = np.concatenate(expanded_strides, 1)
-        outputs[..., :2] = (outputs[..., :2] + grids) * expanded_strides
-        outputs[..., 2:4] = np.exp(outputs[..., 2:4]) * expanded_strides
-        return outputs
-
-    def _nms(self, boxes, scores, nms_thr):
-        x1 = boxes[:, 0]; y1 = boxes[:, 1]
-        x2 = boxes[:, 2]; y2 = boxes[:, 3]
-        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-        order = scores.argsort()[::-1]
-        keep = []
-        while order.size > 0:
-            i = order[0]
-            keep.append(i)
-            xx1 = np.maximum(x1[i], x1[order[1:]])
-            yy1 = np.maximum(y1[i], y1[order[1:]])
-            xx2 = np.minimum(x2[i], x2[order[1:]])
-            yy2 = np.minimum(y2[i], y2[order[1:]])
-            w = np.maximum(0.0, xx2 - xx1 + 1)
-            h = np.maximum(0.0, yy2 - yy1 + 1)
-            inter = w * h
-            ovr = inter / (areas[i] + areas[order[1:]] - inter)
-            inds = np.where(ovr <= nms_thr)[0]
-            order = order[inds + 1]
-        return keep
-
-    def _multiclass_nms(self, boxes, scores, nms_thr, score_thr):
-        cls_inds = scores.argmax(1)
-        cls_scores = scores[np.arange(len(cls_inds)), cls_inds]
-        valid_score_mask = cls_scores > score_thr
-        if valid_score_mask.sum() == 0:
-            return None
-        valid_scores = cls_scores[valid_score_mask]
-        valid_boxes = boxes[valid_score_mask]
-        valid_cls_inds = cls_inds[valid_score_mask]
-        keep = self._nms(valid_boxes, valid_scores, nms_thr)
-        if keep:
-            dets = np.concatenate([valid_boxes[keep], valid_scores[keep, None], valid_cls_inds[keep, None]], 1)
-        return dets
-
-    def __call__(self, img, conf=0.5, cls=[], max_det=None, nms_thr=0.3, **kwargs):
-        objects = []
-        fixed_size = (self.input_shape[2], self.input_shape[3])
-
-        resized_img, scale, pad_w, pad_h = letterbox_image(
-            img, target_size=(fixed_size[1], fixed_size[0]), pad_color=(128, 128, 128)
-        )
-        preprocessed_img = resized_img.transpose((2, 0, 1))
-        preprocessed_img = np.expand_dims(preprocessed_img, axis=0).astype(np.float32)
-
-        output = self.compiled_model([preprocessed_img])[self.compiled_model.output(0)]
-        predictions = self._postprocess(output, fixed_size)[0]
-        boxes = predictions[:, :4]
-        scores = predictions[:, 4, None] * predictions[:, 5:]
-
-        boxes_xyxy = np.ones_like(boxes)
-        boxes_xyxy[:, 0] = boxes[:, 0] - boxes[:, 2] / 2.
-        boxes_xyxy[:, 1] = boxes[:, 1] - boxes[:, 3] / 2.
-        boxes_xyxy[:, 2] = boxes[:, 0] + boxes[:, 2] / 2.
-        boxes_xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2.
-
-        boxes_xyxy[:, [0, 2]] -= pad_w
-        boxes_xyxy[:, [1, 3]] -= pad_h
-        boxes_xyxy /= scale
-
-        dets = self._multiclass_nms(boxes_xyxy, scores, nms_thr=nms_thr, score_thr=conf)
-        if dets is None:
-            return objects
-
-        final_boxes = dets[:, :4].tolist()
-        final_scores = dets[:, 4].tolist()
-        final_cls_inds = dets[:, 5].tolist()
-        for i in range(len(final_boxes)):
-            score = final_scores[i]
-            if score < conf:
-                continue
-            label = self.cls[int(final_cls_inds[i])]
-            if cls and label not in cls:
-                continue
-            obj = SimpleNamespace(
-                prob=float(score),
-                cls=label,
-                rect=SimpleNamespace(
-                    x=final_boxes[i][0],
-                    y=final_boxes[i][1],
-                    w=final_boxes[i][2] - final_boxes[i][0],
-                    h=final_boxes[i][3] - final_boxes[i][1],
-                ),
-                color=self.colors[label],
-            )
-            objects.append(obj)
-
-        objects = sorted(objects, key=lambda x: x.prob, reverse=True)
-        if max_det:
-            objects = objects[:max_det]
-        return objects
-
-
-class CLS_v1(object):
-    """Legacy OpenVINO classifier (ImageNet-mean preprocessing)."""
-    def __init__(self, path, target_size=(224, 224), device_name="CPU", **kwargs):
-        with open(path, "rb") as file:
-            data = pickle.load(file)
-        self.cls = data["cls"]
-        self.colors = {k: hex_to_bgr(data["colors"][k]) for k in data["colors"]}
-
-        self.core = Core()
-        self.model = self.core.read_model(model=bytes(data["xml"], "utf-8"), weights=bytes(data["bin"]))
-        self.compiled_model = _PerThreadModel(
-            self.core.compile_model(model=self.model, device_name=device_name))
-
-        self.target_size = target_size
-        self.input_tensor = self.compiled_model.input(0)
-        self.output_tensor = self.compiled_model.output(0)
-        self.mean = np.array([123.675, 116.28, 103.53])
-        self.scale = np.array([58.395, 57.12, 57.375])
-
-    def __del__(self):
-        try:
-            del self.model
-            del self.compiled_model
-            self.core = None
-        except Exception:
-            pass
-
-    def __call__(self, img, conf=0.5, **kwargs):
-        retval = []
-        img_resized, _, _, _ = letterbox_image(img, self.target_size)
-        img_normalized = img_resized.astype(np.float32)
-        for i in range(3):
-            img_normalized[:, :, i] = (img_normalized[:, :, i] - self.mean[i]) / self.scale[i]
-        img_chw = img_normalized.transpose(2, 0, 1)
-        input_data = np.expand_dims(img_chw, axis=0)
-        results = self.compiled_model([input_data])
-        output_data = results[self.output_tensor]
-        exp_scores = np.exp(output_data)
-        softmax_probs = exp_scores / np.sum(exp_scores)
-        predicted_class = np.argmax(softmax_probs)
-        probability = softmax_probs[0][predicted_class]
-        if probability > conf:
-            retval = [
-                [self.cls[predicted_class], float(probability), self.colors[self.cls[predicted_class]]]
-            ]
-        return retval
 
 
 class OCR(object):
@@ -1125,6 +1100,7 @@ class OCR(object):
             keys = [line.strip() for line in f if line.strip() != ""]
         self.char_list = [""] + keys
 
+        from openvino import Core   # OCR is not yet on TensorRT
         self.core = Core()
         if not os.path.exists(det_model_path) or not os.path.exists(det_weights_path):
             raise FileNotFoundError("Detection model files not found.")
@@ -1222,115 +1198,3 @@ class OCR(object):
                 [text, 1],
             ])
         return results
-
-
-class CLS_NCNN(object):
-    def __init__(self, path, target_size=224, num_threads=2, use_gpu=False, **kwargs):
-        self.path = path
-        self.target_size = target_size
-        self.num_threads = num_threads
-        self.use_gpu = use_gpu
-        self.mean_vals = []
-        self.norm_vals = [1 / 255.0, 1 / 255.0, 1 / 255.0]
-        self.net = ncnn.Net()
-        self.net.opt.use_vulkan_compute = self.use_gpu
-        self.net.opt.num_threads = self.num_threads
-
-        with open(self.path, "rb") as file:
-            data = pickle.load(file)
-        with open("temp.param", "w", encoding="utf-8") as f:
-            f.write(data["param"])
-        with open("temp.bin", "wb") as f:
-            f.write(data["bin"])
-        self.net.load_param("temp.param")
-        self.net.load_model("temp.bin")
-        self.cls = data["cls"]
-        self.model = data["meta"]["model"]
-        os.remove("temp.param")
-        os.remove("temp.bin")
-
-    def __del__(self):
-        self.net = None
-
-    def __call__(self, img, conf=0.5, **kwargs):
-        retval = []
-        if self.model.startswith("shufflenet_v2"):
-            img_h = img.shape[0]; img_w = img.shape[1]
-            mat_in = ncnn.Mat.from_pixels_resize(
-                img, ncnn.Mat.PixelType.PIXEL_BGR,
-                img_w, img_h, self.target_size, self.target_size,
-            )
-            mat_in.substract_mean_normalize(self.mean_vals, self.norm_vals)
-            ex = self.net.create_extractor()
-            ex.input("in0", mat_in)
-            _, mat_out = ex.extract("out0")
-            softmax = ncnn.create_layer("Softmax")
-            pd = ncnn.ParamDict()
-            softmax.load_param(pd)
-            softmax.forward_inplace(mat_out, self.net.opt)
-            mat_out = mat_out.reshape(mat_out.w * mat_out.h * mat_out.c)
-            cls_scores = np.array(mat_out).astype(float).tolist()
-            max_cls, max_score = max(zip(self.cls, cls_scores), key=lambda x: x[1])
-            if max_score >= conf:
-                retval = [[max_cls, max_score]]
-        return retval
-
-
-class OD_NCNN(object):
-    def __init__(self, path, target_size=416, num_threads=2, use_gpu=False, **kwargs):
-        self.path = path
-        self.target_size = target_size
-        self.num_threads = num_threads
-        self.use_gpu = use_gpu
-        self.mean_vals = []
-        self.norm_vals = [1 / 255.0, 1 / 255.0, 1 / 255.0]
-        self.net = ncnn.Net()
-        self.net.opt.use_vulkan_compute = self.use_gpu
-        self.net.opt.num_threads = self.num_threads
-
-        with open(self.path, "rb") as file:
-            data = pickle.load(file)
-        with open("temp.param", "w", encoding="utf-8") as f:
-            f.write(data["param"])
-        with open("temp.bin", "wb") as f:
-            f.write(data["bin"])
-        self.net.load_param("temp.param")
-        self.net.load_model("temp.bin")
-        self.cls = data["cls"]
-        self.model = data["meta"]["model"]
-        os.remove("temp.param")
-        os.remove("temp.bin")
-
-    def __del__(self):
-        self.net = None
-
-    def __call__(self, img, conf=0.5, cls=[], max_det=None, **kwargs):
-        objects = []
-        if self.model.startswith("yolov4"):
-            img_h = img.shape[0]; img_w = img.shape[1]
-            mat_in = ncnn.Mat.from_pixels_resize(
-                img, ncnn.Mat.PixelType.PIXEL_BGR2RGB,
-                img_w, img_h, self.target_size, self.target_size,
-            )
-            mat_in.substract_mean_normalize(self.mean_vals, self.norm_vals)
-            ex = self.net.create_extractor()
-            ex.input("data", mat_in)
-            _, mat_out = ex.extract("output")
-            for i in range(mat_out.h):
-                values = mat_out.row(i)
-                obj = Detect_Object()
-                obj.prob = values[1]
-                if obj.prob < conf:
-                    continue
-                obj.cls = self.cls[int(values[0] - 1)]
-                if cls and obj.cls not in cls:
-                    continue
-                obj.rect.x = values[2] * img_w
-                obj.rect.y = values[3] * img_h
-                obj.rect.w = values[4] * img_w - obj.rect.x
-                obj.rect.h = values[5] * img_h - obj.rect.y
-                objects.append(obj)
-            objects = sorted(objects, key=lambda x: x.prob, reverse=True)
-            if max_det:
-                objects = objects[:max_det]
-        return objects

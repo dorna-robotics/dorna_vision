@@ -51,13 +51,14 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
     """
 
     # WS frame ceiling. Must comfortably fit the largest thing a client ships
-    # inline: a trained model pickle (can be tens of MB; OpenVINO IR models
-    # run ~5-50 MB, legacy/large ones more) — not just JPEGs. Bounded so a
-    # runaway/garbage frame can't exhaust memory. Tornado closes the socket
-    # if a frame exceeds this; the client pre-checks size (see playground's
-    # MAX_UPLOAD_BYTES) and shows a clean error before sending, so a normal
-    # oversize upload never reaches this hard limit.
-    MAX_FRAME_BYTES = 128 * 1024 * 1024
+    # inline: a trained model pickle — not just JPEGs. An RF-DETR pickle
+    # carries FP32 ONNX weights: ~110 MB for nano/small, more for the larger
+    # sizes. Bounded so a runaway/garbage frame can't exhaust memory.
+    # Tornado closes the socket if a frame exceeds this (app.py's listen
+    # buffer is the same size); the client pre-checks size (see
+    # playground's MAX_UPLOAD_BYTES) and shows a clean error before
+    # sending, so a normal oversize upload never reaches this hard limit.
+    MAX_FRAME_BYTES = 256 * 1024 * 1024
     max_message_size = MAX_FRAME_BYTES
 
     # ── Server-initiated push channel ────────────────────────────────────

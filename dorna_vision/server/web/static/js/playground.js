@@ -505,11 +505,11 @@ let _pickedImageFile = null;
 let _pickedModelFile = null;
 
 // Max inline upload size. Kept below the server's WS frame ceiling
-// (VisionWSHandler.MAX_FRAME_BYTES = 128 MB) with headroom for the JSON
+// (VisionWSHandler.MAX_FRAME_BYTES = 256 MB) with headroom for the JSON
 // envelope, so we reject oversize files with a clear message BEFORE sending
 // — a frame over the server cap would otherwise make Tornado drop the
-// connection (looks like a server crash). 120 MB leaves ~8 MB headroom.
-const MAX_UPLOAD_BYTES = 120 * 1024 * 1024;
+// connection (looks like a server crash). 248 MB leaves ~8 MB headroom.
+const MAX_UPLOAD_BYTES = 248 * 1024 * 1024;
 function _fmtMB(n) { return (n / (1024 * 1024)).toFixed(1) + " MB"; }
 
 // Put a button into a busy state (spinner + label, disabled) for the

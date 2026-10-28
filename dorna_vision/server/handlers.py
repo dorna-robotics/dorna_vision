@@ -442,6 +442,31 @@ def detection_add(session, args, data=None):
     return out
 
 
+def model_prepare(session, args, data=None):
+    """
+    Build and cache a model's TensorRT engine on this unit — once per new
+    .pkl, minutes; detection_add loads only a prepared model. The model is
+    the binary frame (a .pkl on the client), else ``path``, a .pkl on this
+    unit. Returns {"built", "seconds"}: built False = already prepared.
+    """
+    import os
+    import tempfile
+    from dorna_vision.ai import prepare
+
+    if data:
+        fd, tmp_path = tempfile.mkstemp(prefix="dorna_vision_model_", suffix=".pkl")
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        try:
+            return prepare(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+    path = args.get("path")
+    if not path:
+        raise ValueError("model_prepare needs the model: a .pkl sent with the call, or path on this unit")
+    return prepare(os.path.expanduser(path))
+
+
 def detection_run(session, args):
     args = dict(args)
     name = args.pop("name", None)
@@ -740,6 +765,7 @@ HANDLERS = {
     "camera_get_img": camera_get_img,
     "robot_add": robot_add,
     "robot_remove": robot_remove,
+    "model_prepare": model_prepare,
     "detection_add": detection_add,
     "detection_list": detection_list,
     "detection_run": detection_run,
@@ -759,6 +785,7 @@ HANDLERS = {
 # or None. Used to ship images and ML model weights inline rather than
 # staging them on the server's filesystem.
 BINARY_INBOUND = {
+    "model_prepare",   # binary = ML model bytes (its engine built and cached, the bytes discarded)
     "detection_add",   # binary = ML model bytes (loaded into Detection then discarded)
     "call",            # binary = the 'data' kwarg for whatever method is being called (e.g. detection.run)
 }
