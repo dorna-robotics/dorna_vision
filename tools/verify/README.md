@@ -13,10 +13,12 @@ mkdir -p ~/scratch && cd ~/scratch
 # RF-DETR, CPU torch — exports, references, CPU training checks
 pip3 install --target ~/scratch/rfdetr-lib "rfdetr[train,onnx]==1.11.2"
 # run with:  CUDA_VISIBLE_DEVICES="" PYTHONPATH=~/scratch/rfdetr-lib python3 -s ...
+# (the unit's venv python — it sees the system packages; -s keeps
+#  ~/.local out)
 ```
 
 The scripts under test run as the services do: `sudo env -i
-PATH=/usr/local/bin:/usr/bin:/bin HOME=/root python3 <script>` (engines
+PATH=/opt/dorna/venv/bin:/usr/bin:/bin HOME=/root python3 <script>` (engines
 cache in `/root/.cache/dorna_vision/trt`). One heavy job at a time on the
 Jetson — a TensorRT build next to a training run once ran it out of memory.
 

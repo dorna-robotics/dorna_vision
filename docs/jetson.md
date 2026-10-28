@@ -124,8 +124,10 @@ the ONNX against PyTorch, and download the `.pkl`. Then on the unit:
 
 ## Setting up a Jetson
 
-The install is the `upgrade` repo's `jetson` branch (its README). Today it
-targets JetPack 6.2.1; the move to **JetPack 7.2.1** is the next step.
+The install is the `upgrade` repo's `jetson` branch (its README): JetPack
+7.2.1 — CUDA 13.2, TensorRT 10.16, NVIDIA's OpenCV 4.8 — with every python
+package in one venv, `/opt/dorna/venv`, first on every PATH (so `sudo
+python3` / `sudo pip3` are the venv's).
 
 1. **JetPack 7.2.1** (L4T r39.2.1, Ubuntu 24.04) — there is no SD-card image
    any more: write NVIDIA's Jetson ISO
@@ -139,19 +141,19 @@ targets JetPack 6.2.1; the move to **JetPack 7.2.1** is the next step.
 2. Passwordless sudo, as on the Pis:
    `echo "dorna ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/010_dorna-nopasswd && sudo chmod 440 /etc/sudoers.d/010_dorna-nopasswd`
 3. The upgrade's first run (`upgrade` repo, `jetson` branch, its README):
-   MAXN SUPER, the build tools, librealsense (RSUSB + CUDA), path_planning,
-   the cameras (RealSense, uEye, Hikrobot), the vision server on :4001, the
-   orchestrator on :80, Jupyter on :8888 — and, to add with the JetPack
-   7.2.1 update, the OCR models fetched and prepared (`fetch_ocr()`).
+   MAXN SUPER, the NVIDIA stack, the venv, the build tools, librealsense
+   (RSUSB + CUDA), path_planning, the cameras (RealSense, uEye, Hikrobot),
+   the vision server on :4001, the orchestrator on :80, Jupyter on :8888 —
+   still to add: the OCR models fetched and prepared (`fetch_ocr()`).
 
 ## Next steps
 
 In order — one heavy job on the Jetson at a time:
 
-1. **JetPack 7.2.1** on the Jetson (above), then update the upgrade `jetson`
-   branch for it: the OS check (L4T r39), Ubuntu 24.04 / Python 3.12 (pip
-   needs `--break-system-packages` again), CUDA 13 (`cuda-python` 13.x),
-   TensorRT 10.16; run it on the fresh unit — that run is its test.
+1. **JetPack 7.2.1** on the Jetson: installed (2026-10-28); the upgrade
+   `jetson` branch is updated for it (L4T R39, Python 3.12 in one venv,
+   CUDA 13.2 / `cuda-python` 13.2, TensorRT 10.16) and its first full run
+   on the fresh unit is that update's test.
 2. **Re-verify every model** with `tools/verify` (the ONNX-level image input
    rebuilds all engines): OD, CLS, SEG, KP parity; `model_prepare`; server.
 3. **OCR**: `fetch_ocr()` (the detector's 4000 × 4000 profile makes its first
