@@ -401,21 +401,6 @@ section[data-page="home"].active {
   stroke-dasharray: 6 4;
   vector-effect: non-scaling-stroke;
 }
-/* Bbox picker variant — same shape primitives, greenish stroke to
-   visually distinguish from the blue ROI polygon. Applied to
-   .pg-roi-overlay when _roiEdit.mode === "bbox" or when the saved
-   target is in bbox mode. */
-.pg-roi-overlay.is-bbox .pg-roi-poly,
-.pg-roi-overlay.is-bbox .pg-roi-line {
-  stroke: #22c55e;
-}
-.pg-roi-overlay.is-bbox .pg-roi-pt circle {
-  fill: #22c55e;
-}
-.pg-roi-overlay.is-bbox .pg-roi-pt:hover circle {
-  fill: #fff;
-  stroke: #22c55e;
-}
 /* point handles — interactive, draggable */
 .pg-roi-pt {
   pointer-events: auto;

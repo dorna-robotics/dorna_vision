@@ -403,7 +403,7 @@ def detection_add(session, args, data=None):
 
         # Auto-detect the detection cmd from the pickle's meta.type when
         # the caller didn't pre-set one. This lets the GUI just hand us a
-        # model file without asking the user "is this OD or ROD or KP…?"
+        # model file without asking the user "is this OD or SEG or KP…?"
         # — the answer is already baked into the pickle by training.
         if "cmd" not in det_pkg:
             try:
@@ -411,7 +411,7 @@ def detection_add(session, args, data=None):
                 with open(tmp_path, "rb") as _f:
                     _model_dict = _p.load(_f)
                 _t = ((_model_dict.get("meta") or {}).get("type") or "").lower()
-                if _t in ("od", "rod", "cls", "kp", "anom"):
+                if _t in ("od", "seg", "kp", "cls"):
                     det_pkg["cmd"] = _t
             except Exception:
                 pass

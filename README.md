@@ -1,3 +1,6 @@
+> **`jetson` branch:** the vision server on an NVIDIA Jetson, every model on the GPU with TensorRT —
+> how it works, how to train and deploy each model, setup, and status: **[docs/jetson.md](docs/jetson.md)**.
+
 ## Table of Contents
 
 - [Introduction ](#introduction)

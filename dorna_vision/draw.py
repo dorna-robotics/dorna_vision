@@ -163,6 +163,20 @@ def draw_corners(img, cls, conf, corners, color= (0,255,0), thickness=1, label=T
         cv.putText(img, text, (int(x) + 5, int(y) - 5), font, font_scale, (0, 0, 0), thickness, lineType=cv.LINE_AA)  # black text
 
 
+def draw_keypoints(img, keypoints, skeleton, colors, radius=4, thickness=2):
+    """One object's keypoints — a dot each, `colors[i]` for keypoints[i] —
+    and the skeleton's edges between the keypoints both ends of which are
+    present. `keypoints` are dicts {cls, center}; `skeleton` is the
+    model's [(i, j), ...], 1-indexed into its keypoint names, given here
+    as names: [(name_i, name_j), ...]."""
+    at = {k["cls"]: (int(round(k["center"][0])), int(round(k["center"][1]))) for k in keypoints}
+    for a, b in skeleton:
+        if a in at and b in at:
+            cv.line(img, at[a], at[b], (255, 255, 255), thickness, lineType=cv.LINE_AA)
+    for k, color in zip(keypoints, colors):
+        cv.circle(img, at[k["cls"]], radius, color, -1, lineType=cv.LINE_AA)
+
+
 # Draw 3D axis on the image using the camera pose
 def draw_3d_axis(img, rvec, tvec, camera_matrix, dist_coeffs, length=10, **kwargs):
     cv.drawFrameAxes(img, camera_matrix,

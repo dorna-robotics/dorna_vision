@@ -350,6 +350,10 @@ export class VisionClient {
     return this._send("detection_add", { name, ...body }, opts, binary);
   }
   detectionRemove(name, opts)    { return this._send("detection_remove", { name }, opts); }
+  // Build and cache an ML model's TensorRT engine on the unit — once per
+  // new .pkl (`binary`, an ArrayBuffer), minutes; detection_add loads only
+  // a prepared model. Reply: {built, seconds}.
+  modelPrepare(binary, opts = { timeout: 900000 }) { return this._send("model_prepare", {}, opts, binary); }
   // maxSide caps the PREVIEW's long edge (server-side downscale, after
   // detection has already run at full resolution). Reply meta carries
   // source_shape + scale. Never use it where the pixels are coordinates.

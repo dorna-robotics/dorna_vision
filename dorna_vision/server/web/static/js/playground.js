@@ -233,18 +233,11 @@ const CMD_SCHEMAS = {
       { key: "cls",  label: "Detection classes", kind: "json", default: [], keepEmpty: true },
     ],
   },
-  rod: {
-    label: "Rotated Object Detection (ML)",
+  seg: {
+    label: "Segmentation (ML)",
     fields: [
-      { key: "conf", label: "Confidence",  kind: "slider", min: 0.01, max: 1, step: 0.01, default: 0.15 },
+      { key: "conf", label: "Confidence",  kind: "slider", min: 0.01, max: 1, step: 0.01, default: 0.3 },
       { key: "cls",  label: "Detection classes", kind: "json", default: [], keepEmpty: true },
-    ],
-  },
-  anom: {
-    label: "Anomaly Detection (ML)",
-    fields: [
-      { key: "threshold", label: "Score threshold (0 = mark all fail, 1 = mark all pass)",
-        kind: "slider", min: 0, max: 1, step: 0.001, default: 0.5 },
     ],
   },
   cls: {
@@ -256,22 +249,11 @@ const CMD_SCHEMAS = {
   kp: {
     label: "Keypoints (ML)",
     fields: [
-      // Per-keypoint confidence threshold — keypoints below this are
-      // dropped from the result. There's no object-class filter
-      // anymore: the new top-down kp flow runs once over the whole
-      // image and returns a single keypoint set, not per-object lists.
-      { key: "conf",    label: "Confidence",       kind: "slider", min: 0.01, max: 1, step: 0.01, default: 0.2 },
-      // Object bbox stored as 4 corner points (same format as ROI). An
-      // empty list means "use whole image" — the backend converts the
-      // corners to an axis-aligned (x, y, w, h) rect before passing to
-      // KP. Picking a tight bbox + leaving padding at 1.25 reproduces
-      // the training-time framing for best accuracy.
-      { key: "bbox",    label: "Bounding box (4 corners)", kind: "json", picker: "bbox", default: [], keepEmpty: true },
-      // Affine-crop margin around the bbox. 1.0 = no padding (tight
-      // crop), 1.25 = training-time default (12.5% extra on each side).
-      // Usually fixed at 1.25 once you have a real bbox; tune only if
-      // your training conventions differ.
-      { key: "padding", label: "Crop padding (×)", kind: "slider", min: 1.0,  max: 2.0, step: 0.05, default: 1.25 },
+      // One pass finds every object and its keypoints: `conf` filters
+      // the objects, `kp_conf` each object's keypoints (their visibility).
+      { key: "conf",    label: "Object confidence",   kind: "slider", min: 0.01, max: 1, step: 0.01, default: 0.3 },
+      { key: "kp_conf", label: "Keypoint confidence", kind: "slider", min: 0.01, max: 1, step: 0.01, default: 0.5 },
+      { key: "cls",     label: "Detection classes",   kind: "json", default: [], keepEmpty: true },
     ],
   },
 };
@@ -543,12 +525,8 @@ let _modelClasses = [];
 // can't pick an ML method that wasn't loaded — that would crash the
 // server with "'Detection' object has no attribute '<x>'".
 let _loadedMlType = "";
-// Trained anomaly threshold pulled from the ANOM pickle on Initialize.
-// Used to seed the threshold slider so users start at the value the
-// training pipeline picked, instead of the schema's static 0.5.
-let _trainedThreshold = null;
 
-const ML_CMDS = ["od", "rod", "cls", "kp", "anom"];
+const ML_CMDS = ["od", "seg", "kp", "cls"];
 
 const SOURCE_KEY      = "dorna_playground_source";
 // SOURCE_PATH_KEY removed — we no longer persist the file path; uploads
@@ -681,13 +659,11 @@ function renderField(sectionKey, field, value) {
     case "json": {
       const v = value === undefined ? field.default : value;
       let extra = "";
-      if (field.picker === "polygon" || field.picker === "bbox") {
+      if (field.picker === "polygon") {
         // The action row is rendered by _renderRoiActions(targetId) and
         // re-rendered whenever state changes (no polygon / has polygon /
-        // editing). Single delegated click handler in init(). The
-        // picker mode rides on the action div so handlers can switch
-        // between free-form polygon and axis-aligned rectangle UX.
-        extra = `<div class="pg-roi-actions" data-roi-actions="${id}" data-pick-mode="${field.picker}"></div>`;
+        // editing). Single delegated click handler in init().
+        extra = `<div class="pg-roi-actions" data-roi-actions="${id}"></div>`;
       }
       ctrl = `<textarea class="input pg-input pg-json-mini" id="${id}" rows="3" spellcheck="false">${escHtml(_jsonCompact(v))}</textarea>${extra}`;
       break;
@@ -931,7 +907,7 @@ function renderMethodFields() {
   }
   wrap.innerHTML = schema.fields.map(f => renderField("detection", f, seeded[f.key])).join("");
 
-  // Populate action rows for any polygon / bbox picker fields the
+  // Populate action rows for any polygon picker fields the
   // schema declared. The renderField output leaves these divs empty
   // — _renderRoiActions fills them with the right Edit / Save / Pick
   // buttons based on current state. (Sections do the same dance in
@@ -960,33 +936,6 @@ function renderMethodFields() {
         if (!ta) return;
         ta.value = _jsonCompact(_modelClasses.slice());
         ta.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-      row.appendChild(btn);
-    }
-  }
-
-  // Same idea for the ANOM threshold slider — a "Trained" button that
-  // resets it to the value the training pipeline picked. Only shown
-  // when the loaded model actually exposes a trained threshold.
-  const thrField = schema.fields.find(f => f.key === "threshold");
-  if (thrField && _trainedThreshold != null) {
-    const sl = document.getElementById(fieldId("detection", "threshold"));
-    const fieldEl = sl?.closest(".pg-field");
-    const label = fieldEl?.querySelector(".pg-flabel");
-    if (label) {
-      const row = document.createElement("div");
-      row.className = "pg-flabel-row";
-      label.replaceWith(row);
-      row.appendChild(label);
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "btn btn-ghost btn-sm";
-      btn.textContent = "Trained";
-      btn.title = `Reset to the trained threshold (${_trainedThreshold.toFixed(3)})`;
-      btn.addEventListener("click", () => {
-        if (!sl) return;
-        sl.value = String(_trainedThreshold);
-        sl.dispatchEvent(new Event("input", { bubbles: true }));
       });
       row.appendChild(btn);
     }
@@ -1409,6 +1358,11 @@ function _buildPySnippet() {
   lines.push(`vc = VisionClient()`);
   lines.push(`vc.connect()  # default host="127.0.0.1", port=8765`);
   lines.push(``);
+  if (ML_CMDS.includes(_cfg?.detection?.cmd)) {
+    lines.push(`# once per new model on this unit: build its TensorRT engine (minutes)`);
+    lines.push(`vc.model_prepare(${JSON.stringify(_pickedModelFile?.name || "model.pkl")})`);
+    lines.push(``);
+  }
   lines.push(`# detection_config = <the dict from the "Detection config" box above>`);
   lines.push(`vc.detection_add(`);
   lines.push(`    name="my_detection",`);
@@ -1798,7 +1752,7 @@ function _applySourceUI() {
 // builds it once (loading any ML model). Each Run just calls .run()
 // with runtime kwargs — Detection.run does setattr() on whatever is
 // passed, so ROI / color / detection method / etc. update live without
-// a rebuild. This avoids re-loading the OpenVINO model on every click.
+// a rebuild. This avoids re-loading the model on every click.
 //
 // Re-initialize tears down the server-side detection so a fresh
 // Initialize will rebuild from the current init params.
@@ -1822,7 +1776,7 @@ function _buildInitBody() {
     if (k in _cfg) body[k] = _cfg[k];
   }
   // AI Models — when a model file is picked, send the bytes inline.
-  // The cmd (od / rod / cls / kp / anom) is read from the pickle's
+  // The cmd (od / seg / kp / cls) is read from the pickle's
   // `meta.type` server-side, so the user doesn't have to pick the
   // detection type up front. We only include the filename here as a
   // hint so the server picks the right tempfile suffix.
@@ -1882,8 +1836,7 @@ async function initializePlayground() {
   let modelBytes = null;
   if (_pickedModelFile) {
     if (_pickedModelFile.size > MAX_UPLOAD_BYTES) {
-      toast(`Model file is ${_fmtMB(_pickedModelFile.size)} — exceeds the ${_fmtMB(MAX_UPLOAD_BYTES)} upload limit. `
-        + `This is usually an old-format pickle that embeds raw training weights; export an OpenVINO model from the training notebook.`, "bad");
+      toast(`Model file is ${_fmtMB(_pickedModelFile.size)} — exceeds the ${_fmtMB(MAX_UPLOAD_BYTES)} upload limit.`, "bad");
       return false;
     }
     try { modelBytes = await _pickedModelFile.arrayBuffer(); }
@@ -1891,6 +1844,17 @@ async function initializePlayground() {
   }
   try {
     try { await _vc.detectionRemove(PG_NAME); } catch {}
+    if (modelBytes) {
+      // A model runs only once prepared on this unit (its TensorRT engine
+      // built for this GPU) — minutes the first time, instant after. The
+      // busy Initialize button says which step it is on.
+      const btn = $("#pgInitBtn");
+      const label = (text) => { if (btn?.dataset.busy === "1") btn.innerHTML = `<span class="btn-spinner"></span>${text}`; };
+      label("Preparing model (first time: minutes)…");
+      const prepared = await _vc.modelPrepare(modelBytes);
+      label("Initializing…");
+      if (prepared && prepared.built) toast(`Model prepared on this unit in ${Math.round(prepared.seconds)} s`, "ok");
+    }
     const reply = await _vc.detectionAdd(PG_NAME, _buildInitBody(), modelBytes);
     // Server echoes the detected cmd back so we can filter the runtime
     // method picker without asking the user to pre-select a type.
@@ -2258,14 +2222,9 @@ function _refreshImgTabs() {
 // Save writes them back to the textarea (and into _cfg.roi.corners if the
 // section's Apply checkbox is on).
 
-// `mode` switches between two picker behaviors that share this state +
-// SVG overlay + click handlers:
-//   "polygon" — free-form polygon (used by ROI corners). Each click adds
-//               a vertex; vertices drag freely.
-//   "bbox"    — axis-aligned rectangle. First two clicks set opposite
-//               corners and expand to 4 corners; vertex drags keep the
-//               rectangle axis-aligned by also adjusting neighbors.
-const _roiEdit = { active: false, targetId: null, points: [], mode: "polygon" };
+// A free-form polygon (ROI corners): each click adds a vertex; vertices
+// drag freely.
+const _roiEdit = { active: false, targetId: null, points: [] };
 
 function _polyTargetId() {
   // Single ROI polygon picker in the schema; locate its textarea id.
@@ -2294,41 +2253,33 @@ function _renderRoiActions(targetId) {
   const editing = _roiEdit.active && _roiEdit.targetId === targetId;
   const points = editing ? _roiEdit.points : _polygonFromTextarea(targetId);
   const has = points.length > 0;
-  // Pick mode (polygon vs bbox) lives on the action div as a
-  // data-attribute set by the field renderer. Defaults to polygon for
-  // any picker that doesn't declare a mode.
-  const mode = root.dataset.pickMode === "bbox" ? "bbox" : "polygon";
-  const noun = mode === "bbox" ? "bbox" : "polygon";
 
   let html = "";
   if (editing) {
-    const hint = mode === "bbox"
-      ? (points.length < 2 ? "click 2 corners" : "drag to resize")
-      : `${points.length} point${points.length === 1 ? "" : "s"}`;
+    const hint = `${points.length} point${points.length === 1 ? "" : "s"}`;
     html = `
       <button type="button" class="btn btn-primary btn-sm" data-roi-act="save"   data-roi-target="${targetId}">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        Save ${noun}
+        Save polygon
       </button>
       <button type="button" class="btn btn-sm" data-roi-act="cancel" data-roi-target="${targetId}">Cancel</button>
       <span class="pg-roi-count">${hint}</span>
     `;
   } else if (has) {
-    const hint = mode === "bbox" ? "rectangle set" : `${points.length} point${points.length === 1 ? "" : "s"}`;
+    const hint = `${points.length} point${points.length === 1 ? "" : "s"}`;
     html = `
       <button type="button" class="btn btn-primary btn-sm pg-pick-poly" data-pick-target="${targetId}">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
-        Edit ${noun}
+        Edit polygon
       </button>
-      <button type="button" class="btn btn-danger btn-sm" data-roi-act="remove" data-roi-target="${targetId}">Remove ${noun}</button>
+      <button type="button" class="btn btn-danger btn-sm" data-roi-act="remove" data-roi-target="${targetId}">Remove polygon</button>
       <span class="pg-roi-count">${hint}</span>
     `;
   } else {
-    const verb = mode === "bbox" ? "Pick bbox on image" : "Pick polygon on image";
     html = `
       <button type="button" class="btn btn-primary btn-sm pg-pick-poly" data-pick-target="${targetId}">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>
-        ${verb}
+        Pick polygon on image
       </button>
     `;
   }
@@ -2369,15 +2320,8 @@ async function startRoiEdit(targetId) {
     const ok = await _captureRawForRoi();
     if (!ok) return;
   }
-  // Pick mode rides on the action div's data-pick-mode attribute (set
-  // by the field renderer). Default to polygon for backward compat
-  // with any picker that doesn't declare a mode.
-  const actionEl = document.querySelector(`[data-roi-actions="${targetId}"]`);
-  const mode = actionEl?.dataset.pickMode === "bbox" ? "bbox" : "polygon";
-
   _roiEdit.active = true;
   _roiEdit.targetId = targetId;
-  _roiEdit.mode = mode;
   _roiEdit.points = _polygonFromTextarea(targetId).map(p => [Number(p[0]), Number(p[1])]);
 
   const overlay = $("#pgRoiOverlay");
@@ -2395,20 +2339,9 @@ function _endRoiEdit(save) {
     if (ta) {
       // ROI corners are pixel indices — strip any fractional noise
       // that may have crept in from older saves or external edits.
-      let cleaned = _roiEdit.points.map(
+      const cleaned = _roiEdit.points.map(
         ([x, y]) => [Math.round(Number(x)), Math.round(Number(y))]
       );
-      // Bbox mode: canonicalize to [TL, TR, BR, BL] order in case the
-      // rect got "flipped" during drag (corner pulled past its
-      // diagonal neighbor). Skipped if the user only placed 1 corner —
-      // that intermediate state isn't a real bbox.
-      if (_roiEdit.mode === "bbox" && cleaned.length === 4) {
-        const xs = cleaned.map(p => p[0]);
-        const ys = cleaned.map(p => p[1]);
-        const x0 = Math.min(...xs), x1 = Math.max(...xs);
-        const y0 = Math.min(...ys), y1 = Math.max(...ys);
-        cleaned = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-      }
       ta.value = JSON.stringify(cleaned);
       ta.dispatchEvent(new Event("change", { bubbles: true }));
     }
@@ -2420,7 +2353,6 @@ function _endRoiEdit(save) {
   _roiEdit.active = false;
   _roiEdit.targetId = null;
   _roiEdit.points = [];
-  _roiEdit.mode = "polygon";
   refreshRoiOverlay();
   if (targetId) _renderRoiActions(targetId);
 }
@@ -2471,29 +2403,6 @@ function _onPtDragMove(ev) {
   let p = _imgClickToPixel(ev, true);
   if (!p) return;
 
-  if (_roiEdit.mode === "bbox" && _roiEdit.points.length === 4) {
-    // Axis-aligned rectangle constraint. Corners are stored in
-    // [TL, TR, BR, BL] order; dragging any one moves it AND its two
-    // neighbors so the rect stays axis-aligned. The opposite corner
-    // (i+2 mod 4) stays fixed. Adjacency:
-    //   TL=0 ↔ TR=1 (share y), TL=0 ↔ BL=3 (share x)
-    //   TR=1 ↔ BR=2 (share x)
-    //   BR=2 ↔ BL=3 (share y)
-    const adj = {
-      0: { hN: 1, vN: 3 },
-      1: { hN: 0, vN: 2 },
-      2: { hN: 3, vN: 1 },
-      3: { hN: 2, vN: 0 },
-    }[_ptDragIdx];
-    const pts = _roiEdit.points;
-    pts[_ptDragIdx]  = [p[0], p[1]];
-    pts[adj.hN] = [pts[adj.hN][0], p[1]];   // horizontal neighbor — shares y
-    pts[adj.vN] = [p[0], pts[adj.vN][1]];   // vertical neighbor — shares x
-    _justDragged = true;
-    _renderRoiSvg();
-    return;
-  }
-
   // Shift = constrain the edge from the previous vertex onto the
   // nearest 45° angle (vertical / horizontal / diagonal). Falls back
   // to no-op if the polygon has fewer than 2 points.
@@ -2515,10 +2424,6 @@ function _onPtDragEnd() {
 function _onPtContextMenu(idx, ev) {
   ev.preventDefault();
   ev.stopPropagation();
-  // Bbox mode: deleting a corner would break the 4-corner rect
-  // invariant, so right-click does nothing. User can hit Remove to
-  // clear and start over.
-  if (_roiEdit.mode === "bbox") return;
   _roiEdit.points.splice(idx, 1);
   _renderRoiSvg();
 }
@@ -2530,28 +2435,7 @@ function _onRoiClick(ev) {
   let p = _imgClickToPixel(ev);
   if (!p) return;
 
-  if (_roiEdit.mode === "bbox") {
-    // 2-click flow: first click sets a single anchor; second click
-    // expands to a 4-corner axis-aligned rect. After 4 corners exist
-    // additional clicks are ignored — the user adjusts via dragging
-    // corners, or hits Remove to start over.
-    const n = _roiEdit.points.length;
-    if (n === 0) {
-      _roiEdit.points.push(p);
-    } else if (n === 1) {
-      const a = _roiEdit.points[0];
-      const x0 = Math.min(a[0], p[0]);
-      const x1 = Math.max(a[0], p[0]);
-      const y0 = Math.min(a[1], p[1]);
-      const y1 = Math.max(a[1], p[1]);
-      _roiEdit.points = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-    }
-    // n >= 2 (degenerate / 4-corner): ignore the click.
-    _renderRoiSvg();
-    return;
-  }
-
-  // Polygon mode (free-form). Shift = snap the new point so the edge
+  // Shift = snap the new point so the edge
   // from the last existing vertex lies on a 45° angle.
   if (ev.shiftKey && _roiEdit.points.length > 0) {
     p = _snapToAngle(p, _roiEdit.points[_roiEdit.points.length - 1]);
@@ -2657,17 +2541,6 @@ function refreshRoiOverlay() {
   overlay.removeAttribute("hidden");
   wrap.classList.toggle("is-roi-editing", editing);
   wrap.classList.toggle("is-roi-shown", !editing);
-  // Mode flag drives the green vs blue stroke. During edit it's
-  // _roiEdit.mode; when just displaying a saved target it's the
-  // target's own data-pick-mode (looked up from the action div).
-  let mode = "polygon";
-  if (editing) {
-    mode = _roiEdit.mode;
-  } else if (targetId) {
-    const actionEl = document.querySelector(`[data-roi-actions="${targetId}"]`);
-    if (actionEl?.dataset.pickMode === "bbox") mode = "bbox";
-  }
-  overlay.classList.toggle("is-bbox", mode === "bbox");
   _syncRoiSvg();
 
   let inner = "";
@@ -2675,9 +2548,8 @@ function refreshRoiOverlay() {
   // see what's discarded. The dim side flips with `inv`: by default the
   // outside is masked (so dim outside); with inv=1 the inside is masked.
   // The actual masking is done server-side by the ROI class; this is a
-  // purely visual aid. Bbox mode skips the dim — a bbox is just a
-  // detection hint, not something that masks pixels.
-  if (!editing && pts.length >= 3 && mode !== "bbox") {
+  // purely visual aid.
+  if (!editing && pts.length >= 3) {
     const W = img.naturalWidth, H = img.naturalHeight;
     const polyD = "M" + pts.map(p => `${p[0]},${p[1]}`).join(" L") + " Z";
     const inv = !!Number(_cfg?.roi?.inv);
@@ -2854,7 +2726,7 @@ export function init(vc) {
       }
       if (schema) for (const f of schema.fields) {
         // Skip fields that opt into "absent vs empty" distinction (e.g. cls
-        // for OD/ROD). Their default is `[]` in the schema as a render
+        // for OD/SEG/KP). Their default is `[]` in the schema as a render
         // hint, but `[]` means "filter everything out" at runtime — we
         // don't want that auto-applied just from picking a method.
         // Leaving the key absent keeps the API default (no filter / all
@@ -2873,18 +2745,12 @@ export function init(vc) {
         if (f.default !== null && f.default !== undefined) detection[f.key] = f.default;
       }
       // ML methods pull their model path from the AI Models init section.
-      // Must cover ALL ML cmds (od/rod/cls/kp/anom) — omitting rod/anom here
-      // rebuilt their detection dict without a path, so switching the method
-      // to Rotated/Anomaly dropped the model reference and the run failed.
+      // Must cover ALL ML cmds (ML_CMDS) — one left out rebuilt its
+      // detection dict without a path, so switching the method to it
+      // dropped the model reference and the run failed.
       if (ML_CMDS.includes(newCmd)) {
         const p = ($("#pgMlPath")?.value || "").trim();
         if (p) detection.path = p;
-      }
-      // ANOM: seed the threshold slider with the training-time value
-      // so the user starts from a sensible default for THIS model
-      // rather than the schema's static 0.5.
-      if (newCmd === "anom" && _trainedThreshold != null) {
-        detection.threshold = _trainedThreshold;
       }
       _cfg.detection = detection;
     }
@@ -3055,10 +2921,6 @@ export function init(vc) {
       // up the freshly-loaded class names.
       try { _modelClasses = (await _vc.detection(PG_NAME).classes()) || []; }
       catch { _modelClasses = []; }
-      // For ANOM, also pull the trained threshold so the slider can
-      // start at the value the training pipeline picked.
-      try { _trainedThreshold = await _vc.detection(PG_NAME).threshold(); }
-      catch { _trainedThreshold = null; }
       renderMethodPicker();
       renderMethodFields();
     }
@@ -3069,7 +2931,6 @@ export function init(vc) {
     _resetOutputUI();
     _modelClasses = [];
     _loadedMlType = "";
-    _trainedThreshold = null;
     renderMethodPicker();
     renderMethodFields();
   });

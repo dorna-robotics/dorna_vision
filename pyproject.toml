@@ -22,6 +22,9 @@ dependencies = [
     "zxing-cpp",
     "scikit-learn",
     "shapely",
+    "pyclipper",           # OCR: grows a detected text box (PaddleOCR's unclip)
+    "pyyaml",              # config files; the OCR models' own config
+    "onnx",                # prepare(): the camera-image input prepended to a model's graph
     # TensorRT itself is JetPack's (apt python3-libnvinfer) — there is no
     # Jetson wheel on PyPI. cuda-python matches JetPack 6's CUDA 12.6.
     "cuda-python>=12.6,<12.7",
@@ -46,7 +49,6 @@ include = ["dorna_vision*"]
 
 [tool.setuptools.package-data]
 dorna_vision = [
-    "model/ocr/*",
     "server/web/index.html",
     "server/web/static/*",
     "server/web/static/**/*",
