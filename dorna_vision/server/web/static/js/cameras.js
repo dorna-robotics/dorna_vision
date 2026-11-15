@@ -303,6 +303,21 @@ function downloadCapture(sn) {
   a.remove();
 }
 
+// Download the frame the lightbox shows — a recapture included — under
+// the name its opener gave it (dataset.dlname: the camera card's or the
+// playground's own download name).
+function lightboxDownload() {
+  const overlay = $("#imgLightbox");
+  const src = $("#imgLightboxImg")?.src;
+  if (!overlay || !src) { toast("No image to download", "warn"); return; }
+  const a = document.createElement("a");
+  a.href = src;
+  a.download = overlay.dataset.dlname || "image.jpg";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function expandCapture(sn) {
   const url = _capturedUrls.get(sn);
   if (!url) { toast("Nothing captured yet", "warn"); return; }
@@ -313,6 +328,7 @@ function expandCapture(sn) {
   img.src = url;
   if (cap) cap.textContent = `SN ${sn}`;
   overlay.dataset.sn = sn;
+  overlay.dataset.dlname = `camera_${sn}.jpg`;   // the card's own download name
   // Focus-region button: hidden until camera_info confirms this camera
   // has a focus surface (uEye XS).
   $("#imgLightboxFocus")?.setAttribute("hidden", "");
@@ -545,6 +561,7 @@ export function init(vc) {
   // Escape — so dragging/panning near the edges can't accidentally dismiss it.
   $("#imgLightboxClose")?.addEventListener("click", () => closeLightbox());
   $("#imgLightboxCapture")?.addEventListener("click", lightboxRecapture);
+  $("#imgLightboxDownload")?.addEventListener("click", lightboxDownload);
 
   _wireLightboxZoom();
   _wireLightboxFocus();

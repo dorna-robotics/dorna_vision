@@ -2620,6 +2620,13 @@ function _syncRoiSvg() {
   svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
 }
 
+// The playground image's download name, by the tab on show — one name for
+// its own Download button and for the lightbox's.
+function _pgDownloadName() {
+  const tab = { img: "annotated", img_roi: "roi", img_thr: "threshold" }[_currentImgTab] || _currentImgTab;
+  return `playground_${tab}.jpg`;
+}
+
 // Single source for the on-image polygon overlay. Displays the polygon read-
 // only when one exists in the form, switches to interactive in edit mode.
 function refreshRoiOverlay() {
@@ -2813,6 +2820,7 @@ export function init(vc) {
     // camera-card flows; they look up a camera SN that the playground
     // never sets. Hide them here.
     delete overlay.dataset.sn;
+    overlay.dataset.dlname = _pgDownloadName();   // the same name as the playground's own button
     $("#imgLightboxCapture")?.setAttribute("hidden", "");
     $("#imgLightboxFocus")?.setAttribute("hidden", "");
     overlay.classList.add("show");
@@ -2822,10 +2830,9 @@ export function init(vc) {
   $("#pgDownload")?.addEventListener("click", () => {
     const src = $("#pgImg")?.src;
     if (!src) { toast("Run once to capture a frame first", "warn"); return; }
-    const tabName = { img: "annotated", img_roi: "roi", img_thr: "threshold" }[_currentImgTab] || _currentImgTab;
     const a = document.createElement("a");
     a.href = src;
-    a.download = `playground_${tabName}.jpg`;
+    a.download = _pgDownloadName();
     document.body.appendChild(a);
     a.click();
     a.remove();
