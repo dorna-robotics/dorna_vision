@@ -161,7 +161,7 @@ def camera_info(session, args):
             out["focus"] = {"supported": False, "error": str(ex)}
     if hasattr(cam, "white_balance_info"):
         try:
-            out["exposure"] = {"ms": cam.get_exposure(),
+            out["exposure"] = {"us": cam.get_exposure(),
                                "auto": bool(getattr(cam, "exposure_auto", None))}
             out["wb"] = cam.white_balance_info()
         except Exception:
@@ -217,10 +217,10 @@ def camera_focus(session, args):
 def camera_exposure(session, args):
     """Sensor exposure control (distinct from the detection pipeline's
     software `intensity`). args: serial_number + ONE of
-      {"ms": 12.5}     pin the integration time (disables auto)
+      {"us": 12500}    pin the integration time, in µs (disables auto)
       {"auto": true}   hand it back to the sensor's auto-shutter
-    Neither -> just report. Units are the camera's native ms (uEye);
-    the D405 exposes the same methods in its own units."""
+    Neither -> just report. µs throughout — every camera driver's unit
+    (D405, uEye XS, Hikrobot, OAK) and camera_cfg's ``exposure``."""
     sn = args.get("serial_number")
     if not sn:
         raise ValueError("serial_number is required")
@@ -229,8 +229,8 @@ def camera_exposure(session, args):
         raise ValueError("camera not found: %s" % sn)
     if not hasattr(cam, "set_exposure"):
         raise ValueError("camera %s has no exposure control" % sn)
-    if args.get("ms") is not None:
-        cam.set_exposure(float(args["ms"]))
+    if args.get("us") is not None:
+        cam.set_exposure(float(args["us"]))
     elif args.get("auto"):
         cam.auto_exposure(True)
     return {"serial_number": sn,

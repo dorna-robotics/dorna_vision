@@ -603,16 +603,16 @@ class VisionClient(object):
             timeout = 120
         return self._send("camera_focus", args, timeout=timeout)
 
-    def camera_exposure(self, serial_number, ms=None, auto=None, timeout=None):
+    def camera_exposure(self, serial_number, us=None, auto=None, timeout=None):
         """Sensor exposure (integration time) — distinct from the detection
-        pipeline's software `intensity`. ms=<value> pins it on cameras that
-        allow manual exposure; auto=True re-enables auto; neither just
-        reports. NOTE: the uEye XS ISP owns exposure (auto only) — passing
-        ms there raises with that explanation. Returns
-        {"exposure": <value>, "auto": bool}."""
+        pipeline's software `intensity`. In µs, every camera's unit.
+        us=<value> pins it on cameras that allow manual exposure;
+        auto=True re-enables auto; neither just reports. NOTE: the uEye
+        XS ISP owns exposure (auto only) — passing us there raises with
+        that explanation. Returns {"exposure": <µs>, "auto": bool}."""
         args = {"serial_number": serial_number}
-        if ms is not None:
-            args["ms"] = float(ms)
+        if us is not None:
+            args["us"] = float(us)
         elif auto:
             args["auto"] = True
         return self._send("camera_exposure", args, timeout=timeout)

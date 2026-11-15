@@ -359,7 +359,7 @@ function _lbRefreshCaption(sn) {
         ? `manual @ ${f.position}`
         : `${f.mode || "—"}${f.position != null ? ` (pos ${f.position})` : ""}`;
       const wb = info.wb?.cfg?.hold ? "hold" : (info.wb ? "auto" : null);
-      const exp = info.exposure?.ms != null ? ` · exp ${info.exposure.ms} ms` : "";
+      const exp = info.exposure?.us != null ? ` · exp ${info.exposure.us} µs` : "";
       extras = ` · focus ${escHtml(focusTxt)}${wb ? ` · wb ${wb}` : ""}${exp}`;
     }
     cap.innerHTML = `
