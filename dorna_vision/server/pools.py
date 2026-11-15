@@ -3,7 +3,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from camera import Camera, UEyeXS, HikRobot
+from camera import Camera, UEyeXS, HikRobot, Oak
 from dorna2 import Dorna
 
 from dorna_devices import MQTTDeviceAdapter, AutoRecover
@@ -21,6 +21,7 @@ CAMERA_TYPES = {
     "d405": Camera,
     "ueye_xs": UEyeXS,
     "hikrobot": HikRobot,
+    "oak": Oak,             # Luxonis OAK over USB (OAK-1 W, ...): color, factory intrinsics
 }
 
 
@@ -104,6 +105,10 @@ class CameraPool(object):
         # serial like every other type, and the ip is what connect()
         # uses to reach it.
         out.extend(HikRobot.all_device())
+        # OAK (Luxonis, USB): enumerated without booting the camera
+        # ([] when depthai is absent — and says why, once). The serial
+        # is the device id (MXID).
+        out.extend(Oak.all_device())
         return out
 
     def camera_type(self, serial_number):
