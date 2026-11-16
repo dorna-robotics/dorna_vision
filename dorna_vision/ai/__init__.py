@@ -39,7 +39,7 @@ ML_CMDS = tuple(sorted({t for types in MODEL_TYPES.values() for t in types}))
 
 _MODULES = {"openvino": "dorna_vision.ai.ov", "tensorrt": "dorna_vision.ai.trt"}
 _RUNTIMES = {"openvino": "openvino", "tensorrt": "tensorrt"}   # the python package each needs
-_UNITS = {"openvino": "the Pi", "tensorrt": "the Jetson"}
+_NAMES = {"openvino": "OpenVINO (the Pi's engine)", "tensorrt": "TensorRT (the Jetson's engine)"}
 
 
 def model_engine(data):
@@ -71,8 +71,8 @@ def unit_engine():
 def _engine(engine):
     """The engine's module — imported only when a model needs it."""
     if importlib.util.find_spec(_RUNTIMES[engine]) is None:
-        raise ValueError("This is a %s model (%s's); this unit has no %s — it runs %s models."
-                                    % (engine, _UNITS[engine], _RUNTIMES[engine], unit_engine()))
+        raise ValueError("This model runs on %s; this unit has no %s — it runs models for %s."
+                         % (_NAMES[engine], _RUNTIMES[engine], _NAMES[unit_engine()]))
     return importlib.import_module(_MODULES[engine])
 
 
