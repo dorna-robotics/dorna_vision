@@ -14,7 +14,32 @@ types and their results, training, setting up a Jetson, and status.
 
 ## Status (2026-11-16)
 
-STATUS
+Verified after the merge of the Pi's and the Jetson's code (`tools/verify`):
+
+**OpenVINO — the Pi** (Raspberry Pi 5, OpenVINO 2025.3): OD, ROD, KP, ANOM,
+OCR and barcodes give exactly what `pro` gave before the merge
+(`openvino_regression.py`; KP now nested per object); every model type
+through a running server (`server_test.py`), a file that is no model
+refused.
+
+**TensorRT — the Jetson** (Orin Nano Super, MAXN SUPER, JetPack 7.2.1:
+TensorRT 10.16.2, CUDA 13.2):
+
+| | check | result | one call |
+|---|---|---|---|
+| OD | RF-DETR-S (COCO) vs RF-DETR's `predict()` | 0 class mismatches, boxes ≤ 1.0 px, scores ≤ 0.014 | 16–17 ms |
+| SEG | RF-DETR Seg-S vs `predict()` | 0 class mismatches, boxes ≤ 0.8 px, mask IoU ≥ 0.993 | 30 ms |
+| KP | RF-DETR Keypoint vs `predict()` | 0 class mismatches, boxes ≤ 0.7 px, keypoints ≤ 0.7 px | 53 ms |
+| CLS | the notebook trained on `cls_capped`, through TensorRT | 99.28 % on valid (2 of 276 wrong; the notebook's CPU float32: 98.91 %) | 4.4 ms |
+| OCR | PP-OCRv6 medium | example image "JAGUAR" 0.996; a 4-line label read exactly at 1600 × 900 and 4056 × 2281 | 55–155 ms a run |
+| barcode | zxing-cpp | EAN-13, QR, DataMatrix, Code128 | |
+
+Every type through the live server (`server_test.py`), an OpenVINO model
+refused. Engine builds (once per model per unit): OD 3.0, SEG 3.3, KP
+3.7, CLS 1.2 minutes; OCR 17 minutes (detection 10.4, recognition 6.4).
+
+Not yet: KP fine-tuned through `train_keypoint.ipynb` (the RF-DETR OD and
+SEG notebooks were run end to end on JetPack 6).
 
 ## How a model runs
 
@@ -105,10 +130,15 @@ Notes:
   as a frozen backbone, and tied MobileNetV4-Small fine-tuned (2 errors
   of 276 each) on the capped set.
 - **OCR on TensorRT** follows PaddleOCR's pipeline (its OCR.yaml
-  defaults, its DB post-process, crop and reading order) except one
-  deliberate change: each text line is read on its own (PaddleOCR batches
-  six, padded to the widest), so one line's text never depends on the
-  others.
+  defaults, its DB post-process, crop and reading order) except two
+  deliberate changes: text detection runs on the image scaled to at most
+  960 on its longest side — PP-OCRv4's size (PP-OCRv6 keeps up to 4000: its
+  engine took over an hour to build on the Orin Nano and detects slower;
+  960 reads a label the camera frames whole, a 4K frame included); and
+  each text line is read on its own (PaddleOCR batches six, padded to the
+  widest), so one line's text never depends on the others. The cache
+  (`~/.cache/dorna_vision/ocr`) holds only the download; how each model is
+  built is the code's.
 
 ## Training a model
 
@@ -170,4 +200,12 @@ recording (`openvino_regression.py`), a running server on either engine
 
 ## Next steps
 
-NEXT
+1. **KP** fine-tuned through `training_notebooks/tensorrt/train_keypoint.ipynb`
+   (`run_notebook.py` + `nb_parity_check.py`).
+2. **Cosmos Reason 2 2B** as a local `vlm` backend on the Jetson
+   (TensorRT Edge-LLM, INT4) next to Gemini; measure it on the capped set
+   and on before/after capping pairs; its logged verdicts become training
+   data for dedicated models.
+3. Decide `jetson_clocks` at boot (steadier, ~1–2 ms faster a call; more heat).
+4. The golden SD image: clean the unit (SSH host keys, machine id), clone
+   the card, compress.
