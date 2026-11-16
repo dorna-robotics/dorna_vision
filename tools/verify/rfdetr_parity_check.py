@@ -1,17 +1,20 @@
-"""Parity, part 2 (system python): our TensorRT SEG and KP against RF-DETR's
-own predict() (part 1's ref.json + masks)."""
+"""Parity, part 2 (system python): our TensorRT OD, SEG and KP against
+RF-DETR's own predict() (part 1's ref.json + masks)."""
 import json, os, sys, time
 import cv2
 import numpy as np
-from dorna_vision.ai import SEG, KP, prepare
+from dorna_vision.ai import OD, SEG, KP, prepare
 
 OUT = sys.argv[1]
 ref = json.load(open(os.path.join(OUT, "ref.json")))
-IMAGES = {"basketball1.png": "/usr/share/opencv4/samples/data/basketball1.png",
-          "basketball2.png": "/usr/share/opencv4/samples/data/basketball2.png",
-          "fruits.jpg": "/usr/share/opencv4/samples/data/fruits.jpg"}
+# the scratch layout (tools/verify/README.md) — absolute: the checks run as root
+SCRATCH = "/home/dorna/scratch"
+IMG = SCRATCH + "/images/"   # OpenCV's sample images (4.8.0 samples/data)
+IMAGES = {"basketball1.png": IMG + "basketball1.png",
+          "basketball2.png": IMG + "basketball2.png",
+          "fruits.jpg": IMG + "fruits.jpg"}
 
-for kind, Model in (("seg", SEG), ("kp", KP)):
+for kind, Model in (("od", OD), ("seg", SEG), ("kp", KP)):
     pkl = os.path.join(OUT, kind + ".pkl")
     r = prepare(pkl)
     print(kind, "prepare", r)
@@ -20,7 +23,7 @@ for kind, Model in (("seg", SEG), ("kp", KP)):
     mismatched = 0
     for name, path in IMAGES.items():
         img = cv2.imread(path)
-        got = model(img, conf=0.5) if kind == "seg" else model(img, conf=0.5, kp_conf=0.5)
+        got = model(img, conf=0.5, kp_conf=0.5) if kind == "kp" else model(img, conf=0.5)
         exp = ref[kind][name]
         if sorted(o.cls for o in got) != sorted(e["cls"] for e in exp):
             mismatched += 1
@@ -41,7 +44,7 @@ for kind, Model in (("seg", SEG), ("kp", KP)):
                 theirs = np.load(os.path.join(OUT, "mask_%s_%d.npy" % (name, j))).astype(np.uint8)
                 iou = (ours & theirs).sum() / max((ours | theirs).sum(), 1)
                 worst["iou"] = min(worst["iou"], float(iou))
-            else:
+            elif kind == "kp":
                 xy = np.array(e["xy"]); kc = np.array(e["kp_conf"])
                 names = model.keypoint_names["person"]
                 for k in o.keypoints:
@@ -59,5 +62,6 @@ for kind, Model in (("seg", SEG), ("kp", KP)):
         model(img)
     print("%s: images %d, class mismatches %d, worst score diff %.3f, worst box diff %.1f px, %s, full call %.1f ms"
           % (kind.upper(), len(IMAGES), mismatched, worst["score"], worst["box"],
-             "worst mask IoU %.3f" % worst["iou"] if kind == "seg" else "worst keypoint diff %.1f px" % worst["kp_px"],
+             {"od": "boxes only", "seg": "worst mask IoU %.3f" % worst["iou"],
+              "kp": "worst keypoint diff %.1f px" % worst["kp_px"]}[kind],
              (time.perf_counter() - t) / 50 * 1000))

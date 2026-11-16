@@ -1,8 +1,10 @@
-"""Run a training notebook's own code cells (not Roboflow's download, not
-pip) on a local dataset, with test-size overrides; then save RF-DETR's own
-predictions on the test split for the Jetson parity check.
+"""Run a TensorRT training notebook's own code cells (not Roboflow's
+download, not pip) on a local dataset, with test-size overrides; then, for
+an RF-DETR notebook (od / seg / kp), save RF-DETR's own predictions on the
+test split for the Jetson parity check. A cls notebook ends with its own
+ONNX check and the .pkl.
 
-usage: run_rfdetr_notebook.py <notebook> <workdir> <dataset dir> <task> <overrides json>"""
+usage: run_notebook.py <notebook> <workdir> <dataset dir> <od|seg|kp|cls> <overrides json>"""
 import json, os, sys, types
 
 nb_path, WORK, DATA, TASK, overrides = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], json.loads(sys.argv[5])
@@ -27,6 +29,10 @@ for cell in nb["cells"]:
         g.update(overrides); g["_overridden"] = True
         g["Model"] = g["MODELS"][g["MODEL_SIZE"]]
         print("overrides:", overrides)
+
+if TASK == "cls":
+    print("notebook run done: cls")
+    sys.exit(0)
 
 # RF-DETR's own predictions on the test split, for the parity check
 import cv2

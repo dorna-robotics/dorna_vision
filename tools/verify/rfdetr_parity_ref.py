@@ -1,18 +1,22 @@
-"""Parity, part 1 (rfdetr env): pretrained RF-DETR Seg-Small and Keypoint
-pickles via rfdetr_pkl, and RF-DETR's own predict() on the test images."""
+"""Parity, part 1 (rfdetr env): pretrained RF-DETR Small (OD), Seg-Small and
+Keypoint pickles via rfdetr_pkl, and RF-DETR's own predict() on the test images."""
 import json, os, pickle, sys
 import cv2
 import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
-from rfdetr import RFDETRSegSmall, RFDETRKeypointPreview
+from rfdetr import RFDETRSmall, RFDETRSegSmall, RFDETRKeypointPreview
 from rfdetr_pkl import rfdetr_model_dict
 
 OUT = sys.argv[1]
-IMAGES = ["/usr/share/opencv4/samples/data/basketball1.png", "/usr/share/opencv4/samples/data/basketball2.png",
-          "/usr/share/opencv4/samples/data/fruits.jpg"]
+# the scratch layout (tools/verify/README.md) — absolute: the checks run as root
+SCRATCH = "/home/dorna/scratch"
+IMG = SCRATCH + "/images/"   # OpenCV's sample images (4.8.0 samples/data)
+IMAGES = [IMG + "basketball1.png", IMG + "basketball2.png",
+          IMG + "fruits.jpg"]
 coco_kp = json.load(open(sys.argv[2]))["categories"][0]          # person: keypoints + skeleton
 refs = {}
-for M, kind, export_dir in ((RFDETRSegSmall, "seg", "seg_export"), (RFDETRKeypointPreview, "kp", "kp_export")):
+for M, kind, export_dir in ((RFDETRSmall, "od", "od_export"), (RFDETRSegSmall, "seg", "seg_export"),
+                            (RFDETRKeypointPreview, "kp", "kp_export")):
     model = M()
     onnx_path = model.export(output_dir=os.path.join(OUT, export_dir), verbose=False)
     extra = {}
@@ -25,8 +29,11 @@ for M, kind, export_dir in ((RFDETRSegSmall, "seg", "seg_export"), (RFDETRKeypoi
         img = cv2.imread(path)
         det = model.predict(img[:, :, ::-1].copy(), threshold=0.5)
         rows = []
-        for j in range(len(det.xyxy) if kind == "seg" else len(det.xy)):
-            if kind == "seg":
+        for j in range(len(det.xy) if kind == "kp" else len(det.xyxy)):
+            if kind == "od":
+                rows.append({"cls": str(det.data["class_name"][j]),
+                             "conf": float(det.confidence[j]), "box": det.xyxy[j].tolist()})
+            elif kind == "seg":
                 rows.append({"cls": str(det.data["class_name"][j]),
                              "conf": float(det.confidence[j]), "box": det.xyxy[j].tolist(),
                              "mask_area": int(det.mask[j].sum())})

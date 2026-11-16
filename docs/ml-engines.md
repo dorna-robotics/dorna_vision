@@ -1,40 +1,49 @@
-# dorna_vision on the Jetson
+# The ML engines — OpenVINO (the Pi) and TensorRT (the Jetson)
 
-The `jetson` branch runs the vision server on an **NVIDIA Jetson Orin Nano
-Super**, next to the workspace orchestrator — one computer instead of a
-workspace Pi and a vision Pi — with every ML model on the GPU through
-**TensorRT**. This file is the map: how it works, how to train and deploy
-each model, how to set up a Jetson, and what is done vs still to do.
+One code base, one branch (`pro`), on two kinds of vision unit:
 
-## Status (2026-10-28)
+| engine | unit | install | runs | notebooks |
+|---|---|---|---|---|
+| **OpenVINO** | a Raspberry Pi — the CPU | `pip install -e ".[pi]"` (upgrade `vision_pro`) | OD, ROD, KP (top-down), CLS, ANOM, OCR | `training_notebooks/openvino/` |
+| **TensorRT** | an NVIDIA Jetson Orin Nano Super — the GPU | `pip install -e ".[jetson]"` (upgrade `jetson`) | OD, SEG, KP, CLS, OCR | `training_notebooks/tensorrt/` |
 
-**Verified on the Jetson** (JetPack 6.2.1, L4T 36.4.7, MAXN SUPER):
+Everything outside the model code — the server, the playground, the
+cameras, ROI, drawing, sorting, poses, barcodes, VLM — is the same code on
+both. This file is the map: how a model runs on each engine, the model
+types and their results, training, setting up a Jetson, and status.
 
-- **OD** — RF-DETR. Matches RF-DETR's own `predict()` (FP16 vs FP32 within
-  0.01 on every usable detection); a model fine-tuned through the notebook
-  matches its own predictions (0 class mismatches, boxes ≤ 0.1 px).
-  RF-DETR-S at 512: ~15 ms a call.
-- **CLS** — DINOv3 ViT-S/16 + linear head. 99.28 % on the capped set through
-  TensorRT, exactly as in PyTorch; ~6 ms a call.
-- **SEG** — RF-DETR Seg. Pretrained and notebook-fine-tuned: 0 class
-  mismatches, mask IoU ≥ 0.99; ~25–40 ms a call (+ ~2 ms per object outline).
-- **KP** — RF-DETR Keypoints (pretrained Preview): keypoints ≤ 1 px of
-  RF-DETR's; ~57 ms a call.
-- `model_prepare` through the live server; SEG `polygon` / KP `keypoints`
-  results through the server.
+## Status (2026-11-16)
 
-**Written, not yet verified** — do these first (see *Next steps*):
+STATUS
 
-- The camera-image input moved into the ONNX graph (`_image_input`) after
-  the checks above — every engine rebuilds, every check reruns.
-- **OCR** — PP-OCRv6 medium, ported from PaddleOCR's own pipeline.
-- **KP** fine-tuned through `train_keypoint.ipynb` (the run was cut off).
-- Barcode reading (zxing-cpp) on the Jetson.
+## How a model runs
 
-## How a model runs on the Jetson
+`dorna_vision/ai/` — `__init__.py` dispatches, `ov.py` is the OpenVINO
+engine, `trt.py` the TensorRT engine, `common.py` what both share.
 
-A model is a **pickle** (`.pkl`) that carries a portable **ONNX** graph and
-how to build and feed it (`dorna_vision/ai.py`, top of file):
+- **The model file says its engine.** An OpenVINO model carries its IR
+  (`xml` / `bin`), a TensorRT model its ONNX graph (`onnx`); `ai.OD(path)`
+  (and SEG, ROD, KP, CLS, ANOM) loads it on that engine, importing only
+  that engine. A model the unit cannot run is refused with what it is —
+  never guessed, never converted.
+- **Prepare once per unit** — `model_prepare` (server command;
+  `VisionClient.model_prepare(path)`; `dorna_vision.ai.prepare(path)`), the
+  playground's Initialize does it first:
+  - TensorRT: the engine is built for this GPU and TensorRT version and
+    cached (`~/.cache/dorna_vision/trt`, root's for the services) — 1–3
+    minutes, once. **Loading never builds**: an unprepared model is
+    refused at once (`ModelNotPreparedError`) with what to run.
+  - OpenVINO: nothing to build (it compiles as a model loads); prepare
+    returns `{"built": false}`.
+- **OCR is built in**, the unit's engine's: on OpenVINO the models ship
+  in the package (`dorna_vision/model/ocr`); on TensorRT
+  `dorna_vision.ai.fetch_ocr()` downloads PP-OCRv6 (pinned revision +
+  sha256) and builds its engines — once per unit, the upgrade runs it.
+- **One inference context per thread** on both engines (OpenVINO infer
+  requests, TensorRT execution contexts), so the server's worker threads
+  infer concurrently on one model.
+
+### The TensorRT model pickle
 
 ```
 {"onnx": bytes, "cls": [...], "colors": {...},
@@ -46,79 +55,84 @@ how to build and feed it (`dorna_vision/ai.py`, top of file):
           ...}}
 ```
 
-- **Prepare once per unit.** A TensorRT engine is tied to the GPU and the
-  TensorRT version that built it, so it is built on the Jetson, never
-  shipped: `model_prepare` (server command; `VisionClient.model_prepare(path)`;
-  `dorna_vision.ai.prepare(path)`) builds and caches it
-  (`~/.cache/dorna_vision/trt`, root's for the services) — 1–3 minutes, once.
-  **Loading never builds**: an unprepared model is refused at once
-  (`ModelNotPreparedError`) with what to run. The playground's Initialize
-  prepares before it loads.
-- **Precision is the model's.** The training notebook writes it:
-  `fp16` for RF-DETR, `bf16` for DINOv3 (its attention scores overflow
-  FP16's range — every output turns NaN; BF16 has FP32's range).
-- **The camera image goes straight in.** With `format: uint8-bgr` the engine
-  takes OpenCV's uint8 BGR image; cast, channel order, mean/std and the
-  layout run on the GPU (nodes prepended to the ONNX before TensorRT parses
-  it). The CPU only resizes / letterboxes.
-- **One execution context per thread**, so the server's worker threads infer
-  concurrently on one engine.
+- **Precision is the model's.** The training notebook writes it: `fp16`
+  for RF-DETR, `bf16` for DINOv3 (its attention scores overflow FP16's
+  range — every output turns NaN; BF16 has FP32's range).
+- **The camera image goes straight in.** With `format: uint8-bgr` the
+  engine takes OpenCV's uint8 BGR image; cast, channel order, mean/std and
+  the layout run on the GPU (nodes prepended to the ONNX before TensorRT
+  parses it). The CPU only resizes / letterboxes.
 
 ## The model types
 
-| cmd | model | notebook | result (one dict per object) | measured |
-|---|---|---|---|---|
-| `od` | RF-DETR (nano…large) | `train_object_detection.ipynb` | `cls, conf, center, corners` | RF-DETR-S 512: 15 ms |
-| `seg` | RF-DETR Seg (nano…xlarge) | `train_segmentation.ipynb` | + `polygon`: the outline, `[[x, y], …]` image px | Seg-S 384: 25–40 ms |
-| `kp` | RF-DETR Keypoints (Preview) | `train_keypoint.ipynb` | + `keypoints`: `[{cls (its name), conf, center, xyz?}]` — every object and its keypoints in one pass; `pose_kp(result["keypoints"], geometry)` | 57 ms |
-| `cls` | DINOv3 ViT-S/16 + linear head | `train_classification.ipynb` | one per image: `cls, conf` | 6 ms |
-| `ocr` | PP-OCRv6 medium (built in) | — | one per text line: `cls` (the text), `conf`, `corners` | not yet measured |
-| `barcode` | zxing-cpp | — | `cls` (the content), `format` | |
-| `vlm` | Gemini (cloud) today; Cosmos Reason 2 2B (local) next | — | see docs/vision-guide.md §9 | |
+The result of each type has the same shape on both engines (one dict per
+object, original-image pixels):
 
-ROD and ANOM are not on the Jetson branch.
+| cmd | OpenVINO (Pi) | TensorRT (Jetson) | result |
+|---|---|---|---|
+| `od` | mmdetection | RF-DETR (nano…large) | `cls, conf, center, corners` |
+| `seg` | — | RF-DETR Seg (nano…xlarge) | + `polygon`: the outline, `[[x, y], …]` |
+| `rod` | mmrotate | — | `corners`: the rotated rectangle |
+| `kp` | RTMPose, top-down | RF-DETR Keypoints (Preview) | + `keypoints`: `[{cls (its name), conf, center, xyz?}]`; `pose_kp(result["keypoints"], geometry)` |
+| `cls` | image classifier | DINOv3 ViT-S/16 + linear head | one per image: `cls, conf` |
+| `anom` | STFPM | — | one verdict per image: `cls` (pass/fail), `conf` (the score) |
+| `ocr` | horizontal-text det + PP-OCR rec (built in) | PP-OCRv6 medium (built in) | one per text line: `cls` (the text), `conf`, `corners` |
+| `barcode` | zxing-cpp | zxing-cpp | `cls` (the content), `format` |
+| `vlm` | Gemini (cloud) | Gemini (cloud); Cosmos Reason 2 2B (local) next | docs/vision-guide.md §9 |
 
 Notes:
 
-- **RF-DETR has no NMS** — DETR predicts a set. Its classes are the model's
-  logit slots, named exactly as RF-DETR's `predict()` names them (`None` = a
-  slot it never reports — a pretrained model's sparse COCO ids, a keypoint
-  model's background slot). RF-DETR resizes the uint8 image (as its training
-  does), so borderline scores can differ from `predict()` by a few hundredths.
-- **CLS** has nothing to tune: no augmentation (it did not help a frozen
-  backbone), the head's regularisation picked by cross-validation on the
-  training images. Chosen by benchmark (`tools/verify/cls_bench.py`): ViT-S/16
-  beat ViT-S+/B and ConvNeXt-T/S/B as a frozen backbone, and tied MobileNetV4-Small
-  fine-tuned (2 errors of 276 each) on the capped set.
-- **OCR** follows PaddleOCR's pipeline (its OCR.yaml defaults, its DB
-  post-process, crop and reading order) except one deliberate change: each
-  text line is read on its own (PaddleOCR batches six, padded to the widest),
-  so one line's text never depends on the others. The models are fetched
-  once per unit — `dorna_vision.ai.fetch_ocr()`, pinned revision + sha256 —
-  into `~/.cache/dorna_vision/ocr` and prepared.
+- **KP** — one entry per object, its keypoints nested; `conf` filters the
+  objects, `kp_conf` each object's keypoints, `cls` the classes. A
+  **top-down** model (OpenVINO's RTMPose, `model.top_down`) looks in one
+  box: `bbox` (4 corner points like the ROI's; empty = the whole image)
+  and `padding` (1.25 — the training framing); its object is that box,
+  the pickle's one class, scored as mmpose scores a given box (the mean
+  confidence of the keypoints it reports). RF-DETR finds every object and
+  its keypoints in one pass. The playground shows bbox/padding for a
+  top-down model only and seeds `kp_conf` per engine (0.3 RTMPose, 0.5
+  RF-DETR).
+- **RF-DETR has no NMS** — DETR predicts a set. Its classes are the
+  model's logit slots, named exactly as RF-DETR's `predict()` names them
+  (`None` = a slot it never reports — a pretrained model's sparse COCO
+  ids, a keypoint model's background slot). RF-DETR resizes the uint8
+  image (as its training does), so borderline scores can differ from
+  `predict()` by a few hundredths.
+- **CLS on TensorRT** has nothing to tune: no augmentation (it did not
+  help a frozen backbone), the head's regularisation picked by
+  cross-validation on the training images. Chosen by benchmark
+  (`tools/verify/cls_bench.py`): ViT-S/16 beat ViT-S+/B and ConvNeXt-T/S/B
+  as a frozen backbone, and tied MobileNetV4-Small fine-tuned (2 errors
+  of 276 each) on the capped set.
+- **OCR on TensorRT** follows PaddleOCR's pipeline (its OCR.yaml
+  defaults, its DB post-process, crop and reading order) except one
+  deliberate change: each text line is read on its own (PaddleOCR batches
+  six, padded to the widest), so one line's text never depends on the
+  others.
 
 ## Training a model
 
-Training runs in **Colab** (GPU), never on the Jetson: the notebooks under
-`training_notebooks/` download a Roboflow export, train, export ONNX, check
-the ONNX against PyTorch, and download the `.pkl`. Then on the unit:
-`model_prepare` once, then use it.
+Training runs in **Colab** (GPU), never on a unit: the notebooks download
+a Roboflow export, train, export the engine's format, check it against
+PyTorch, and download the `.pkl`. Then on the unit: `model_prepare` once,
+then use it. Train for the unit's engine — `training_notebooks/openvino/`
+for a Pi, `training_notebooks/tensorrt/` for a Jetson.
 
-- The three RF-DETR notebooks are generated from shared cells so they cannot
-  drift: edit `tools/make_rfdetr_notebooks.py` / `tools/rfdetr_pkl.py`, then
-  `python3 tools/make_rfdetr_notebooks.py training_notebooks tools/rfdetr_pkl.py`.
-  CLS: `python3 tools/make_classification_notebook.py training_notebooks/train_classification.ipynb`.
-- **Reference datasets** live in `datasets/` (git-ignored — `.git/info/exclude`
-  — not committed): `cls_capped`, `seg_coco_sample`, `kp_coco_sample`, with
-  their own README. The COCO ones are rebuilt with
+- The three RF-DETR notebooks are generated from shared cells so they
+  cannot drift: edit `tools/make_rfdetr_notebooks.py` / `tools/rfdetr_pkl.py`,
+  then `python3 tools/make_rfdetr_notebooks.py training_notebooks/tensorrt tools/rfdetr_pkl.py`.
+  CLS: `python3 tools/make_classification_notebook.py training_notebooks/tensorrt/train_classification.ipynb`.
+- **Reference datasets** live in `datasets/` (git-ignored —
+  `.git/info/exclude` — not committed): `cls_capped`, `seg_coco_sample`,
+  `kp_coco_sample`, with their own README. The COCO ones are rebuilt with
   `python3 tools/build_coco_subsets.py <coco annotations dir> datasets`.
 
 ## Licenses that ship with the models
 
-- **DINOv3** (CLS): Meta's DINOv3 License — commercial use allowed; no
-  military / weapons use; a copy ships with the models: `licenses/DINOv3-LICENSE.md`.
-- **PP-OCRv6**: Apache-2.0.
-- **RF-DETR**: Apache-2.0.
+- **DINOv3** (CLS on TensorRT): Meta's DINOv3 License — commercial use
+  allowed; no military / weapons use; a copy ships with the models:
+  `licenses/DINOv3-LICENSE.md`.
+- **PP-OCRv6**, **RF-DETR**: Apache-2.0.
 - **Cosmos Reason 2** (next): NVIDIA Open Model License — commercial use
   allowed; products using it must say "Built on NVIDIA Cosmos".
 
@@ -127,43 +141,33 @@ the ONNX against PyTorch, and download the `.pkl`. Then on the unit:
 The install is the `upgrade` repo's `jetson` branch (its README): JetPack
 7.2.1 — CUDA 13.2, TensorRT 10.16, NVIDIA's OpenCV 4.8 — with every python
 package in one venv, `/opt/dorna/venv`, first on every PATH (so `sudo
-python3` / `sudo pip3` are the venv's).
+python3` / `sudo pip3` are the venv's). It installs the same branches as
+the Pis (this repo's `pro`, workspace's `main`); only the install differs.
 
-1. **JetPack 7.2.1** (L4T r39.2.1, Ubuntu 24.04) — there is no SD-card image
-   any more: write NVIDIA's Jetson ISO
-   (`jetsoninstaller-r39.2.1-…-arm64.iso`) to a ≥16 GB USB stick with Balena
-   Etcher; boot the Jetson from it (DisplayPort monitor + USB keyboard: Esc at
-   the NVIDIA logo → Boot Manager → the USB stick; or headless with a 3.3 V
-   USB-to-TTL adapter on the button header: adapter TX → pin 3, RX → pin 4,
-   GND → pin 7); accept the firmware update (Y); "Install Jetson ISO
-   r39.2.1" onto the microSD; first boot: user `dorna`, password `dorna`,
+1. **JetPack 7.2.1** (L4T r39.2.1, Ubuntu 24.04) — there is no SD-card
+   image: write NVIDIA's Jetson ISO (`jetsoninstaller-r39.2.1-…-arm64.iso`)
+   to a real USB 3.0 flash drive with Balena Etcher (with verification — a
+   microSD in a USB reader made the installer fail with `nv-update-initrd`
+   exit 127); boot the Jetson from it (DisplayPort monitor + USB keyboard:
+   Esc at the NVIDIA logo → Boot Manager → the USB drive); accept the
+   firmware update; "Install Jetson ISO r39.2.1" onto the microSD (wiped
+   first: diskpart `clean`); first boot: user `dorna`, password `dorna`,
    hostname `jetson`, wired Ethernet.
 2. Passwordless sudo, as on the Pis:
    `echo "dorna ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/010_dorna-nopasswd && sudo chmod 440 /etc/sudoers.d/010_dorna-nopasswd`
 3. The upgrade's first run (`upgrade` repo, `jetson` branch, its README):
-   MAXN SUPER, the NVIDIA stack, the venv, the build tools, librealsense
-   (RSUSB + CUDA), path_planning, the cameras (RealSense, uEye, Hikrobot),
-   the vision server on :4001, the orchestrator on :80, Jupyter on :8888 —
-   still to add: the OCR models fetched and prepared (`fetch_ocr()`).
+   MAXN SUPER, the NVIDIA stack, the venv, librealsense (RSUSB + CUDA),
+   path_planning, the cameras (RealSense, uEye, Hikrobot, OAK), this
+   package with its `jetson` extra and the OCR models, the vision server
+   on :4001, the orchestrator on :80, Jupyter on :8888.
+
+## Checking it
+
+`tools/verify` (its README): the Pi's engine end to end against a
+recording (`openvino_regression.py`), a running server on either engine
+(`server_test.py`), and the Jetson's models against RF-DETR's own
+`predict()` and PyTorch.
 
 ## Next steps
 
-In order — one heavy job on the Jetson at a time:
-
-1. **JetPack 7.2.1** on the Jetson: installed (2026-10-28); the upgrade
-   `jetson` branch is updated for it (L4T R39, Python 3.12 in one venv,
-   CUDA 13.2 / `cuda-python` 13.2, TensorRT 10.16) and its first full run
-   on the fresh unit is that update's test.
-2. **Re-verify every model** with `tools/verify` (the ONNX-level image input
-   rebuilds all engines): OD, CLS, SEG, KP parity; `model_prepare`; server.
-3. **OCR**: `fetch_ocr()` (the detector's 4000 × 4000 profile makes its first
-   build long — measure it, and whether a smaller max is enough), then check
-   against PaddleOCR's own output on real label photos.
-4. **KP** fine-tuned through `train_keypoint.ipynb` (`tools/verify`).
-5. **Barcodes**: zxing-cpp on real bench images (QR, DataMatrix, Code128…).
-6. **Cosmos Reason 2 2B** as a local `vlm` backend (TensorRT Edge-LLM, INT4)
-   next to Gemini; measure it on the capped set and on before/after capping
-   pairs; its logged verdicts become training data for dedicated models.
-7. Decide `jetson_clocks` at boot (steadier, ~1–2 ms faster a call; more heat).
-8. The golden SD image: clean the unit (SSH host keys, machine id), clone the
-   card, compress.
+NEXT

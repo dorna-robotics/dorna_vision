@@ -6,8 +6,11 @@ import cv2
 import numpy as np
 from dorna_vision.ai import OD, CLS, prepare
 
+# the scratch layout (tools/verify/README.md) — absolute: the checks run as root
+SCRATCH = "/home/dorna/scratch"
+IMG = SCRATCH + "/images/"   # OpenCV's sample images (4.8.0 samples/data)
 label = sys.argv[1]
-OD_P, CLS_P = "/home/dorna/scratch/od_rfdetr_small_coco.pkl", "/home/dorna/scratch/cls_nb/capped.pkl"
+OD_P, CLS_P = SCRATCH + "/parity/od.pkl", SCRATCH + "/cls_nb/ref_cls.pkl"   # rfdetr_parity_ref.py's, run_notebook.py's
 for p in (OD_P, CLS_P):
     r = prepare(p)
     if r["built"]:
@@ -15,13 +18,13 @@ for p in (OD_P, CLS_P):
 od, cls = OD(OD_P), CLS(CLS_P)
 
 # accuracy
-root = "/home/dorna/scratch/capped/valid"
+root = SCRATCH + "/cls_capped/valid"   # the reference dataset (datasets/cls_capped)
 ok = n = 0
 for c in cls.cls:
     for f in sorted(os.listdir(f"{root}/{c}")):
         r = cls(cv2.imread(f"{root}/{c}/{f}"), conf=0.0)
         n += 1; ok += r[0][0] == c
-ball = cv2.imread("/usr/share/opencv4/samples/data/basketball1.png")
+ball = cv2.imread(IMG + "basketball1.png")
 print("[%s] CLS valid acc %.2f%% (%d wrong of %d)   OD basketball: %s" % (
     label, 100 * ok / n, n - ok, n, [(o.cls, round(o.prob, 3)) for o in od(ball, conf=0.5)]))
 
