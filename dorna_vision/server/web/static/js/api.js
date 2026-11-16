@@ -350,6 +350,11 @@ export class VisionClient {
     return this._send("detection_add", { name, ...body }, opts, binary);
   }
   detectionRemove(name, opts)    { return this._send("detection_remove", { name }, opts); }
+  // Prepare an ML model on the unit — once per new .pkl (`binary`, an
+  // ArrayBuffer), before detection_add loads it: a TensorRT model's engine
+  // is built (minutes); an OpenVINO model has nothing to build.
+  // Reply: {built, seconds}.
+  modelPrepare(binary, opts = { timeout: 900000 }) { return this._send("model_prepare", {}, opts, binary); }
   // maxSide caps the PREVIEW's long edge (server-side downscale, after
   // detection has already run at full resolution). Reply meta carries
   // source_shape + scale. Never use it where the pixels are coordinates.

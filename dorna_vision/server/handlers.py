@@ -388,7 +388,17 @@ def detection_add(session, args, data=None):
 
     tmp_path = None
     if data:
+        # The model's type and engine, from the pickle: the cmd is its
+        # meta.type when the caller didn't pre-set one — the GUI just
+        # hands us a model file without asking the user "is this OD or
+        # SEG or KP…?"; the answer is baked into the pickle by training.
+        # A file that is no model is refused here, with what it is.
+        import pickle
+        from dorna_vision.ai import model_info
+        model = model_info(pickle.loads(data))
         det_pkg = dict(args.get("detection") or {})
+        if "cmd" not in det_pkg:
+            det_pkg["cmd"] = model["type"]
         # Pick a sensible suffix from the existing path hint, else .pkl
         suffix = ".pkl"
         hint = det_pkg.get("path") or ""
@@ -400,22 +410,6 @@ def detection_add(session, args, data=None):
         with open(tmp_path, "wb") as f:
             f.write(data)
         det_pkg["path"] = tmp_path
-
-        # Auto-detect the detection cmd from the pickle's meta.type when
-        # the caller didn't pre-set one. This lets the GUI just hand us a
-        # model file without asking the user "is this OD or ROD or KP…?"
-        # — the answer is already baked into the pickle by training.
-        if "cmd" not in det_pkg:
-            try:
-                import pickle as _p
-                with open(tmp_path, "rb") as _f:
-                    _model_dict = _p.load(_f)
-                _t = ((_model_dict.get("meta") or {}).get("type") or "").lower()
-                if _t in ("od", "rod", "cls", "kp", "anom"):
-                    det_pkg["cmd"] = _t
-            except Exception:
-                pass
-
         args["detection"] = det_pkg
 
     try:
@@ -432,14 +426,44 @@ def detection_add(session, args, data=None):
             except OSError:
                 pass
 
-    # Echo the detected/effective cmd back so the GUI can filter the
-    # runtime method picker without having to ask the user up front.
+    # Echo the detected/effective cmd (and a sent model's engine) back so
+    # the GUI can filter the runtime method picker without having to ask
+    # the user up front.
     # (Never the args themselves: a vlm detection's carry its key.)
     cmd = (args.get("detection") or {}).get("cmd")
     out = {"name": name, "cmd": cmd}
+    if data:
+        out["engine"] = model["engine"]             # the playground shows each engine's own fields
     if effective is not None:
         out["config"] = _to_jsonable(effective)      # what the merge produced (never the key)
     return out
+
+
+def model_prepare(session, args, data=None):
+    """
+    Make an ML model ready on this unit — once per new .pkl; detection_add
+    loads only a prepared model. TensorRT (the Jetson): its engine is
+    built and cached (minutes). OpenVINO (the Pi): nothing to build. The
+    model is the binary frame (a .pkl on the client), else ``path``, a
+    .pkl on this unit. Returns {"built", "seconds"}: built False = nothing
+    was built.
+    """
+    import os
+    import tempfile
+    from dorna_vision.ai import prepare
+
+    if data:
+        fd, tmp_path = tempfile.mkstemp(prefix="dorna_vision_model_", suffix=".pkl")
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        try:
+            return prepare(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+    path = args.get("path")
+    if not path:
+        raise ValueError("model_prepare needs the model: a .pkl sent with the call, or path on this unit")
+    return prepare(os.path.expanduser(path))
 
 
 def detection_run(session, args):
@@ -740,6 +764,7 @@ HANDLERS = {
     "camera_get_img": camera_get_img,
     "robot_add": robot_add,
     "robot_remove": robot_remove,
+    "model_prepare": model_prepare,
     "detection_add": detection_add,
     "detection_list": detection_list,
     "detection_run": detection_run,
@@ -759,6 +784,7 @@ HANDLERS = {
 # or None. Used to ship images and ML model weights inline rather than
 # staging them on the server's filesystem.
 BINARY_INBOUND = {
+    "model_prepare",   # binary = ML model bytes (made ready on this unit, the bytes discarded)
     "detection_add",   # binary = ML model bytes (loaded into Detection then discarded)
     "call",            # binary = the 'data' kwarg for whatever method is being called (e.g. detection.run)
 }

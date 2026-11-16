@@ -639,6 +639,24 @@ class VisionClient(object):
     def robot_remove(self, host, timeout=None):
         return self._send("robot_remove", {"host": host}, timeout=timeout)
 
+    def model_prepare(self, path, timeout=900):
+        """
+        Prepare an ML model on the vision unit — once per new .pkl, before
+        detection_add loads it. A TensorRT model (the Jetson) has its
+        engine built and cached for the unit's GPU: minutes, and loading
+        never builds. An OpenVINO model (the Pi) has nothing to prepare.
+        Already prepared: returns at once.
+
+        `path` is a .pkl on this machine (its bytes are shipped with the
+        call), else a path on the vision unit. Returns
+        {"built": bool, "seconds": float} — built False when there was
+        nothing to build.
+        """
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                return self._send_with_binary("model_prepare", {}, f.read(), timeout=timeout)
+        return self._send("model_prepare", {"path": path}, timeout=timeout)
+
     def detection_add(self, name, camera_serial_number=None, robot_host=None, timeout=None,
                       config=None, **detection_kwargs):
         """

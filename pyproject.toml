@@ -22,8 +22,7 @@ dependencies = [
     "zxing-cpp",
     "scikit-learn",
     "shapely",
-    "torch",
-    "openvino",
+    "pyyaml",              # config files (dorna_vision.config); the TensorRT OCR models' own config
     "tornado",
     "paho-mqtt>=2.0",      # device health publishing per docs/device-mqtt-spec.md
     "dorna_devices>=0.1",  # device protocol + MQTTDeviceAdapter + AutoRecover
@@ -31,6 +30,19 @@ dependencies = [
     # NOTE: OpenCV (cv2) is a hard runtime requirement but intentionally NOT
     # pinned here — installed/managed separately for this deployment. The code
     # uses cv2.aruco/charuco, which require the contrib build.
+]
+
+# The ML engine — one per unit (dorna_vision.ai): pip install -e ".[pi]" or ".[jetson]"
+[project.optional-dependencies]
+pi = [
+    "openvino",
+]
+jetson = [
+    # TensorRT itself is JetPack's (apt python3-libnvinfer) — there is no
+    # Jetson wheel on PyPI. cuda-python matches JetPack 7.2's CUDA 13.2.
+    "cuda-python>=13.2,<13.3",
+    "onnx",                # prepare(): the camera-image input prepended to a model's graph
+    "pyclipper",           # OCR: grows a detected text box (PaddleOCR's unclip)
 ]
 
 [project.urls]

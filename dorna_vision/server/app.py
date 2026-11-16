@@ -103,7 +103,10 @@ async def run_server(host="0.0.0.0", port=DEFAULT_PORT, max_workers=8,
     captures = ensure_root(captures_dir or default_captures_dir())
     app = make_app(camera_pool, robot_pool, default_executor, captures)
     try:
-        app.listen(port, address=host)
+        # The read buffer holds a whole websocket frame: sized to the
+        # largest one the handler accepts (Tornado's default, 100 MB, is
+        # below an RF-DETR model pickle).
+        app.listen(port, address=host, max_buffer_size=VisionWSHandler.MAX_FRAME_BYTES)
     except OSError as ex:
         print("failed to bind http://%s:%d/: %s" % (host, port, ex))
         print("another server may already be running on that port.")

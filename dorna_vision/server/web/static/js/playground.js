@@ -233,6 +233,13 @@ const CMD_SCHEMAS = {
       { key: "cls",  label: "Detection classes", kind: "json", default: [], keepEmpty: true },
     ],
   },
+  seg: {
+    label: "Segmentation (ML)",
+    fields: [
+      { key: "conf", label: "Confidence",  kind: "slider", min: 0.01, max: 1, step: 0.01, default: 0.3 },
+      { key: "cls",  label: "Detection classes", kind: "json", default: [], keepEmpty: true },
+    ],
+  },
   rod: {
     label: "Rotated Object Detection (ML)",
     fields: [
@@ -256,22 +263,24 @@ const CMD_SCHEMAS = {
   kp: {
     label: "Keypoints (ML)",
     fields: [
-      // Per-keypoint confidence threshold — keypoints below this are
-      // dropped from the result. There's no object-class filter
-      // anymore: the new top-down kp flow runs once over the whole
-      // image and returns a single keypoint set, not per-object lists.
-      { key: "conf",    label: "Confidence",       kind: "slider", min: 0.01, max: 1, step: 0.01, default: 0.2 },
-      // Object bbox stored as 4 corner points (same format as ROI). An
-      // empty list means "use whole image" — the backend converts the
-      // corners to an axis-aligned (x, y, w, h) rect before passing to
-      // KP. Picking a tight bbox + leaving padding at 1.25 reproduces
-      // the training-time framing for best accuracy.
-      { key: "bbox",    label: "Bounding box (4 corners)", kind: "json", picker: "bbox", default: [], keepEmpty: true },
+      // Every object and its keypoints: `conf` filters the objects,
+      // `kp_conf` each object's keypoints. kp_conf is seeded per engine
+      // when the method is picked (KP_CONF) — the model families score
+      // keypoints differently.
+      { key: "conf",    label: "Object confidence",   kind: "slider", min: 0.01, max: 1, step: 0.01, default: 0.3 },
+      { key: "kp_conf", label: "Keypoint confidence", kind: "slider", min: 0.01, max: 1, step: 0.01, default: 0.5 },
+      { key: "cls",     label: "Detection classes",   kind: "json", default: [], keepEmpty: true },
+      // A top-down model (OpenVINO, the Pi's) looks in one box. Stored
+      // as 4 corner points (same format as ROI); empty = the whole
+      // image. The backend converts the corners to an axis-aligned
+      // (x, y, w, h) rect. A tight bbox + padding 1.25 reproduces the
+      // training-time framing for best accuracy.
+      { key: "bbox",    label: "Bounding box (4 corners)", kind: "json", picker: "bbox", default: [], keepEmpty: true,
+        showWhen: () => _loadedEngine === "openvino" },
       // Affine-crop margin around the bbox. 1.0 = no padding (tight
       // crop), 1.25 = training-time default (12.5% extra on each side).
-      // Usually fixed at 1.25 once you have a real bbox; tune only if
-      // your training conventions differ.
-      { key: "padding", label: "Crop padding (×)", kind: "slider", min: 1.0,  max: 2.0, step: 0.05, default: 1.25 },
+      { key: "padding", label: "Crop padding (×)", kind: "slider", min: 1.0,  max: 2.0, step: 0.05, default: 1.25,
+        showWhen: () => _loadedEngine === "openvino" },
     ],
   },
 };
@@ -505,11 +514,11 @@ let _pickedImageFile = null;
 let _pickedModelFile = null;
 
 // Max inline upload size. Kept below the server's WS frame ceiling
-// (VisionWSHandler.MAX_FRAME_BYTES = 128 MB) with headroom for the JSON
+// (VisionWSHandler.MAX_FRAME_BYTES = 256 MB) with headroom for the JSON
 // envelope, so we reject oversize files with a clear message BEFORE sending
 // — a frame over the server cap would otherwise make Tornado drop the
-// connection (looks like a server crash). 120 MB leaves ~8 MB headroom.
-const MAX_UPLOAD_BYTES = 120 * 1024 * 1024;
+// connection (looks like a server crash). 248 MB leaves ~8 MB headroom.
+const MAX_UPLOAD_BYTES = 248 * 1024 * 1024;
 function _fmtMB(n) { return (n / (1024 * 1024)).toFixed(1) + " MB"; }
 
 // Put a button into a busy state (spinner + label, disabled) for the
@@ -548,7 +557,12 @@ let _loadedMlType = "";
 // training pipeline picked, instead of the schema's static 0.5.
 let _trainedThreshold = null;
 
-const ML_CMDS = ["od", "rod", "cls", "kp", "anom"];
+const ML_CMDS = ["od", "seg", "rod", "kp", "cls", "anom"];
+// The engine of the loaded model ("openvino" | "tensorrt"), from the
+// server's Initialize reply: KP shows a top-down model's box fields only
+// for OpenVINO, and seeds the keypoint threshold that suits its family.
+let _loadedEngine = "";
+const KP_CONF = { openvino: 0.3, tensorrt: 0.5 };
 
 const SOURCE_KEY      = "dorna_playground_source";
 // SOURCE_PATH_KEY removed — we no longer persist the file path; uploads
@@ -1409,6 +1423,11 @@ function _buildPySnippet() {
   lines.push(`vc = VisionClient()`);
   lines.push(`vc.connect()  # default host="127.0.0.1", port=8765`);
   lines.push(``);
+  if (ML_CMDS.includes(_cfg?.detection?.cmd)) {
+    lines.push(`# once per new model on this unit (TensorRT builds its engine: minutes)`);
+    lines.push(`vc.model_prepare(${JSON.stringify(_pickedModelFile?.name || "model.pkl")})`);
+    lines.push(``);
+  }
   lines.push(`# detection_config = <the dict from the "Detection config" box above>`);
   lines.push(`vc.detection_add(`);
   lines.push(`    name="my_detection",`);
@@ -1798,7 +1817,7 @@ function _applySourceUI() {
 // builds it once (loading any ML model). Each Run just calls .run()
 // with runtime kwargs — Detection.run does setattr() on whatever is
 // passed, so ROI / color / detection method / etc. update live without
-// a rebuild. This avoids re-loading the OpenVINO model on every click.
+// a rebuild. This avoids re-loading the model on every click.
 //
 // Re-initialize tears down the server-side detection so a fresh
 // Initialize will rebuild from the current init params.
@@ -1822,7 +1841,7 @@ function _buildInitBody() {
     if (k in _cfg) body[k] = _cfg[k];
   }
   // AI Models — when a model file is picked, send the bytes inline.
-  // The cmd (od / rod / cls / kp / anom) is read from the pickle's
+  // The cmd (ML_CMDS) is read from the pickle's
   // `meta.type` server-side, so the user doesn't have to pick the
   // detection type up front. We only include the filename here as a
   // hint so the server picks the right tempfile suffix.
@@ -1882,8 +1901,7 @@ async function initializePlayground() {
   let modelBytes = null;
   if (_pickedModelFile) {
     if (_pickedModelFile.size > MAX_UPLOAD_BYTES) {
-      toast(`Model file is ${_fmtMB(_pickedModelFile.size)} — exceeds the ${_fmtMB(MAX_UPLOAD_BYTES)} upload limit. `
-        + `This is usually an old-format pickle that embeds raw training weights; export an OpenVINO model from the training notebook.`, "bad");
+      toast(`Model file is ${_fmtMB(_pickedModelFile.size)} — exceeds the ${_fmtMB(MAX_UPLOAD_BYTES)} upload limit.`, "bad");
       return false;
     }
     try { modelBytes = await _pickedModelFile.arrayBuffer(); }
@@ -1891,10 +1909,24 @@ async function initializePlayground() {
   }
   try {
     try { await _vc.detectionRemove(PG_NAME); } catch {}
+    if (modelBytes) {
+      // A model runs only once prepared on this unit: a TensorRT model's
+      // engine is built for this GPU — minutes the first time, instant
+      // after; an OpenVINO model has nothing to build. The busy
+      // Initialize button says which step it is on.
+      const btn = $("#pgInitBtn");
+      const label = (text) => { if (btn?.dataset.busy === "1") btn.innerHTML = `<span class="btn-spinner"></span>${text}`; };
+      label("Preparing model…");
+      const prepared = await _vc.modelPrepare(modelBytes);
+      label("Initializing…");
+      if (prepared && prepared.built) toast(`Model prepared on this unit in ${Math.round(prepared.seconds)} s`, "ok");
+    }
     const reply = await _vc.detectionAdd(PG_NAME, _buildInitBody(), modelBytes);
-    // Server echoes the detected cmd back so we can filter the runtime
-    // method picker without asking the user to pre-select a type.
+    // Server echoes the detected cmd (and the model's engine) back so we
+    // can filter the runtime method picker without asking the user to
+    // pre-select a type.
     _loadedMlType = (reply && reply.cmd) || "";
+    _loadedEngine = (reply && reply.engine) || "";
     return true;
   } catch (e) {
     toast(`Initialize failed: ${e.message || e}`, "bad");
@@ -2880,9 +2912,9 @@ export function init(vc) {
         if (f.default !== null && f.default !== undefined) detection[f.key] = f.default;
       }
       // ML methods pull their model path from the AI Models init section.
-      // Must cover ALL ML cmds (od/rod/cls/kp/anom) — omitting rod/anom here
-      // rebuilt their detection dict without a path, so switching the method
-      // to Rotated/Anomaly dropped the model reference and the run failed.
+      // Must cover ALL ML cmds (ML_CMDS) — one left out rebuilt its
+      // detection dict without a path, so switching the method to it
+      // dropped the model reference and the run failed.
       if (ML_CMDS.includes(newCmd)) {
         const p = ($("#pgMlPath")?.value || "").trim();
         if (p) detection.path = p;
@@ -2892,6 +2924,10 @@ export function init(vc) {
       // rather than the schema's static 0.5.
       if (newCmd === "anom" && _trainedThreshold != null) {
         detection.threshold = _trainedThreshold;
+      }
+      // KP: the keypoint threshold that suits the loaded model's family.
+      if (newCmd === "kp" && _loadedEngine) {
+        detection.kp_conf = KP_CONF[_loadedEngine];
       }
       _cfg.detection = detection;
     }
@@ -3076,6 +3112,7 @@ export function init(vc) {
     _resetOutputUI();
     _modelClasses = [];
     _loadedMlType = "";
+    _loadedEngine = "";
     _trainedThreshold = null;
     renderMethodPicker();
     renderMethodFields();

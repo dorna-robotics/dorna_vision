@@ -1,42 +1,35 @@
 """
-ML inference primitives for the dorna_vision pipeline.
-
-Each class is a single-purpose, init-once / call-many wrapper around an
-OpenVINO IR model packaged in a pickle. The pickle schema (produced by the
-training notebooks under draft/) is:
+The OpenVINO engine — the Pi's CPU. Each class is a single-purpose,
+init-once / call-many wrapper around an OpenVINO IR model packaged in a
+pickle (written by the training notebooks under
+training_notebooks/openvino/):
 
     {
         "xml":     "<openvino IR XML, str>",
         "bin":     <openvino IR weights, bytes>,
-        "cls":     ["class_a", "class_b", ...]      # for OD/ROD/CLS/ANOM
+        "cls":     ["class_a", "class_b", ...]
         "colors":  {"class_a": "#aabbcc", ...}      # dict OR list of hex
-        "meta":    {"image_size": ..., ...},        # see each class
+        "meta":    {"type": ..., "image_size": ..., ...},   # see each class
 
         # KP-only:
         "keypoint_names": [...],
         "skeleton":       [(1,2), ...]
     }
 
-The new classes follow the inference paths in:
-    draft/mmdetection/inference_custom    -> OD
-    draft/mmrotate/inference_custom       -> ROD
-    draft/mmpose/inference_custom         -> KP
-    draft/cls/inference_classification    -> CLS
-    draft/anomaly/stfpm/inference_anomaly -> ANOM
+    OD    — mmdetection: boxes
+    ROD   — mmrotate: rotated boxes
+    KP    — RTMPose, top-down: one object's keypoints, in a box given to it
+    CLS   — one label per image
+    ANOM  — STFPM: a pass/fail verdict per image
+    OCR   — horizontal-text detection + PP-OCR recognition (built in)
 
-Composition: OD/ROD give you boxes; crop the image around a box (with
-padding) and feed the crop to KP. CLS labels a whole image (or a crop).
-ANOM scores a whole image and returns hot-spots.
-
-Legacy implementations are kept as OD_v1, CLS_v1, KP_v1 (and the older
-NCNN ones as OD_NCNN, CLS_NCNN) for back-compat — these will be retired
-once existing pickles are migrated.
+Load them through dorna_vision.ai, which picks the engine from the model.
+OpenVINO compiles a model as it loads: there is nothing to prepare.
 """
 
 import math
 import os
-import pickle
-import importlib
+import importlib.util
 import threading
 from types import SimpleNamespace
 
@@ -44,11 +37,8 @@ import cv2
 import numpy as np
 from openvino import Core
 
-import ncnn
-from ncnn.utils.objects import Detect_Object
-
-from dorna_vision.visual import *
-from dorna_vision.util import *
+from dorna_vision.ai.common import (_PAD_VALUE, _Keypoints, _color_for_class,
+                                    _letterbox_centered, _load_pickle)
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -69,30 +59,10 @@ _DET_STD  = np.array([57.375, 57.12, 58.395], dtype=np.float32)
 _IMNET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32) * 255
 _IMNET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32) * 255
 
-_PAD_VALUE = 128
 
 
-def _hex_to_bgr(hex_color):
-    h = str(hex_color).lstrip("#")
-    if len(h) == 6:
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return (b, g, r)
-    return (0, 0, 255)
 
 
-def _color_for_class(cid, class_names, colors):
-    """
-    Resolve a BGR color tuple for a class id.
-
-    `colors` may be a dict {class_name: hex} (Roboflow / new training default)
-    or a positional list [hex, hex, ...] (legacy). Falls back to red.
-    """
-    name = class_names[int(cid)]
-    if isinstance(colors, dict):
-        return _hex_to_bgr(colors.get(name, "#ff3333"))
-    if isinstance(colors, (list, tuple)) and len(colors) > 0:
-        return _hex_to_bgr(colors[int(cid) % len(colors)])
-    return _hex_to_bgr("#ff3333")
 
 
 def _letterbox(img, size):
@@ -110,32 +80,8 @@ def _letterbox(img, size):
     return padded, r
 
 
-def _letterbox_centered(img, size):
-    """
-    Resize proportionally and centre-pad to (W, H). Used by CLS where the
-    classifier was trained with centre-padded inputs.
-    """
-    h, w = img.shape[:2]
-    tw, th = size
-    r = min(tw / w, th / h)
-    nw, nh = int(round(w * r)), int(round(h * r))
-    resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
-    padded = np.full((th, tw, 3), _PAD_VALUE, dtype=np.uint8)
-    pw = (tw - nw) // 2
-    ph = (th - nh) // 2
-    padded[ph:ph + nh, pw:pw + nw] = resized
-    return padded
 
 
-def _load_pickle(path):
-    """
-    Load a model pickle. Accepts either a filesystem path or a pre-loaded
-    dict (used internally by the legacy KP_v1 wrapper).
-    """
-    if isinstance(path, dict):
-        return path
-    with open(path, "rb") as f:
-        return pickle.load(f)
 
 
 class _PerThreadModel:
@@ -234,13 +180,6 @@ def _release_openvino(*objs):
             pass
 
 
-def _bbox_to_corners(x, y, w, h):
-    return [
-        [x,         y],
-        [x + w,     y],
-        [x + w,     y + h],
-        [x,         y + h],
-    ]
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -514,35 +453,41 @@ class ROD(object):
 # KP — Top-down keypoint detection (mmpose / draft pickle format)
 # ───────────────────────────────────────────────────────────────────────
 
-class KP(object):
+class KP(_Keypoints):
     """
-    Top-down keypoint detector. Runs on a SINGLE object's region.
+    Top-down keypoint detection (RTMPose): ONE object's keypoints, found in
+    a box given to it — the whole image, or `bbox`. The box is framed as
+    training framed it: its centre, the model's aspect ratio, `padding`
+    (1.25 — 12.5 % more each side; 1.0 when the box is the whole image,
+    which is the crop already).
 
-    Two equivalent ways to use it (your choice):
+    The result has the same shape as every KP model's: a list of objects,
+    each with its keypoints. Here the object is the box's — the pickle's
+    one class, the box as its rect — and its score is mmpose's for a given
+    box: the mean confidence of the keypoints it reports.
 
-      1. Pass a pre-cropped image (you handle the crop yourself):
-             kp(crop)
-      2. Pass a full image plus a bbox (we apply the same affine the
-         training pipeline used — proportional fit + 1.25x padding):
-             kp(image, bbox=(x, y, w, h))
+    Pickle: xml, bin; cls [the object's class]; colors; keypoint_names
+    [name, ...]; skeleton [(i, j), ...] (1-indexed); meta {type: "kp",
+    input_w, input_h, ...}.
 
-    Compose with OD/ROD:
-        objs = od(image)
-        for obj in objs:
-            keypoints = kp(image, bbox=(obj.rect.x, obj.rect.y,
-                                        obj.rect.w, obj.rect.h))
+    Call:
+        KP(img, conf=0.3, kp_conf=0.3, cls=None, bbox=None, padding=None) ->
+        list[SimpleNamespace(prob, cls, rect, color, keypoints)]   # 0 or 1
 
-    Returns SimpleNamespace(
-        keypoints = [SimpleNamespace(name, x, y, conf, color), ...],
-        skeleton  = [(i, j), ...]   # 1-indexed per mmpose convention
-    )
+    `keypoints` is [SimpleNamespace(name, x, y, conf, color), ...] in
+    original-image pixel coords: those whose confidence clears `kp_conf`.
+    The object is reported when its score clears `conf` (and it passes the
+    three-state `cls` filter). `bbox` is (x, y, w, h) in image pixels.
     """
+
+    top_down = True   # takes the box it looks in (detect.py passes bbox)
 
     def __init__(self, path, device_name="CPU", device_config=None, padding=1.25, **kwargs):
         data = _load_pickle(path)
-        self.keypoint_names = list(data.get("keypoint_names", []))
-        self.skeleton       = list(data.get("skeleton", []))
-        self.colors         = data.get("colors", {})
+        self.cls    = list(data["cls"])
+        self.colors = data.get("colors", {})
+        self.keypoint_names = {self.cls[0]: list(data["keypoint_names"])}
+        self.skeleton       = {self.cls[0]: [tuple(e) for e in data.get("skeleton", [])]}
         meta = data.get("meta", {})
         self.input_w = int(meta.get("input_w", 192))
         self.input_h = int(meta.get("input_h", 256))
@@ -572,7 +517,7 @@ class KP(object):
 
         Padding precedence:
           1. explicit `padding` kwarg (highest)
-          2. bbox is None → 1.0 (caller passed a pre-cropped image, so
+          2. bbox is None → 1.0 (the whole image is the crop already, so
              adding more padding would double-pad it)
           3. bbox given   → self.padding (1.25 by default — matches the
              training-time top-down framing)
@@ -597,7 +542,6 @@ class KP(object):
         else:
             bw = bh * ar
         scale_w = bw * pad
-        scale_h = bh * pad   # noqa: F841  (kept for symmetry / future use)
 
         src = np.zeros((3, 2), dtype=np.float32)
         dst = np.zeros((3, 2), dtype=np.float32)
@@ -621,21 +565,12 @@ class KP(object):
         rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB).astype(np.float32)
         return ((rgb - _IMNET_MEAN) / _IMNET_STD).transpose(2, 0, 1)[None]
 
-    def _kp_color(self, idx):
-        # Fall back to a stable palette if no per-keypoint colour was stored.
-        palette = [(51, 153, 255), (0, 255, 0), (255, 128, 0), (255, 51, 255),
-                   (0, 255, 255), (255, 255, 0), (128, 0, 255), (255, 0, 128)]
-        if isinstance(self.colors, dict) and self.colors:
-            name = self.keypoint_names[idx] if idx < len(self.keypoint_names) else None
-            if name and name in self.colors:
-                return _hex_to_bgr(self.colors[name])
-        if isinstance(self.colors, (list, tuple)) and len(self.colors) > 0:
-            return _hex_to_bgr(self.colors[idx % len(self.colors)])
-        return palette[idx % len(palette)]
-
-    def __call__(self, img, bbox=None, conf=0.3, padding=None, **kwargs):
+    def __call__(self, img, conf=0.3, kp_conf=0.3, cls=None, bbox=None, padding=None, **kwargs):
         if img is None or img.size == 0:
-            return SimpleNamespace(keypoints=[], skeleton=list(self.skeleton))
+            return []
+        name = self.cls[0]
+        if cls is not None and name not in set(cls):
+            return []
 
         crop, warp = self._affine_warp(img, bbox, padding=padding)
         tensor = self._preprocess(crop)
@@ -649,21 +584,32 @@ class KP(object):
         xy_orig = xy_h @ inv.T
         confs = kp_out[:, 2]
 
+        names = self.keypoint_names[name]
         keypoints = []
         for i in range(xy_orig.shape[0]):
             c = float(confs[i])
-            if c < conf:
+            if c < kp_conf:
                 continue
-            name = self.keypoint_names[i] if i < len(self.keypoint_names) else f"kp{i}"
             keypoints.append(SimpleNamespace(
-                name=name,
+                name=names[i],
                 x=float(xy_orig[i, 0]),
                 y=float(xy_orig[i, 1]),
                 conf=c,
-                color=self._kp_color(i),
+                color=self.keypoint_color(name, names[i]),
             ))
 
-        return SimpleNamespace(keypoints=keypoints, skeleton=list(self.skeleton))
+        score = float(np.mean([k.conf for k in keypoints])) if keypoints else 0.0
+        if not keypoints or score < conf:
+            return []
+        H, W = img.shape[:2]
+        x, y, w, h = (0, 0, W, H) if bbox is None else bbox
+        return [SimpleNamespace(
+            prob=score,
+            cls=name,
+            rect=SimpleNamespace(x=float(x), y=float(y), w=float(w), h=float(h)),
+            color=_color_for_class(0, self.cls, self.colors),
+            keypoints=keypoints,
+        )]
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -852,13 +798,12 @@ class ANOM(object):
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# Legacy implementations — preserved for back-compat with existing pickles.
-# Slated for removal once consumers have migrated to the new classes above.
-# ═══════════════════════════════════════════════════════════════════════
+# ───────────────────────────────────────────────────────────────────────
+# OCR — horizontal-text detection + PP-OCR recognition (built-in models)
+# ───────────────────────────────────────────────────────────────────────
 
-def letterbox_image(image, target_size=(640, 640), pad_color=(128, 128, 128)):
-    """Legacy letterbox helper used by OD_v1 / CLS_v1 / OCR."""
+def _letterbox_padded(image, target_size=(640, 640), pad_color=(128, 128, 128)):
+    """Resize proportionally and centre-pad: (image, scale, pad_w, pad_h)."""
     ih, iw = image.shape[:2]
     tw, th = target_size
     scale = min(tw / iw, th / ih)
@@ -878,236 +823,8 @@ def letterbox_image(image, target_size=(640, 640), pad_color=(128, 128, 128)):
     return new_image, scale, pad_w, pad_h
 
 
-def hex_to_bgr(hex_color):
-    """Legacy alias kept for code that imported it directly."""
-    return _hex_to_bgr(hex_color)
-
-
-class KP_v1(object):
-    """Legacy bundled OD+KP (one pickle, both models). Pre-mmdetection format."""
-    def __init__(self, path=None, device_name="CPU", **kwargs):
-        with open(path, "rb") as file:
-            data = pickle.load(file)
-        self.detection = {
-            "od": OD_v1(path=None, device_name=device_name,
-                        data={"bin": data["bin"], "xml": data["xml"], "cls": data["cls"],
-                              "colors": data["colors"], "meta": data["meta"]}),
-            "kp": {k: OD_v1(path=None, device_name=device_name, data=data["kp"][k])
-                   for k in data["kp"] if data["kp"][k]},
-        }
-
-    def od(self, img, conf=0.5, cls=[], **kwargs):
-        return self.detection["od"](img, conf=conf, cls=cls, **kwargs)
-
-    def kp(self, img, label, bb, offset=20, conf=0.5, cls=[], **kwargs):
-        retval = []
-        roi = ROI(img, corners=bb, crop=True, offset=offset)
-        if label not in self.detection["kp"]:
-            return []
-        valid_cls = list(self.detection["kp"][label].cls)
-        if not cls:
-            valid_cls = [c for c in cls if c in valid_cls]
-        retval = self.detection["kp"][label](roi.img, conf=conf, cls=valid_cls)
-        for r in retval:
-            r.center = roi.pxl_to_orig([r.rect.x + r.rect.w / 2, r.rect.y + r.rect.h / 2])
-        return retval
-
-    def __del__(self):
-        try:
-            self.detection["od"].__del__()
-            for k in self.detection["kp"]:
-                self.detection["kp"][k].__del__()
-        except Exception:
-            pass
-
-
-class OD_v1(object):
-    """Legacy YOLOX-style OpenVINO object detector."""
-    def __init__(self, path=None, device_name="CPU", **kwargs):
-        if path is not None:
-            with open(path, "rb") as file:
-                data = pickle.load(file)
-        else:
-            data = kwargs["data"]
-
-        self.cls = data["cls"]
-        self.colors = {k: hex_to_bgr(data["colors"][k]) for k in data["colors"]}
-
-        self.core = Core()
-        self.model = self.core.read_model(model=bytes(data["xml"], "utf-8"), weights=bytes(data["bin"]))
-        self.compiled_model = _PerThreadModel(
-            self.core.compile_model(model=self.model, device_name=device_name))
-        self.input_shape = self.compiled_model.input(0).shape
-
-    def __del__(self):
-        try:
-            del self.model
-            del self.compiled_model
-            self.core = None
-        except Exception:
-            pass
-
-    def _postprocess(self, outputs, img_size, p6=False):
-        grids = []
-        expanded_strides = []
-        strides = [8, 16, 32] if not p6 else [8, 16, 32, 64]
-        hsizes = [img_size[0] // stride for stride in strides]
-        wsizes = [img_size[1] // stride for stride in strides]
-        for hsize, wsize, stride in zip(hsizes, wsizes, strides):
-            xv, yv = np.meshgrid(np.arange(wsize), np.arange(hsize))
-            grid = np.stack((xv, yv), 2).reshape(1, -1, 2)
-            grids.append(grid)
-            shape = grid.shape[:2]
-            expanded_strides.append(np.full((*shape, 1), stride))
-        grids = np.concatenate(grids, 1)
-        expanded_strides = np.concatenate(expanded_strides, 1)
-        outputs[..., :2] = (outputs[..., :2] + grids) * expanded_strides
-        outputs[..., 2:4] = np.exp(outputs[..., 2:4]) * expanded_strides
-        return outputs
-
-    def _nms(self, boxes, scores, nms_thr):
-        x1 = boxes[:, 0]; y1 = boxes[:, 1]
-        x2 = boxes[:, 2]; y2 = boxes[:, 3]
-        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-        order = scores.argsort()[::-1]
-        keep = []
-        while order.size > 0:
-            i = order[0]
-            keep.append(i)
-            xx1 = np.maximum(x1[i], x1[order[1:]])
-            yy1 = np.maximum(y1[i], y1[order[1:]])
-            xx2 = np.minimum(x2[i], x2[order[1:]])
-            yy2 = np.minimum(y2[i], y2[order[1:]])
-            w = np.maximum(0.0, xx2 - xx1 + 1)
-            h = np.maximum(0.0, yy2 - yy1 + 1)
-            inter = w * h
-            ovr = inter / (areas[i] + areas[order[1:]] - inter)
-            inds = np.where(ovr <= nms_thr)[0]
-            order = order[inds + 1]
-        return keep
-
-    def _multiclass_nms(self, boxes, scores, nms_thr, score_thr):
-        cls_inds = scores.argmax(1)
-        cls_scores = scores[np.arange(len(cls_inds)), cls_inds]
-        valid_score_mask = cls_scores > score_thr
-        if valid_score_mask.sum() == 0:
-            return None
-        valid_scores = cls_scores[valid_score_mask]
-        valid_boxes = boxes[valid_score_mask]
-        valid_cls_inds = cls_inds[valid_score_mask]
-        keep = self._nms(valid_boxes, valid_scores, nms_thr)
-        if keep:
-            dets = np.concatenate([valid_boxes[keep], valid_scores[keep, None], valid_cls_inds[keep, None]], 1)
-        return dets
-
-    def __call__(self, img, conf=0.5, cls=[], max_det=None, nms_thr=0.3, **kwargs):
-        objects = []
-        fixed_size = (self.input_shape[2], self.input_shape[3])
-
-        resized_img, scale, pad_w, pad_h = letterbox_image(
-            img, target_size=(fixed_size[1], fixed_size[0]), pad_color=(128, 128, 128)
-        )
-        preprocessed_img = resized_img.transpose((2, 0, 1))
-        preprocessed_img = np.expand_dims(preprocessed_img, axis=0).astype(np.float32)
-
-        output = self.compiled_model([preprocessed_img])[self.compiled_model.output(0)]
-        predictions = self._postprocess(output, fixed_size)[0]
-        boxes = predictions[:, :4]
-        scores = predictions[:, 4, None] * predictions[:, 5:]
-
-        boxes_xyxy = np.ones_like(boxes)
-        boxes_xyxy[:, 0] = boxes[:, 0] - boxes[:, 2] / 2.
-        boxes_xyxy[:, 1] = boxes[:, 1] - boxes[:, 3] / 2.
-        boxes_xyxy[:, 2] = boxes[:, 0] + boxes[:, 2] / 2.
-        boxes_xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2.
-
-        boxes_xyxy[:, [0, 2]] -= pad_w
-        boxes_xyxy[:, [1, 3]] -= pad_h
-        boxes_xyxy /= scale
-
-        dets = self._multiclass_nms(boxes_xyxy, scores, nms_thr=nms_thr, score_thr=conf)
-        if dets is None:
-            return objects
-
-        final_boxes = dets[:, :4].tolist()
-        final_scores = dets[:, 4].tolist()
-        final_cls_inds = dets[:, 5].tolist()
-        for i in range(len(final_boxes)):
-            score = final_scores[i]
-            if score < conf:
-                continue
-            label = self.cls[int(final_cls_inds[i])]
-            if cls and label not in cls:
-                continue
-            obj = SimpleNamespace(
-                prob=float(score),
-                cls=label,
-                rect=SimpleNamespace(
-                    x=final_boxes[i][0],
-                    y=final_boxes[i][1],
-                    w=final_boxes[i][2] - final_boxes[i][0],
-                    h=final_boxes[i][3] - final_boxes[i][1],
-                ),
-                color=self.colors[label],
-            )
-            objects.append(obj)
-
-        objects = sorted(objects, key=lambda x: x.prob, reverse=True)
-        if max_det:
-            objects = objects[:max_det]
-        return objects
-
-
-class CLS_v1(object):
-    """Legacy OpenVINO classifier (ImageNet-mean preprocessing)."""
-    def __init__(self, path, target_size=(224, 224), device_name="CPU", **kwargs):
-        with open(path, "rb") as file:
-            data = pickle.load(file)
-        self.cls = data["cls"]
-        self.colors = {k: hex_to_bgr(data["colors"][k]) for k in data["colors"]}
-
-        self.core = Core()
-        self.model = self.core.read_model(model=bytes(data["xml"], "utf-8"), weights=bytes(data["bin"]))
-        self.compiled_model = _PerThreadModel(
-            self.core.compile_model(model=self.model, device_name=device_name))
-
-        self.target_size = target_size
-        self.input_tensor = self.compiled_model.input(0)
-        self.output_tensor = self.compiled_model.output(0)
-        self.mean = np.array([123.675, 116.28, 103.53])
-        self.scale = np.array([58.395, 57.12, 57.375])
-
-    def __del__(self):
-        try:
-            del self.model
-            del self.compiled_model
-            self.core = None
-        except Exception:
-            pass
-
-    def __call__(self, img, conf=0.5, **kwargs):
-        retval = []
-        img_resized, _, _, _ = letterbox_image(img, self.target_size)
-        img_normalized = img_resized.astype(np.float32)
-        for i in range(3):
-            img_normalized[:, :, i] = (img_normalized[:, :, i] - self.mean[i]) / self.scale[i]
-        img_chw = img_normalized.transpose(2, 0, 1)
-        input_data = np.expand_dims(img_chw, axis=0)
-        results = self.compiled_model([input_data])
-        output_data = results[self.output_tensor]
-        exp_scores = np.exp(output_data)
-        softmax_probs = exp_scores / np.sum(exp_scores)
-        predicted_class = np.argmax(softmax_probs)
-        probability = softmax_probs[0][predicted_class]
-        if probability > conf:
-            retval = [
-                [self.cls[predicted_class], float(probability), self.colors[self.cls[predicted_class]]]
-            ]
-        return retval
-
-
 class OCR(object):
-    """OpenVINO horizontal-text detection + recognition pipeline. Unchanged."""
+    """OpenVINO horizontal-text detection + recognition pipeline."""
 
     def __init__(self, device="CPU"):
         spec = importlib.util.find_spec("dorna_vision")
@@ -1178,7 +895,7 @@ class OCR(object):
     def ocr(self, img, conf=0.5, detection_enabled=True, **kwargs):
         results = []
         if detection_enabled:
-            det_img, scale, pad_w, pad_h = letterbox_image(img, (640, 640))
+            det_img, scale, pad_w, pad_h = _letterbox_padded(img, (640, 640))
             det_input_img = det_img.astype("float32")
             det_input_img = det_input_img.transpose(2, 0, 1)
             det_input_img = np.expand_dims(det_input_img, 0)
@@ -1222,115 +939,3 @@ class OCR(object):
                 [text, 1],
             ])
         return results
-
-
-class CLS_NCNN(object):
-    def __init__(self, path, target_size=224, num_threads=2, use_gpu=False, **kwargs):
-        self.path = path
-        self.target_size = target_size
-        self.num_threads = num_threads
-        self.use_gpu = use_gpu
-        self.mean_vals = []
-        self.norm_vals = [1 / 255.0, 1 / 255.0, 1 / 255.0]
-        self.net = ncnn.Net()
-        self.net.opt.use_vulkan_compute = self.use_gpu
-        self.net.opt.num_threads = self.num_threads
-
-        with open(self.path, "rb") as file:
-            data = pickle.load(file)
-        with open("temp.param", "w", encoding="utf-8") as f:
-            f.write(data["param"])
-        with open("temp.bin", "wb") as f:
-            f.write(data["bin"])
-        self.net.load_param("temp.param")
-        self.net.load_model("temp.bin")
-        self.cls = data["cls"]
-        self.model = data["meta"]["model"]
-        os.remove("temp.param")
-        os.remove("temp.bin")
-
-    def __del__(self):
-        self.net = None
-
-    def __call__(self, img, conf=0.5, **kwargs):
-        retval = []
-        if self.model.startswith("shufflenet_v2"):
-            img_h = img.shape[0]; img_w = img.shape[1]
-            mat_in = ncnn.Mat.from_pixels_resize(
-                img, ncnn.Mat.PixelType.PIXEL_BGR,
-                img_w, img_h, self.target_size, self.target_size,
-            )
-            mat_in.substract_mean_normalize(self.mean_vals, self.norm_vals)
-            ex = self.net.create_extractor()
-            ex.input("in0", mat_in)
-            _, mat_out = ex.extract("out0")
-            softmax = ncnn.create_layer("Softmax")
-            pd = ncnn.ParamDict()
-            softmax.load_param(pd)
-            softmax.forward_inplace(mat_out, self.net.opt)
-            mat_out = mat_out.reshape(mat_out.w * mat_out.h * mat_out.c)
-            cls_scores = np.array(mat_out).astype(float).tolist()
-            max_cls, max_score = max(zip(self.cls, cls_scores), key=lambda x: x[1])
-            if max_score >= conf:
-                retval = [[max_cls, max_score]]
-        return retval
-
-
-class OD_NCNN(object):
-    def __init__(self, path, target_size=416, num_threads=2, use_gpu=False, **kwargs):
-        self.path = path
-        self.target_size = target_size
-        self.num_threads = num_threads
-        self.use_gpu = use_gpu
-        self.mean_vals = []
-        self.norm_vals = [1 / 255.0, 1 / 255.0, 1 / 255.0]
-        self.net = ncnn.Net()
-        self.net.opt.use_vulkan_compute = self.use_gpu
-        self.net.opt.num_threads = self.num_threads
-
-        with open(self.path, "rb") as file:
-            data = pickle.load(file)
-        with open("temp.param", "w", encoding="utf-8") as f:
-            f.write(data["param"])
-        with open("temp.bin", "wb") as f:
-            f.write(data["bin"])
-        self.net.load_param("temp.param")
-        self.net.load_model("temp.bin")
-        self.cls = data["cls"]
-        self.model = data["meta"]["model"]
-        os.remove("temp.param")
-        os.remove("temp.bin")
-
-    def __del__(self):
-        self.net = None
-
-    def __call__(self, img, conf=0.5, cls=[], max_det=None, **kwargs):
-        objects = []
-        if self.model.startswith("yolov4"):
-            img_h = img.shape[0]; img_w = img.shape[1]
-            mat_in = ncnn.Mat.from_pixels_resize(
-                img, ncnn.Mat.PixelType.PIXEL_BGR2RGB,
-                img_w, img_h, self.target_size, self.target_size,
-            )
-            mat_in.substract_mean_normalize(self.mean_vals, self.norm_vals)
-            ex = self.net.create_extractor()
-            ex.input("data", mat_in)
-            _, mat_out = ex.extract("output")
-            for i in range(mat_out.h):
-                values = mat_out.row(i)
-                obj = Detect_Object()
-                obj.prob = values[1]
-                if obj.prob < conf:
-                    continue
-                obj.cls = self.cls[int(values[0] - 1)]
-                if cls and obj.cls not in cls:
-                    continue
-                obj.rect.x = values[2] * img_w
-                obj.rect.y = values[3] * img_h
-                obj.rect.w = values[4] * img_w - obj.rect.x
-                obj.rect.h = values[5] * img_h - obj.rect.y
-                objects.append(obj)
-            objects = sorted(objects, key=lambda x: x.prob, reverse=True)
-            if max_det:
-                objects = objects[:max_det]
-        return objects
