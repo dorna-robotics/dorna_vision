@@ -3,7 +3,7 @@ Keypoint pickles via rfdetr_pkl, and RF-DETR's own predict() on the test images.
 import json, os, pickle, sys
 import cv2
 import numpy as np
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # tools/rfdetr_pkl.py
 from rfdetr import RFDETRSmall, RFDETRSegSmall, RFDETRKeypointPreview
 from rfdetr_pkl import rfdetr_model_dict
 
