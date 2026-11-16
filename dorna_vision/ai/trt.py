@@ -36,7 +36,6 @@ import hashlib
 import json
 import math
 import os
-import pickle
 import threading
 import time
 from types import SimpleNamespace
@@ -672,11 +671,13 @@ class CLS(object):
 # OCR — PP-OCRv6 (text detection + recognition)
 # ───────────────────────────────────────────────────────────────────────
 
-# PaddleOCR's own OCR models — PP-OCRv6 medium, what its OCR pipeline runs
-# (Apache-2.0) — pinned to a Hugging Face revision and the ONNX's sha256.
-# fetch_ocr() downloads them into the cache as model pickles and prepares
-# their engines, once per unit (the upgrade runs it). PaddleOCR's optional
-# text-line orientation and document-unwarping models are not used.
+# PaddleOCR's own OCR models — PP-OCRv6 medium (Apache-2.0) — pinned to a
+# Hugging Face revision and the ONNX's sha256. fetch_ocr() downloads each
+# model's ONNX and its config into the cache and prepares their engines,
+# once per unit (the upgrade runs it). The cache holds only what was
+# downloaded: how each model is built and fed (_ocr_model) is this code's,
+# so a change here is never shadowed by a stale cached model. PaddleOCR's
+# optional text-line orientation and document-unwarping models are not used.
 _OCR_DIR = os.path.join(os.path.expanduser("~"), ".cache", "dorna_vision", "ocr")
 _OCR_MODELS = {
     "det": ("PaddlePaddle/PP-OCRv6_medium_det_onnx", "61323801669c338b7891481ec7bac61ce31b576a",
@@ -686,47 +687,63 @@ _OCR_MODELS = {
 }
 
 
-def _ocr_model_dict(part, onnx_bytes, config):
-    """The pickle of one PP-OCRv6 model. Detection: the image at its own
-    size (a multiple of 32, up to 4000), BGR with ImageNet mean/std — as
+def _ocr_model(part):
+    """
+    One PP-OCRv6 model, from the cached download (its checksum checked
+    again). Detection: the image scaled to at most OCR.DET_LIMIT_SIDE on
+    its longest side, a multiple of 32, BGR with ImageNet mean/std — as
     PaddleOCR normalises it. Recognition: one text line, 48 high, 320 to
     3200 wide, as a float (x/255 − 0.5)/0.5 the caller pads; its
-    characters are the model's dictionary (CTC: blank first, space last)."""
+    characters are the model's dictionary (CTC: blank first, space last).
+    """
+    import yaml
+    repo, _, sha256 = _OCR_MODELS[part]
+    onnx_path, config_path = (os.path.join(_OCR_DIR, part + ext) for ext in (".onnx", ".yml"))
+    if not (os.path.exists(onnx_path) and os.path.exists(config_path)):
+        raise ModelNotPreparedError("OCR models are not on this unit: run dorna_vision.ai.fetch_ocr() "
+                                    "once (the upgrade does) — missing %s" % onnx_path)
+    with open(onnx_path, "rb") as f:
+        onnx_bytes = f.read()
+    if hashlib.sha256(onnx_bytes).hexdigest() != sha256:
+        raise ValueError("%s: not %s's pinned model (checksum) — run dorna_vision.ai.fetch_ocr()" % (onnx_path, repo))
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
     name = config["Global"]["model_name"]
     if part == "det":
+        side = OCR.DET_LIMIT_SIDE
         return {"onnx": onnx_bytes, "meta": {
             "type": "ocr_det", "model": name, "precision": "fp16",
             "input": {"format": "uint8-bgr", "channels": "bgr",
                       "mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225]},
-            "profile": {"min": [1, 3, 32, 32], "opt": [1, 3, 736, 736], "max": [1, 3, 4000, 4000]}}}
+            "profile": {"min": [1, 3, 32, 32], "opt": [1, 3, 736, 736], "max": [1, 3, side, side]}}}
     return {"onnx": onnx_bytes, "characters": list(config["PostProcess"]["character_dict"]), "meta": {
         "type": "ocr_rec", "model": name, "precision": "fp16", "input": {"format": "float"},
-        "profile": {"min": [1, 3, 48, 320], "opt": [1, 3, 48, 320], "max": [1, 3, 48, 3200]}}}
+        "profile": {"min": [1, 3, 48, OCR.REC_MIN_WIDTH], "opt": [1, 3, 48, OCR.REC_MIN_WIDTH],
+                    "max": [1, 3, 48, OCR.REC_MAX_WIDTH]}}}
 
 
 def fetch_ocr():
     """
     Download PP-OCRv6 (pinned revision, checksum verified) into the cache
-    as model pickles and prepare their engines — once per unit, minutes;
-    after that, nothing. Returns {part: prepare()'s result}.
+    and prepare its engines — once per unit, minutes; after that, nothing.
+    Returns {part: prepare()'s result}.
     """
     import urllib.request
-    import yaml
     os.makedirs(_OCR_DIR, exist_ok=True)
     prepared = {}
     for part, (repo, revision, sha256) in _OCR_MODELS.items():
-        path = os.path.join(_OCR_DIR, part + ".pkl")
-        if not os.path.exists(path):
-            base = "https://huggingface.co/%s/resolve/%s/" % (repo, revision)
-            onnx_bytes = urllib.request.urlopen(base + "inference.onnx").read()
-            if hashlib.sha256(onnx_bytes).hexdigest() != sha256:
-                raise ValueError("%s inference.onnx: checksum mismatch — refusing it" % repo)
-            config = yaml.safe_load(urllib.request.urlopen(base + "inference.yml").read())
-            tmp = path + ".tmp"
-            with open(tmp, "wb") as f:
-                pickle.dump(_ocr_model_dict(part, onnx_bytes, config), f)
-            os.replace(tmp, path)
-        prepared[part] = prepare(path)
+        base = "https://huggingface.co/%s/resolve/%s/" % (repo, revision)
+        for name, ext in (("inference.onnx", ".onnx"), ("inference.yml", ".yml")):
+            path = os.path.join(_OCR_DIR, part + ext)
+            if os.path.exists(path):
+                continue
+            data = urllib.request.urlopen(base + name).read()
+            if ext == ".onnx" and hashlib.sha256(data).hexdigest() != sha256:
+                raise ValueError("%s %s: checksum mismatch — refusing it" % (repo, name))
+            with open(path + ".tmp", "wb") as f:
+                f.write(data)
+            os.replace(path + ".tmp", path)
+        prepared[part] = prepare(_ocr_model(part))
     return prepared
 
 
@@ -734,10 +751,14 @@ class OCR(object):
     """
     Text detection + recognition: PaddleOCR's PP-OCRv6 pipeline on TensorRT,
     its steps and defaults as PaddleOCR runs them (its pipeline config
-    OCR.yaml, its processors):
+    OCR.yaml, its processors) — except the detection size, PP-OCRv4's:
 
-      detect   the image resized to multiples of 32 (sides of 64 or more,
-               up to 4000); the DB probability map > 0.3; each contour's
+      detect   the image scaled down to at most 960 on its longest side
+               (PP-OCRv4's limit_side_len 960, limit_type "max"; PP-OCRv6
+               keeps sizes up to 4000, an engine that takes over an hour to
+               build here and text detection several times slower — 960
+               reads labels a camera frames whole), resized to multiples
+               of 32; the DB probability map > 0.3; each contour's
                minimum-area rectangle, kept when its mean probability
                reaches 0.6, grown by unclip ratio 1.5, at least 5 px across
       order    top to bottom, left to right within 10 px
@@ -758,8 +779,7 @@ class OCR(object):
     image as one line.
     """
 
-    DET_LIMIT_SIDE = 64          # PaddleOCR's OCR.yaml: limit_side_len, limit_type "min"
-    DET_MAX_SIDE = 4000          # max_side_limit
+    DET_LIMIT_SIDE = 960         # PP-OCRv4's limit_side_len, limit_type "max": the longest side's cap
     DET_THRESH = 0.3             # thresh
     DET_BOX_THRESH = 0.6         # box_thresh
     DET_UNCLIP = 1.5             # unclip_ratio
@@ -768,14 +788,9 @@ class OCR(object):
     REC_HEIGHT, REC_MIN_WIDTH, REC_MAX_WIDTH = 48, 320, 3200
 
     def __init__(self, **kwargs):
-        paths = {part: os.path.join(_OCR_DIR, part + ".pkl") for part in _OCR_MODELS}
-        missing = [p for p in paths.values() if not os.path.exists(p)]
-        if missing:
-            raise ModelNotPreparedError("OCR models are not on this unit: run dorna_vision.ai.fetch_ocr() "
-                                        "once (the upgrade does) — missing %s" % ", ".join(missing))
-        rec = _load_pickle(paths["rec"])
+        rec = _ocr_model("rec")
         self.characters = ["blank"] + rec["characters"] + [" "]
-        self.det = _TRTModel(_load_pickle(paths["det"]))
+        self.det = _TRTModel(_ocr_model("det"))
         self.rec = _TRTModel(rec)
 
     def __del__(self):
@@ -787,19 +802,18 @@ class OCR(object):
 
     # ── detect ──
     def _det_input(self, img):
-        """PaddleOCR's DetResizeForTest (limit type "min"): (resized image,
-        its height and width ratios to the original)."""
+        """PaddleOCR's DetResizeForTest, limit type "max": the image scaled
+        down so its longest side is at most DET_LIMIT_SIDE, each side a
+        multiple of 32 (the detection's probability map is mapped back to
+        the original by its own size, in _detect)."""
         h, w = img.shape[:2]
         if h + w < 64:                                   # its image_padding
             padded = np.zeros((max(32, h), max(32, w), 3), np.uint8)
             padded[:h, :w] = img
             img = padded
             h, w = img.shape[:2]
-        ratio = float(self.DET_LIMIT_SIDE) / min(h, w) if min(h, w) < self.DET_LIMIT_SIDE else 1.0
+        ratio = float(self.DET_LIMIT_SIDE) / max(h, w) if max(h, w) > self.DET_LIMIT_SIDE else 1.0
         rh, rw = int(h * ratio), int(w * ratio)
-        if max(rh, rw) > self.DET_MAX_SIDE:
-            ratio = float(self.DET_MAX_SIDE) / max(rh, rw)
-            rh, rw = int(rh * ratio), int(rw * ratio)
         rh, rw = max(int(round(rh / 32) * 32), 32), max(int(round(rw / 32) * 32), 32)
         if (rh, rw) != (h, w):
             img = cv2.resize(img, (rw, rh))
