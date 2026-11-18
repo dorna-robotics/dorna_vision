@@ -30,7 +30,8 @@ class IndexHandler(tornado.web.RequestHandler):
 
 class UnitHandler(tornado.web.RequestHandler):
     """``GET /api/unit`` — the unit's declaration (system.unit): the page
-    offers its System item only where it says ``"system": "vision"``."""
+    offers its System item only where it says ``"system": "vision"``, and
+    links its Workspace card to ``links.workspace``."""
     def get(self):
         self.set_header("Cache-Control", "no-store")
         self.write(system.unit())

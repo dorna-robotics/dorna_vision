@@ -142,6 +142,11 @@ section[data-page="home"].active {
 .home-card-playground .home-card-icon { background: rgba(52,199,89,0.12);  color: var(--green); }
 .home-card-jupyter    .home-card-icon { background: rgba(255,159,10,0.12); color: #ff9f0a; }
 .home-card-files      .home-card-icon { background: var(--surface2); color: var(--text); }
+.home-card-workspace  .home-card-icon { background: rgba(94,92,230,0.12); color: #5e5ce6; }
+[data-theme="light"] .home-card-workspace .home-card-icon { background: rgba(88,86,214,0.08); color: #5856d6; }
+/* a link the unit does not declare: shown, its hint says why (main.js) */
+.home-card.home-card-off { opacity: 0.6; cursor: default; }
+.home-card.home-card-off:hover { background: var(--surface); border-color: var(--border2, var(--border)); transform: none; box-shadow: none; }
 [data-theme="light"] .home-card-cameras    .home-card-icon { background: rgba(0,122,255,0.08); }
 [data-theme="light"] .home-card-playground .home-card-icon { background: rgba(36,138,61,0.08); }
 [data-theme="light"] .home-card-jupyter    .home-card-icon { background: rgba(255,149,0,0.08); color: #c93400; }

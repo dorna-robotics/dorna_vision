@@ -123,8 +123,23 @@ async function refreshHome() {
   // System — offered where the unit declares the vision server the owner of
   // its upgrade (a vision Pi; /etc/dorna/unit.json, written by its upgrade).
   // Elsewhere /system still answers, saying whose page it is.
+  // Workspace — the unit's declared link (links.workspace: {host} is this
+  // page's host, {subnet} its first three octets), as the workspace links
+  // here. Never guessed: undeclared, or {subnet} on a page opened by name,
+  // the card stays and says why.
   fetch("/api/unit").then(r => r.ok ? r.json() : {}).catch(() => ({}))
-    .then(unit => { const n = $("#navSystem"); if (n) n.hidden = unit.system !== "vision"; });
+    .then(unit => {
+      const n = $("#navSystem"); if (n) n.hidden = unit.system !== "vision";
+      const card = $("#homeCardWorkspace");
+      if (!card) return;
+      const tpl = (unit.links || {}).workspace, h = location.hostname;
+      const m = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/.exec(h);
+      const why = !tpl ? "Not declared on this unit — run sudo upgrade"
+        : (tpl.includes("{subnet}") && !m) ? "Open this page by its IP address to reach it" : "";
+      if (!why) { card.href = tpl.replace("{host}", h).replace("{subnet}", m ? m[1] : ""); return; }
+      card.classList.add("home-card-off");
+      $("#homeCardWorkspaceHint").textContent = why;
+    });
   // Developer section — collapsible, always collapsed on load (same
   // behavior as the Workspace landing).
   const devToggle = $("#devToggle");
