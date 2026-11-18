@@ -498,9 +498,31 @@ class SEG(_RFDETR):
 
     @staticmethod
     def _outline(logits, W, H):
-        """One object's outline: its mask logits upsampled to W x H, thresholded at 0."""
-        mask = cv2.resize(logits, (W, H), interpolation=cv2.INTER_LINEAR) > 0
-        contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        """One object's outline: its mask logits upsampled to W x H, thresholded at 0.
+
+        Thresholded and traced only in the window that can hold a positive
+        pixel — the same outline, a fraction of the frame. A pixel of the
+        bilinear upsampling mixes the two source cells around u = (X + 0.5)
+        · Wm / W − 0.5 (each axis) with weights ≥ 0, so it is positive only
+        next to a positive cell: the window is the positive cells' span
+        mapped back to pixels, 2 pixels spare (a zero border — so the
+        contours are those of the whole mask, offset back)."""
+        Hm, Wm = logits.shape
+        positive = logits > 0
+        if not positive.any():
+            return []
+        rows, cols = np.flatnonzero(positive.any(axis=1)), np.flatnonzero(positive.any(axis=0))
+
+        def span(lo, hi, n, N):     # cells lo..hi of n -> the pixels of N that can see them
+            a = int(np.floor((lo - 0.5) * N / n - 0.5)) - 2
+            b = int(np.ceil((hi + 1.5) * N / n - 0.5)) + 2
+            return max(a, 0), min(b, N - 1)
+
+        x0, x1 = span(cols[0], cols[-1], Wm, W)
+        y0, y1 = span(rows[0], rows[-1], Hm, H)
+        up = cv2.resize(logits, (W, H), interpolation=cv2.INTER_LINEAR)[y0:y1 + 1, x0:x1 + 1]
+        contours, _ = cv2.findContours((up > 0).astype(np.uint8), cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE, offset=(x0, y0))
         if not contours:
             return []
         return max(contours, key=cv2.contourArea).reshape(-1, 2).astype(float).tolist()
@@ -554,12 +576,13 @@ class KP(_Keypoints, _RFDETR):
     def _log_mean_trace(kps):
         """RF-DETR's keypoint uncertainty: the visibility-weighted mean of
         log trace(Σ) over an object's keypoints, Σ from each keypoint's
-        precision Cholesky factors (log l11, l21, log l22)."""
-        log_t1, log_t2 = -2.0 * kps[:, 4], -2.0 * kps[:, 6]
-        log_t3 = 2.0 * np.log(np.maximum(np.abs(kps[:, 5]), 1e-12)) + log_t1 + log_t2
+        precision Cholesky factors (log l11, l21, log l22). kps (..., K, D):
+        one object, or many at once (the leading axes) — per object."""
+        log_t1, log_t2 = -2.0 * kps[..., 4], -2.0 * kps[..., 6]
+        log_t3 = 2.0 * np.log(np.maximum(np.abs(kps[..., 5]), 1e-12)) + log_t1 + log_t2
         log_trace = np.logaddexp.reduce(np.stack([log_t1, log_t2, log_t3], axis=-1), axis=-1)
-        log_w = np.log(np.maximum(_sigmoid(kps[:, 2]), 1e-12))
-        return np.logaddexp.reduce(log_trace + log_w) - np.logaddexp.reduce(log_w)
+        log_w = np.log(np.maximum(_sigmoid(kps[..., 2]), 1e-12))
+        return np.logaddexp.reduce(log_trace + log_w, axis=-1) - np.logaddexp.reduce(log_w, axis=-1)
 
     def __call__(self, img, conf=0.3, kp_conf=0.5, cls=None, max_det=None, **kwargs):
         if img is None or img.size == 0:
@@ -571,17 +594,19 @@ class KP(_Keypoints, _RFDETR):
         slots, max_kp = len(self.num_keypoints), max(self.num_keypoints)
         kps_all = kps_all.reshape(kps_all.shape[0], slots, max_kp, kps_all.shape[-1])
 
+        # each ranked pair's keypoints, from its class slot — a class's pairs at once
         decoded = {}
         scores = scores.astype(np.float64)
-        for i in range(len(queries)):
-            c = int(class_ids[i])
+        for c in np.unique(class_ids):
+            c = int(c)
             if c >= slots or self.num_keypoints[c] <= 0:
                 continue
-            kps = kps_all[queries[i], c, :self.num_keypoints[c]].astype(np.float64)
-            decoded[i] = kps
+            pairs = np.flatnonzero(class_ids == c)
+            kps = kps_all[queries[pairs], c, :self.num_keypoints[c]].astype(np.float64)    # (pairs, K, D)
+            decoded.update(zip(pairs.tolist(), kps))
             if self.trace_alpha > 0 and kps.shape[-1] >= 7:
-                fused = _sigmoid(np.log(scores[i]) - self.trace_alpha * self._log_mean_trace(kps))
-                scores[i] = min(fused, np.nextafter(1.0, 0.0))
+                fused = _sigmoid(np.log(scores[pairs]) - self.trace_alpha * self._log_mean_trace(kps))
+                scores[pairs] = np.minimum(fused, np.nextafter(1.0, 0.0))
 
         order = np.argsort(-scores, kind="stable")
         queries, class_ids, scores = queries[order], class_ids[order], scores[order]

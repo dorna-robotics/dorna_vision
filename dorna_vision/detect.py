@@ -714,7 +714,9 @@ class Detection(object):
                     self.frame_mat_inv = np.matmul(self.frame_mat_inv, T_cam_to_base)
 
             # intensity
-            img_intensity = intensity(_img.copy(), **self.intensity)
+            # intensity() and ROI() never write to their image (each returns a new one, or —
+            # intensity at its defaults — the same): _img is already this run's own copy.
+            img_intensity = intensity(_img, **self.intensity)
 
             # color
             img_adjust = color_mask(img_intensity, **self.color)
@@ -734,7 +736,7 @@ class Detection(object):
             box = roi_kwargs.pop("box", None)
             if "corners" not in roi_kwargs and box is not None:
                 roi_kwargs["corners"] = self.box_to_corners(box)
-            _roi = ROI(img_adjust.copy(), **roi_kwargs)
+            _roi = ROI(img_adjust, **roi_kwargs)
             img_roi = _roi.img
 
             # thr
@@ -745,7 +747,7 @@ class Detection(object):
                     # [pxl, corners, (pxl, (major_axis, minor_axis), rot),...]
                     # the dent reads the image's own edge — the ROI before
                     # the colour mask (its hard cut is an edge of its own)
-                    dent_img = ROI(img_intensity.copy(), **roi_kwargs).img if self.detection.get("dent") else None
+                    dent_img = ROI(img_intensity, **roi_kwargs).img if self.detection.get("dent") else None
                     result = ellipse(img_roi, dent_img=dent_img, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": self.detection["cmd"], "conf": r[3], "center": _roi.pxl_to_orig(r[0]),
                     "corners": [_roi.pxl_to_orig(x) for x in r[1]],
@@ -807,7 +809,7 @@ class Detection(object):
                 elif self.detection["cmd"] == "ring":
                     # a band's two edges, read on the ROI before the colour
                     # mask (as elp's dent: a mask's cut is an edge of its own)
-                    result = ring(ROI(img_intensity.copy(), **roi_kwargs).img, **self.detection)
+                    result = ring(ROI(img_intensity, **roi_kwargs).img, **self.detection)
                     retval = [{"timestamp": camera_data["timestamp"], "cls": "ring", "conf": r["conf"],
                                "center": _roi.pxl_to_orig(r["center"]), "corners": [_roi.pxl_to_orig(x) for x in r["corners"]],
                                "edge": r["edge"], "rms": r["rms"]} for r in result]
