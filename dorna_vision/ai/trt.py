@@ -26,8 +26,13 @@ notebooks under training_notebooks/jetson/):
     OD   — RF-DETR: boxes
     SEG  — RF-DETR Seg: boxes + outlines
     KP   — RF-DETR keypoints: boxes + each object's keypoints
-    CLS  — DINOv3 ViT-S/16 + a linear head: one label per image
-    OCR  — PP-OCRv6: text lines and their text (built-in models, fetch_ocr())
+    CLS  — a linear head on a built-in backbone (C-RADIOv3-B): one label
+           per image. Its pickle carries no graph — see CLS.
+    OCR  — PP-OCRv6: text lines and their text
+
+The built-in models — OCR and the classifier backbones — are the unit's,
+not a pickle's: fetch() downloads them (pinned, checksummed) and builds
+their engines, once per unit (the upgrade runs it).
 
 Load them through dorna_vision.ai, which picks the engine from the model.
 """
@@ -77,9 +82,9 @@ _TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 # The precisions a model may declare (meta["precision"]), as the builder
 # flag each sets; "fp32" sets none. The training notebook picks it for
 # its architecture: FP16 where the activations fit its range (RF-DETR),
-# BF16 — FP32's range, half the bits, as fast on Orin — where they do
-# not: DINOv3's attention scores (Q·Kᵀ, queries and keys in the hundreds)
-# overflow FP16's 65504 and every output turns NaN.
+# BF16 — FP32's range, half the bits, as fast on Orin — where they may
+# not: a ViT backbone's attention scores (Q·Kᵀ, queries and keys in the
+# hundreds — DINOv3's overflowed FP16's 65504, every output NaN).
 _TRT_PRECISIONS = {"fp16": trt.BuilderFlag.FP16, "bf16": trt.BuilderFlag.BF16, "fp32": None}
 
 
@@ -212,9 +217,16 @@ def prepare(path):
     a Detection loads only a prepared one, in well under a second.
 
     Returns {"built": bool, "seconds": float}: built is False when the
-    engine was already cached.
+    engine was already cached, or when the model has none of its own (a
+    classifier: its backbone is the unit's — checked here, built by fetch()).
     """
     data = _load_pickle(path)
+    if "backbone" in data:
+        _backbone_spec(data)
+        if not os.path.exists(_engine_path(_backbone_model(data["backbone"]["name"]))):
+            raise ModelNotPreparedError("The classifier backbone %s is not prepared on this unit: run "
+                                        "dorna_vision.ai.fetch() once (the upgrade does)." % data["backbone"]["name"])
+        return {"built": False, "seconds": 0.0}
     onnx_bytes, precision, model_input, profile = _engine_spec(data)
     engine_path = _engine_path(data)
     started = time.time()
@@ -629,21 +641,107 @@ class KP(_Keypoints, _RFDETR):
 
 
 # ───────────────────────────────────────────────────────────────────────
-# CLS — Classification (DINOv3 + a linear head)
+# CLS — Classification (a linear head on a built-in backbone)
 # ───────────────────────────────────────────────────────────────────────
+
+# The classifier backbones — frozen, the same in every classifier, so the
+# unit's and not a pickle's: a classifier names its backbone and carries
+# only its head. Each is an ONNX we export once from the pinned Hugging
+# Face release the training notebook loads, hosted with its sha256;
+# fetch() downloads it and builds its engine, once per unit. One engine
+# per backbone, shared by every classifier loaded (_backbone_acquire).
+#   source     the Hugging Face repo and revision the notebook computes
+#              its features with — a classifier trained on another is refused
+#   onnx       RGB 0..1 (1, 3, H, W) in; "summary" (1, dim) out (float32)
+#   precision  BF16 (FP32's range): the build from the float32 ONNX keeps
+#              every classifier's verdicts (docs/ml-engines.md, CLS)
+_BACKBONE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "dorna_vision", "backbone")
+_BACKBONES = {
+    "c-radio_v3-b": {
+        "source": {"repo": "nvidia/C-RADIOv3-B", "revision": "44653a0482cf460bb4f12595fc3cc3dfecc403d1"},
+        "url": "https://github.com/dorna-robotics/dorna_vision/releases/download/backbone-c-radio_v3-b/c-radio_v3-b.onnx",
+        "sha256": "ee0ae41a4ebc9ea07e1c1a21e60246446a3d928238ce8a025a9af20ce9eb902f",
+        "image_size": (224, 224),
+        "dim": 2304,
+    },
+}
+
+_BACKBONE_LOCK = threading.Lock()
+_BACKBONE_MODELS = {}     # name -> [_TRTModel, how many classifiers hold it]
+
+
+def _backbone_spec(data):
+    """A classifier pickle's backbone, checked against this unit's: its
+    entry in _BACKBONES — refused, with what to do, when the unit has no
+    such backbone or the classifier was trained on another release."""
+    backbone = data.get("backbone") or {}
+    spec = _BACKBONES.get(backbone.get("name"))
+    if spec is None:
+        raise ValueError("This classifier's backbone %r is not one this unit has (%s) — upgrade the unit, "
+                         "or retrain with its training notebook." % (backbone.get("name"), ", ".join(_BACKBONES)))
+    source = {k: backbone.get(k) for k in ("repo", "revision")}
+    if source != spec["source"]:
+        raise ValueError("This classifier was trained on %s@%s; this unit's %s is %s@%s — retrain it with "
+                         "the training notebook." % (source["repo"], source["revision"], backbone["name"],
+                                                     spec["source"]["repo"], spec["source"]["revision"]))
+    return spec
+
+
+def _backbone_model(name):
+    """A backbone as a model for prepare() / _TRTModel: its downloaded
+    ONNX (checksum checked again) and how the engine takes the image."""
+    spec = _BACKBONES[name]
+    path = os.path.join(_BACKBONE_DIR, name + ".onnx")
+    if not os.path.exists(path):
+        raise ModelNotPreparedError("The classifier backbone %s is not on this unit: run "
+                                    "dorna_vision.ai.fetch() once (the upgrade does) — missing %s" % (name, path))
+    with open(path, "rb") as f:
+        onnx_bytes = f.read()
+    if hashlib.sha256(onnx_bytes).hexdigest() != spec["sha256"]:
+        raise ValueError("%s: not the pinned %s (checksum) — run dorna_vision.ai.fetch()" % (path, name))
+    return {"onnx": onnx_bytes, "meta": {
+        "type": "backbone", "model": name, "precision": "bf16",
+        "input": {"format": "uint8-bgr", "channels": "rgb", "mean": [0.0, 0.0, 0.0], "std": [1.0, 1.0, 1.0]}}}
+
+
+def _backbone_acquire(name):
+    """The backbone's engine, loaded once and shared: every classifier on
+    it runs the same weights (_TRTModel keeps a context per thread)."""
+    with _BACKBONE_LOCK:
+        entry = _BACKBONE_MODELS.get(name)
+        if entry is None:
+            entry = _BACKBONE_MODELS[name] = [_TRTModel(_backbone_model(name)), 0]
+        entry[1] += 1
+        return entry[0]
+
+
+def _backbone_release(name):
+    """A classifier lets go of its backbone; the last one frees the engine."""
+    with _BACKBONE_LOCK:
+        entry = _BACKBONE_MODELS[name]
+        entry[1] -= 1
+        if entry[1] == 0:
+            entry[0].close()
+            del _BACKBONE_MODELS[name]
+
 
 class CLS(object):
     """
-    Image classifier (softmax over named classes): DINOv3 ViT-S/16 features
-    and a linear head, one graph, on the GPU with TensorRT.
+    Image classifier (softmax over named classes): a built-in backbone's
+    summary of the image (the engine, on the GPU) and a linear head (numpy).
 
-    Pickle:
-        onnx   : bytes — input "input" (1, 3, H, W): the centred letterbox;
-                 output "logits" (1, C)
-        cls    : list[str]
-        colors : dict|list of hex strings
-        meta   : {type: "cls", image_size: (W, H), arch: "dinov3-linear", model,
-                  precision: "bf16", input}
+    Pickle (training_notebooks/jetson/train_classification.ipynb):
+        backbone : {name, repo, revision} — one of _BACKBONES, the release
+                   the notebook computed its features with
+        head     : {weight: [[float] * dim] * C, bias: [float] * C} — the
+                   standardisation folded in; plain lists (no numpy in the
+                   pickle: Colab's numpy and the unit's need not match)
+        cls      : list[str] — the head's rows, in order
+        colors   : dict|list of hex strings
+        meta     : {type: "cls", arch: "<backbone>-linear", license}
+
+    The image: centred letterbox to the backbone's size, grey padding —
+    the notebook's preprocess.
 
     Call:
         CLS(img, conf=0.5, top_k=1) -> list[[name, prob, color], ...]
@@ -654,20 +752,23 @@ class CLS(object):
 
     def __init__(self, path, **kwargs):
         data = _load_pickle(path)
+        spec = _backbone_spec(data)
         self.cls    = list(data["cls"])
         self.colors = data.get("colors", {})
-        self.image_size = tuple(data["meta"]["image_size"])   # (W, H)
-        self.model = _TRTModel(data)
+        self.weight = np.asarray(data["head"]["weight"], dtype=np.float32)
+        self.bias   = np.asarray(data["head"]["bias"], dtype=np.float32)
+        if self.weight.shape != (len(self.cls), spec["dim"]) or self.bias.shape != (len(self.cls),):
+            raise ValueError("Invalid classifier: head %s + %s for %d classes on a %d-d backbone — re-export it "
+                             "from its training notebook." % (self.weight.shape, self.bias.shape, len(self.cls),
+                                                              spec["dim"]))
+        self.image_size = tuple(spec["image_size"])   # (W, H)
+        self.backbone = data["backbone"]["name"]
+        self.model = _backbone_acquire(self.backbone)
 
     def __del__(self):
-        model = getattr(self, "model", None)
-        if model is not None:
-            model.close()
+        if getattr(self, "model", None) is not None:
             self.model = None
-
-    def _preprocess(self, img):
-        # RGB and the mean/std happen in the engine (_image_input)
-        return _letterbox_centered(img, self.image_size)[None]
+            _backbone_release(self.backbone)
 
     @staticmethod
     def _softmax(x):
@@ -678,8 +779,8 @@ class CLS(object):
     def __call__(self, img, conf=0.5, top_k=1, **kwargs):
         if img is None or img.size == 0:
             return []
-        logits = self.model(self._preprocess(img))["logits"].reshape(-1)
-        probs  = self._softmax(logits)
+        summary = self.model(_letterbox_centered(img, self.image_size)[None])["summary"].reshape(-1)
+        probs = self._softmax(self.weight @ summary + self.bias)
 
         order = np.argsort(probs)[::-1]
         out = []
@@ -697,7 +798,7 @@ class CLS(object):
 # ───────────────────────────────────────────────────────────────────────
 
 # PaddleOCR's own OCR models — PP-OCRv6 medium (Apache-2.0) — pinned to a
-# Hugging Face revision and the ONNX's sha256. fetch_ocr() downloads each
+# Hugging Face revision and the ONNX's sha256. fetch() downloads each
 # model's ONNX and its config into the cache and prepares their engines,
 # once per unit (the upgrade runs it). The cache holds only what was
 # downloaded: how each model is built and fed (_ocr_model) is this code's,
@@ -725,12 +826,12 @@ def _ocr_model(part):
     repo, _, sha256 = _OCR_MODELS[part]
     onnx_path, config_path = (os.path.join(_OCR_DIR, part + ext) for ext in (".onnx", ".yml"))
     if not (os.path.exists(onnx_path) and os.path.exists(config_path)):
-        raise ModelNotPreparedError("OCR models are not on this unit: run dorna_vision.ai.fetch_ocr() "
+        raise ModelNotPreparedError("OCR models are not on this unit: run dorna_vision.ai.fetch() "
                                     "once (the upgrade does) — missing %s" % onnx_path)
     with open(onnx_path, "rb") as f:
         onnx_bytes = f.read()
     if hashlib.sha256(onnx_bytes).hexdigest() != sha256:
-        raise ValueError("%s: not %s's pinned model (checksum) — run dorna_vision.ai.fetch_ocr()" % (onnx_path, repo))
+        raise ValueError("%s: not %s's pinned model (checksum) — run dorna_vision.ai.fetch()" % (onnx_path, repo))
     with open(config_path) as f:
         config = yaml.safe_load(f)
     name = config["Global"]["model_name"]
@@ -747,28 +848,49 @@ def _ocr_model(part):
                     "max": [1, 3, 48, OCR.REC_MAX_WIDTH]}}}
 
 
-def fetch_ocr():
-    """
-    Download PP-OCRv6 (pinned revision, checksum verified) into the cache
-    and prepare its engines — once per unit, minutes; after that, nothing.
-    Returns {part: prepare()'s result}.
-    """
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _download(url, path, sha256=None):
+    """Download url to path — streamed to disk, its sha256 checked when
+    given (a mismatch is refused, nothing kept). Skipped when path already
+    holds it: the pinned checksum, or any file when none is pinned."""
     import urllib.request
-    os.makedirs(_OCR_DIR, exist_ok=True)
+    if os.path.exists(path) and (sha256 is None or _sha256(path) == sha256):
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    digest = hashlib.sha256()
+    with urllib.request.urlopen(url) as response, open(path + ".tmp", "wb") as f:
+        for chunk in iter(lambda: response.read(1 << 20), b""):
+            digest.update(chunk)
+            f.write(chunk)
+    if sha256 is not None and digest.hexdigest() != sha256:
+        os.remove(path + ".tmp")
+        raise ValueError("%s: checksum mismatch — refusing it" % url)
+    os.replace(path + ".tmp", path)
+
+
+def fetch():
+    """
+    The unit's built-in models, ready: PP-OCRv6 and the classifier
+    backbones downloaded (pinned, checksum verified) into the cache and
+    their engines prepared — once per unit, minutes; after that, nothing.
+    Returns {model: prepare()'s result}.
+    """
     prepared = {}
     for part, (repo, revision, sha256) in _OCR_MODELS.items():
         base = "https://huggingface.co/%s/resolve/%s/" % (repo, revision)
-        for name, ext in (("inference.onnx", ".onnx"), ("inference.yml", ".yml")):
-            path = os.path.join(_OCR_DIR, part + ext)
-            if os.path.exists(path):
-                continue
-            data = urllib.request.urlopen(base + name).read()
-            if ext == ".onnx" and hashlib.sha256(data).hexdigest() != sha256:
-                raise ValueError("%s %s: checksum mismatch — refusing it" % (repo, name))
-            with open(path + ".tmp", "wb") as f:
-                f.write(data)
-            os.replace(path + ".tmp", path)
-        prepared[part] = prepare(_ocr_model(part))
+        _download(base + "inference.onnx", os.path.join(_OCR_DIR, part + ".onnx"), sha256)
+        _download(base + "inference.yml", os.path.join(_OCR_DIR, part + ".yml"))
+        prepared["ocr_" + part] = prepare(_ocr_model(part))
+    for name, spec in _BACKBONES.items():
+        _download(spec["url"], os.path.join(_BACKBONE_DIR, name + ".onnx"), spec["sha256"])
+        prepared[name] = prepare(_backbone_model(name))
     return prepared
 
 

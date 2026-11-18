@@ -6,7 +6,8 @@ base for the Pi and the Jetson:
     tensorrt   the Jetson's GPU  ai/trt.py   OD, SEG, KP, CLS, OCR
 
 A model file says which engine runs it — an OpenVINO model carries its
-IR ('xml' / 'bin'), a TensorRT one its ONNX graph ('onnx') — so it is
+IR ('xml' / 'bin'), a TensorRT one its ONNX graph ('onnx') or, a
+classifier, the built-in backbone it was trained on ('backbone') — so it is
 never guessed, and a model the unit cannot run is refused with what it
 is. A unit has one engine installed (the package's `pi` or `jetson`
 extra); only the engine a model needs is imported.
@@ -20,8 +21,9 @@ is given, one object) or find its objects itself.
     prepare(path)   once per new model on a unit: TensorRT builds its
                     engine for this GPU (minutes); OpenVINO has nothing
                     to prepare (it compiles as a model loads)
-    fetch_ocr()     once per unit: the TensorRT OCR models (downloaded and
-                    prepared); OpenVINO's are built in
+    fetch()         once per unit: the TensorRT built-in models — OCR and the
+                    classifier backbones — downloaded and prepared;
+                    OpenVINO's ship with the package
 """
 
 import importlib
@@ -44,7 +46,7 @@ _NAMES = {"openvino": "OpenVINO (the Pi's engine)", "tensorrt": "TensorRT (the J
 
 def model_engine(data):
     """The engine a model (a loaded pickle) runs on."""
-    if "onnx" in data:
+    if "onnx" in data or "backbone" in data:
         return "tensorrt"
     if "xml" in data and "bin" in data:
         return "openvino"
@@ -114,12 +116,12 @@ def prepare(path):
     return _engine(engine).prepare(data)
 
 
-def fetch_ocr():
-    """Once per unit: the OCR models, ready. {part: prepare()'s result};
-    {} on OpenVINO (its models ship with the package)."""
+def fetch():
+    """Once per unit: the built-in models, ready. {model: prepare()'s
+    result}; {} on OpenVINO (its models ship with the package)."""
     engine = unit_engine()
-    return _engine(engine).fetch_ocr() if engine == "tensorrt" else {}
+    return _engine(engine).fetch() if engine == "tensorrt" else {}
 
 
 __all__ = ["MODEL_TYPES", "ML_CMDS", "ModelNotPreparedError", "model_engine", "model_info", "unit_engine",
-           "OD", "SEG", "ROD", "KP", "CLS", "ANOM", "OCR", "prepare", "fetch_ocr"]
+           "OD", "SEG", "ROD", "KP", "CLS", "ANOM", "OCR", "prepare", "fetch"]

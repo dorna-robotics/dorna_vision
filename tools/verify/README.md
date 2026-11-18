@@ -52,8 +52,9 @@ Jetson — a TensorRT build next to a training run once ran it out of memory.
 |---|---|---|
 | `rfdetr_parity_ref.py <out> <coco_person_kp_categories.json>` (rfdetr env) then `rfdetr_parity_check.py <out>` (system) | pretrained RF-DETR Small, Seg-Small and Keypoint through our TensorRT OD / SEG / KP vs RF-DETR's own `predict()` | 0 class mismatches; boxes ≤ 1 px; mask IoU ≥ 0.99; keypoints ≤ 1 px |
 | `run_notebook.py <notebook> <work> <dataset> <od\|seg\|kp\|cls> '<overrides json>'` (rfdetr env) then, for RF-DETR, `nb_parity_check.py <work> <dataset>/test <seg\|kp>` (system) | a TensorRT training notebook end to end on a reference dataset, then the fine-tuned model through TensorRT vs its own `predict()` | the notebook's ONNX check agrees; 0 class mismatches |
-| `stage_bench.py <label>` (system) | OD (RF-DETR-S COCO) + CLS (capped) accuracy, then per-stage timings | CLS 99.28 % on capped valid; OD finds the basketball players; times in docs/ml-engines.md |
+| `stage_bench.py <label>` (system) | OD (RF-DETR-S COCO) + CLS (capped) accuracy, then per-stage timings (its CLS figures are the DINOv3 classifier's) | CLS 99.28 % on capped valid; OD finds the basketball players; times in docs/ml-engines.md |
 | `cls_bench.py <capped dir>` (a CUDA-torch env with timm) | the classifier backbone choice: DINOv3 sizes vs MobileNetV4-Small | DINOv3 ViT-S/16 frozen + linear: 99.28 % |
+| `cls_valid.py <model.pkl> <dataset split dir>` (system, after `run_notebook.py ... cls`) | a classifier .pkl through the unit's CLS — the built-in backbone (`dorna_vision.ai.fetch()` first) and the head | the notebook's own valid accuracy, exactly (98.19 % on `cls_capped`); ~7 ms a call |
 
 `coco_person_kp_categories.json`: a COCO annotation file whose first
 category is the person with its keypoints and skeleton —

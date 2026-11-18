@@ -2,7 +2,7 @@
 download, not pip) on a local dataset, with test-size overrides; then, for
 an RF-DETR notebook (od / seg / kp), save RF-DETR's own predictions on the
 test split for the Jetson parity check. A cls notebook ends with its own
-ONNX check and the .pkl.
+folded-head check and the .pkl (cls_valid.py runs it on the unit).
 
 usage: run_notebook.py <notebook> <workdir> <dataset dir> <od|seg|kp|cls> <overrides json>"""
 import json, os, sys, types
