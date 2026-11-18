@@ -53,8 +53,9 @@ function showPage(name) {
   }
   $$("section.page").forEach(s => s.classList.toggle("active", s.dataset.page === name));
   $$(".app-nav-link").forEach(a => a.classList.toggle("active", a.dataset.route === name));
-  const titleMap = { home: "Home", cameras: "Cameras", playground: "Playground", files: "Files", system: "System" };
-  $("#pageTitle").textContent = titleMap[name] || "Home";
+  // home names the app: "Vision" (the workspace's home says "Workspace")
+  const titleMap = { home: "Vision", cameras: "Cameras", playground: "Playground", files: "Files", system: "System" };
+  $("#pageTitle").textContent = titleMap[name] || "Vision";
   _currentRoute = name;
   PAGE_HOOKS[name]?.onShow?.();
 }
@@ -125,18 +126,19 @@ async function refreshHome() {
   // Elsewhere /system still answers, saying whose page it is.
   // Workspace — the unit's declared link (links.workspace: {host} is this
   // page's host, {subnet} its first three octets), as the workspace links
-  // here. Never guessed: undeclared, or {subnet} on a page opened by name,
-  // the card stays and says why.
+  // here; the left nav's item and the home card both. Never guessed:
+  // undeclared, or {subnet} on a page opened by name, both stay and say why.
   fetch("/api/unit").then(r => r.ok ? r.json() : {}).catch(() => ({}))
     .then(unit => {
       const n = $("#navSystem"); if (n) n.hidden = unit.system !== "vision";
-      const card = $("#homeCardWorkspace");
-      if (!card) return;
       const tpl = (unit.links || {}).workspace, h = location.hostname;
       const m = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/.exec(h);
       const why = !tpl ? "Not declared on this unit — run sudo upgrade"
         : (tpl.includes("{subnet}") && !m) ? "Open this page by its IP address to reach it" : "";
-      if (!why) { card.href = tpl.replace("{host}", h).replace("{subnet}", m ? m[1] : ""); return; }
+      const href = why ? "" : tpl.replace("{host}", h).replace("{subnet}", m ? m[1] : "");
+      const item = $("#navWorkspace"), card = $("#homeCardWorkspace");
+      if (href) { item.href = href; card.href = href; return; }
+      item.classList.add("off"); item.title = "Workspace — " + why;
       card.classList.add("home-card-off");
       $("#homeCardWorkspaceHint").textContent = why;
     });

@@ -33,6 +33,12 @@
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
       <span>Files</span>
     </a>
+    <!-- Workspace — the unit's declared link back to the workspace, as the
+         home page's Workspace card (js/main.js fills both). -->
+    <a class="app-nav-link" id="navWorkspace" target="_blank" rel="noopener" title="Workspace">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <span>Workspace</span>
+    </a>
     <!-- System — this unit's upgrade. Shown only where the unit declares the
          vision server its owner (/api/unit "system": "vision" — a vision Pi);
          a Jetson upgrades from the workspace's System page. js/main.js. -->
@@ -46,7 +52,7 @@
 
 <header class="topbar">
   <button class="burger-btn" id="btnBurger" title="Menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-  <h1 class="topbar-title" id="pageTitle">Home</h1>
+  <h1 class="topbar-title" id="pageTitle">Vision</h1>
   <div class="spacer"></div>
   <div class="topbar-actions">
     <span class="conn-pill pill off" id="connPill"><span class="dot" id="connDot"></span><span id="connLabel">connecting…</span></span>

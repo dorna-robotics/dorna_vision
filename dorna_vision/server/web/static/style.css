@@ -1625,3 +1625,5 @@ body:has(#filesPage.active) .main-inner { max-width: 1560px; }
 
 /* a nav item the unit does not offer (main.js: System on a Jetson) */
 .app-nav-link[hidden] { display: none; }
+/* a link the unit does not declare: shown, its title says why (js/main.js) */
+.app-nav-link.off { opacity: 0.5; cursor: default; }
