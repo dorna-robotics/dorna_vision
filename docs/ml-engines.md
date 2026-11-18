@@ -144,8 +144,9 @@ Notes:
   `predict()` by a few hundredths.
 - **CLS on TensorRT** has nothing to tune: no augmentation (it did not
   help a frozen backbone), every class weighted equally (20 fail images
-  next to 200 good ones otherwise pull the head toward good: unweighted,
-  10.1 % wrong instead of 8.4 % below), the head's regularisation picked
+  next to 200 good ones otherwise pull the head toward good — C-RADIOv3-B,
+  20 per kind: 8.4 % wrong weighted, 10.1 % not; the table below is
+  unweighted), the head's regularisation picked
   by cross-validation on the training images. The backbone was chosen by
   benchmark (2026-11-17): capped crops — absence / partial / good — split
   by burst, and across two sessions two hours apart, the head trained on
