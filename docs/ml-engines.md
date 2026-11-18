@@ -143,8 +143,10 @@ Notes:
   image (as its training does), so borderline scores can differ from
   `predict()` by a few hundredths.
 - **CLS on TensorRT** has nothing to tune: no augmentation (it did not
-  help a frozen backbone), the head's regularisation picked by
-  cross-validation on the training images. The backbone was chosen by
+  help a frozen backbone), every class weighted equally (20 fail images
+  next to 200 good ones otherwise pull the head toward good: unweighted,
+  10.1 % wrong instead of 8.4 % below), the head's regularisation picked
+  by cross-validation on the training images. The backbone was chosen by
   benchmark (2026-11-17): capped crops — absence / partial / good — split
   by burst, and across two sessions two hours apart, the head trained on
   20 or 50 bad images per kind. Mistakes (fails passed + good paused):

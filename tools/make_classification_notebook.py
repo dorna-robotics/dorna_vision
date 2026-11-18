@@ -126,7 +126,8 @@ print(f"Features: {X_train.shape[1]} per image")
 md("""
 ## 4. Train the Linear Head
 
-Logistic regression on the features; its regularization is picked by 5-fold
+Logistic regression on the features, every class weighted equally (a few fail images
+next to many good ones count as much); its regularization is picked by 5-fold
 cross-validation on the training images only — the validation images stay unseen.
 """),
 code("""
@@ -134,7 +135,10 @@ from sklearn.linear_model import LogisticRegressionCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-head = make_pipeline(StandardScaler(), LogisticRegressionCV(Cs=10, cv=5, scoring="accuracy", max_iter=5000))
+# class_weight "balanced": every class counts equally however many images it has — a few
+# fail images next to many good ones otherwise pull the head toward "good"
+head = make_pipeline(StandardScaler(), LogisticRegressionCV(Cs=10, cv=5, scoring="accuracy", max_iter=5000,
+                                                            class_weight="balanced"))
 head.fit(X_train, y_train)
 
 probs = head.predict_proba(X_val)
