@@ -1,5 +1,5 @@
 """Writes training_notebooks/jetson/train_classification.ipynb (a linear head on
-the Jetson's built-in backbone, C-RADIOv3-B) — keeps the existing notebook's
+the Jetson's built-in backbone, DINOv3 ViT-S/16) — keeps the existing notebook's
 metadata (Colab GPU runtime)."""
 import json, sys
 
@@ -15,12 +15,12 @@ def code(src):
 
 cells = [
 md("""
-# Image Classification Training — C-RADIOv3-B
+# Image Classification Training — DINOv3
 
 Train an image classifier on your Roboflow dataset (folder format) and download a
 `.pkl` for the Jetson vision server.
 
-**NVIDIA C-RADIOv3-B**, frozen, with a linear head on its image summary. Nothing to
+**DINOv3 ViT-S/16**, frozen, with a linear head on its image features. Nothing to
 tune: no augmentation, no epochs, no learning rate. The head's one setting (its
 regularization) is picked automatically by cross-validation on the training
 images. Training takes a minute.
@@ -29,8 +29,8 @@ The backbone is built into the Jetson (its upgrade downloads it and builds its
 engine), so the `.pkl` carries only the head — under 100 KB — and is ready the moment
 it reaches the unit.
 
-C-RADIOv3-B is released under the **NVIDIA Open Model License** (commercial use
-allowed).
+DINOv3 is released under Meta's **DINOv3 License** (commercial use allowed, with
+conditions — e.g. no military use; a copy of the license ships with the models).
 
 **Important:** Set **Runtime > Change runtime type > GPU** before starting.
 """),
@@ -46,34 +46,35 @@ dataset = version.download("folder")
 """),
 md("## 2. Install Dependencies"),
 code("""
-# open_clip: the backbone's Hugging Face code imports it (an adaptor it does not use here)
-!pip install -q transformers timm open_clip_torch
+!pip install -q timm
 """),
 md("""
 ## 3. Image Features
 
 Every image goes through exactly the Jetson's preprocessing (`dorna_vision/ai/trt.py`
-`CLS`): centred letterbox to 224 x 224 with grey padding, RGB, 0..1 — the backbone
-normalizes it itself. The backbone is the exact release the Jetson runs: the same
-repository and revision; a classifier trained on another is refused there.
+`CLS`): centred letterbox to 224 x 224 with grey padding, RGB, ImageNet mean/std.
+The backbone is the exact release the Jetson runs: the same repository and revision;
+a classifier trained on another is refused there.
 """),
 code("""
 import os
 import cv2
 import numpy as np
 import torch
-from transformers import AutoModel
+import timm
+from huggingface_hub import hf_hub_download
 
-# Chosen by benchmark (capped crops, sessions two hours apart, 2026-11-17): C-RADIOv3-B
-# made 30-45 % fewer mistakes than DINOv3 ViT-S/16 and beat C-RADIOv4-SO400M with 20
-# bad images per kind; 7 ms a check on the Jetson.
-BACKBONE = {"name": "c-radio_v3-b", "repo": "nvidia/C-RADIOv3-B",
-            "revision": "44653a0482cf460bb4f12595fc3cc3dfecc403d1"}
+# Chosen by benchmark (capped crops, sessions two hours apart, 2026-11-18 —
+# docs/ml-engines.md); ~4 ms a check on the Jetson.
+BACKBONE = {"name": "dinov3_vits16", "repo": "timm/vit_small_patch16_dinov3.lvd1689m",
+            "revision": "3bf4720a82ec2066db88137180ff1f83a675cef0"}
 IMAGE_SIZE = (224, 224)   # (W, H)
+MEAN = np.array([0.485, 0.456, 0.406], np.float32) * 255
+STD = np.array([0.229, 0.224, 0.225], np.float32) * 255
 
 
 def preprocess(img_bgr):
-    # the Jetson's _letterbox_centered, verbatim; then RGB 0..1
+    # the Jetson's _letterbox_centered, verbatim; then RGB, ImageNet mean/std
     h, w = img_bgr.shape[:2]
     tw, th = IMAGE_SIZE
     r = min(tw / w, th / h)
@@ -82,7 +83,8 @@ def preprocess(img_bgr):
     padded = np.full((th, tw, 3), 128, dtype=np.uint8)
     pw, ph = (tw - nw) // 2, (th - nh) // 2
     padded[ph:ph + nh, pw:pw + nw] = resized
-    return (cv2.cvtColor(padded, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0).transpose(2, 0, 1)
+    rgb = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB).astype(np.float32)
+    return ((rgb - MEAN) / STD).transpose(2, 0, 1)
 
 
 DATA_ROOT = dataset.location
@@ -101,8 +103,9 @@ def load_split(split):
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-backbone = AutoModel.from_pretrained(BACKBONE["repo"], revision=BACKBONE["revision"],
-                                     trust_remote_code=True).to(device).eval()
+weights = hf_hub_download(BACKBONE["repo"], "model.safetensors", revision=BACKBONE["revision"])
+backbone = timm.create_model(BACKBONE["repo"].split("/")[1], pretrained=True, num_classes=0,
+                             pretrained_cfg_overlay={"file": weights}).to(device).eval()
 
 
 @torch.no_grad()
@@ -110,7 +113,7 @@ def features(paths):
     out = []
     for i in range(0, len(paths), 32):
         batch = np.stack([preprocess(cv2.imread(p)) for p in paths[i:i + 32]])
-        out.append(backbone(torch.from_numpy(batch).to(device))[0].float().cpu().numpy())   # [0]: the summary
+        out.append(backbone(torch.from_numpy(batch).to(device)).float().cpu().numpy())
     return np.concatenate(out)
 
 
@@ -201,7 +204,7 @@ md("""
 ## 5. Save & Download Pickle
 
 The head as plain numbers: the scaler folded into its weights, so the Jetson computes
-`softmax(weight · summary + bias)` and nothing else. The check computes exactly that on
+`softmax(weight · features + bias)` and nothing else. The check computes exactly that on
 the validation features and must give the probabilities above.
 """),
 code("""
@@ -235,7 +238,7 @@ model_dict = {
     "meta": {
         "type": "cls",
         "arch": BACKBONE["name"] + "-linear",
-        "license": "NVIDIA Open Model License",
+        "license": "DINOv3 License (Meta)",
     },
 }
 

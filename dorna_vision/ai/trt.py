@@ -26,8 +26,8 @@ notebooks under training_notebooks/jetson/):
     OD   — RF-DETR: boxes
     SEG  — RF-DETR Seg: boxes + outlines
     KP   — RF-DETR keypoints: boxes + each object's keypoints
-    CLS  — a linear head on a built-in backbone (C-RADIOv3-B): one label
-           per image. Its pickle carries no graph — see CLS.
+    CLS  — a linear head on a built-in backbone (DINOv3 ViT-S/16): one
+           label per image. Its pickle carries no graph — see CLS.
     OCR  — PP-OCRv6: text lines and their text
 
 The built-in models — OCR and the classifier backbones — are the unit's,
@@ -652,17 +652,20 @@ class KP(_Keypoints, _RFDETR):
 # per backbone, shared by every classifier loaded (_backbone_acquire).
 #   source     the Hugging Face repo and revision the notebook computes
 #              its features with — a classifier trained on another is refused
-#   onnx       RGB 0..1 (1, 3, H, W) in; "summary" (1, dim) out (float32)
-#   precision  BF16 (FP32's range): the build from the float32 ONNX keeps
-#              every classifier's verdicts (docs/ml-engines.md, CLS)
+#   onnx       (1, 3, H, W) float in, as `input` normalises the camera's
+#              uint8 BGR image on the GPU; "features" (1, dim) out (float32)
+#   precision  BF16, FP32's range: a ViT's attention scores overflow FP16
+#              (_TRT_PRECISIONS); the build keeps every verdict (CLS in
+#              docs/ml-engines.md)
 _BACKBONE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "dorna_vision", "backbone")
 _BACKBONES = {
-    "c-radio_v3-b": {
-        "source": {"repo": "nvidia/C-RADIOv3-B", "revision": "44653a0482cf460bb4f12595fc3cc3dfecc403d1"},
-        "url": "https://github.com/dorna-robotics/dorna_vision/releases/download/backbone-c-radio_v3-b/c-radio_v3-b.onnx",
-        "sha256": "ee0ae41a4ebc9ea07e1c1a21e60246446a3d928238ce8a025a9af20ce9eb902f",
+    "dinov3_vits16": {
+        "source": {"repo": "timm/vit_small_patch16_dinov3.lvd1689m", "revision": "3bf4720a82ec2066db88137180ff1f83a675cef0"},
+        "url": "https://github.com/dorna-robotics/dorna_vision/releases/download/backbone-dinov3_vits16/dinov3_vits16.onnx",
+        "sha256": "6c13729f087d2c27237a1db88d40a8e015203fca4169d9c54917e91f17d4aa26",
         "image_size": (224, 224),
-        "dim": 2304,
+        "dim": 384,
+        "input": {"format": "uint8-bgr", "channels": "rgb", "mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225]},
     },
 }
 
@@ -699,9 +702,7 @@ def _backbone_model(name):
         onnx_bytes = f.read()
     if hashlib.sha256(onnx_bytes).hexdigest() != spec["sha256"]:
         raise ValueError("%s: not the pinned %s (checksum) — run dorna_vision.ai.fetch()" % (path, name))
-    return {"onnx": onnx_bytes, "meta": {
-        "type": "backbone", "model": name, "precision": "bf16",
-        "input": {"format": "uint8-bgr", "channels": "rgb", "mean": [0.0, 0.0, 0.0], "std": [1.0, 1.0, 1.0]}}}
+    return {"onnx": onnx_bytes, "meta": {"type": "backbone", "model": name, "precision": "bf16", "input": spec["input"]}}
 
 
 def _backbone_acquire(name):
@@ -728,7 +729,7 @@ def _backbone_release(name):
 class CLS(object):
     """
     Image classifier (softmax over named classes): a built-in backbone's
-    summary of the image (the engine, on the GPU) and a linear head (numpy).
+    features of the image (the engine, on the GPU) and a linear head (numpy).
 
     Pickle (training_notebooks/jetson/train_classification.ipynb):
         backbone : {name, repo, revision} — one of _BACKBONES, the release
@@ -779,8 +780,8 @@ class CLS(object):
     def __call__(self, img, conf=0.5, top_k=1, **kwargs):
         if img is None or img.size == 0:
             return []
-        summary = self.model(_letterbox_centered(img, self.image_size)[None])["summary"].reshape(-1)
-        probs = self._softmax(self.weight @ summary + self.bias)
+        features = self.model(_letterbox_centered(img, self.image_size)[None])["features"].reshape(-1)
+        probs = self._softmax(self.weight @ features + self.bias)
 
         order = np.argsort(probs)[::-1]
         out = []

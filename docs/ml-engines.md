@@ -30,14 +30,14 @@ TensorRT 10.16.2, CUDA 13.2):
 | OD | RF-DETR-S (COCO) vs RF-DETR's `predict()` | 0 class mismatches, boxes ≤ 1.0 px, scores ≤ 0.014 | 16–17 ms |
 | SEG | RF-DETR Seg-S vs `predict()` | 0 class mismatches, boxes ≤ 0.8 px, mask IoU ≥ 0.993 | 30 ms |
 | KP | RF-DETR Keypoint vs `predict()` | 0 class mismatches, boxes ≤ 0.7 px, keypoints ≤ 0.7 px | 53 ms |
-| CLS | the notebook (C-RADIOv3-B) trained on `cls_capped`, its .pkl through TensorRT (`cls_valid.py`) | 98.19 % on valid (5 of 276 wrong) — the notebook's own result, exactly; DINOv3 ViT-S had 2 wrong on this set | 7.1 ms |
+| CLS | the notebook trained on `cls_capped`, its .pkl (11 KB) through TensorRT (`cls_valid.py`) | 99.28 % on valid (2 of 276 wrong) — the notebook's own result, exactly | 4.4 ms |
 | OCR | PP-OCRv6 medium | example image "JAGUAR" 0.996; a 4-line label read exactly at 1600 × 900 and 4056 × 2281 | 55–155 ms a run |
 | barcode | zxing-cpp | EAN-13, QR, DataMatrix, Code128 | |
 
 Every type through the live server (`server_test.py`), an OpenVINO model
 refused. Engine builds (once per model per unit): OD 3.0, SEG 3.3, KP
 3.7 minutes; built in, once per unit (the upgrade): the classifier
-backbone 1.5 minutes, OCR 17 (detection 10.4, recognition 6.4). A
+backbone 1 minute, OCR 17 (detection 10.4, recognition 6.4). A
 classifier has nothing of its own to build.
 
 Not yet: KP fine-tuned through `train_keypoint.ipynb` (the RF-DETR OD and
@@ -64,8 +64,8 @@ engine, `trt.py` the TensorRT engine, `common.py` what both share.
     returns `{"built": false}`.
 - **OCR and the classifier backbone are built in**, the unit's engine's:
   on OpenVINO the OCR models ship in the package (`dorna_vision/model/ocr`);
-  on TensorRT `dorna_vision.ai.fetch()` downloads PP-OCRv6 and C-RADIOv3-B
-  (pinned + sha256) and builds their engines — once per unit, the upgrade
+  on TensorRT `dorna_vision.ai.fetch()` downloads PP-OCRv6 and DINOv3
+  ViT-S/16 (pinned + sha256) and builds their engines — once per unit, the upgrade
   runs it.
 - **One inference context per thread** on both engines (OpenVINO infer
   requests, TensorRT execution contexts), so the server's worker threads
@@ -92,16 +92,18 @@ engine, `trt.py` the TensorRT engine, `common.py` what both share.
   classifier loaded); the pickle names it and carries the linear head:
 
   ```
-  {"backbone": {"name": "c-radio_v3-b", "repo": "nvidia/C-RADIOv3-B", "revision": ...},
-   "head": {"weight": [[...]] (C x 2304), "bias": [...]},   # plain lists
-   "cls": [...], "colors": {...}, "meta": {"type": "cls", "arch": "c-radio_v3-b-linear", ...}}
+  {"backbone": {"name": "dinov3_vits16", "repo": "timm/vit_small_patch16_dinov3.lvd1689m", "revision": ...},
+   "head": {"weight": [[...]] (C x 384), "bias": [...]},   # plain lists
+   "cls": [...], "colors": {...}, "meta": {"type": "cls", "arch": "dinov3_vits16-linear", ...}}
   ```
 
   Under 100 KB: `model_prepare` only checks the unit has that backbone, and a
   classifier trained on another release is refused with what to do. The
-  backbone's ONNX (RGB 0..1 in, its 2304-d summary out) is exported once
-  from the pinned Hugging Face release the notebook loads, and hosted
-  with its sha256 (`_BACKBONES` in `ai/trt.py`).
+  backbone's ONNX (the normalised image in, its 384-d pooled features
+  out) is exported once from the pinned Hugging Face release the notebook
+  loads and hosted with its sha256 — a release of this repo
+  (`backbone-dinov3_vits16`; `_BACKBONES` in `ai/trt.py`). One engine
+  (~47 MB) serves every classifier loaded; a classifier adds its head.
 - **The camera image goes straight in.** With `format: uint8-bgr` the
   engine takes OpenCV's uint8 BGR image; cast, channel order, mean/std and
   the layout run on the GPU (nodes prepended to the ONNX before TensorRT
@@ -118,7 +120,7 @@ object, original-image pixels):
 | `seg` | — | RF-DETR Seg (nano…xlarge) | + `polygon`: the outline, `[[x, y], …]` |
 | `rod` | mmrotate | — | `corners`: the rotated rectangle |
 | `kp` | RTMPose, top-down | RF-DETR Keypoints (Preview) | + `keypoints`: `[{cls (its name), conf, center, xyz?}]`; `pose_kp(result["keypoints"], geometry)` |
-| `cls` | image classifier | C-RADIOv3-B (built in) + linear head | one per image: `cls, conf` |
+| `cls` | image classifier | DINOv3 ViT-S/16 (built in) + linear head | one per image: `cls, conf` |
 | `anom` | STFPM | — | one verdict per image: `cls` (pass/fail), `conf` (the score) |
 | `ocr` | horizontal-text det + PP-OCR rec (built in) | PP-OCRv6 medium (built in) | one per text line: `cls` (the text), `conf`, `corners` |
 | `barcode` | zxing-cpp | zxing-cpp | `cls` (the content), `format` |
@@ -143,27 +145,30 @@ Notes:
   image (as its training does), so borderline scores can differ from
   `predict()` by a few hundredths.
 - **CLS on TensorRT** has nothing to tune: no augmentation (it did not
-  help a frozen backbone), every class weighted equally (20 fail images
-  next to 200 good ones otherwise pull the head toward good — C-RADIOv3-B,
-  20 per kind: 8.4 % wrong weighted, 10.1 % not; the table below is
-  unweighted), the head's regularisation picked
-  by cross-validation on the training images. The backbone was chosen by
-  benchmark (2026-11-17): capped crops — absence / partial / good — split
-  by burst, and across two sessions two hours apart, the head trained on
-  20 or 50 bad images per kind. Mistakes (fails passed + good paused):
+  help a frozen backbone), every class weighted equally (a few fail
+  images next to many good ones otherwise pull the head toward good), the
+  head's regularisation picked by cross-validation on the training
+  images. The backbone was chosen by benchmark (2026-11-18, the clean
+  capped splits: whole bursts kept together, and across two sessions two
+  hours apart; the head trained on 20 or 50 bad images per kind). Share
+  of 1,243 test images wrong, DINOv3 ViT-S/16 on the unit's engine:
 
-  | | DINOv3 ViT-S/16 | C-RADIOv3-B | C-RADIOv4-SO400M |
+  | the check | 20 bad per kind | 50 | all |
   |---|---|---|---|
-  | same session, 20 / 50 per kind | 10 % / 6 % | **6 % / 3 %** | 9 % / 4 % |
-  | other session, 20 / 50 per kind | 15 % / 13 % | **11 %** / 9 % | 12 % / **8 %** |
-  | a check on the Jetson (TensorRT) | 4.4 ms | 7.1 ms | 29.6 ms |
+  | missing cap = fail, half-seated = pass | **2.0 %** | 1.2 % | 1.0 % |
+  | missing and half-seated = fail | 11.6 % | 9.2 % | 9.1 % |
 
-  The head trained on PyTorch float32 features (the notebook's) and run
-  on the unit's BF16 engine gives the same verdicts as both on one side
-  (the engine's summary: cosine ≥ 0.990 to float32). Earlier
-  (`tools/verify/cls_bench.py`, the capped set's random split): DINOv3
-  ViT-S/16 beat ViT-S+/B and ConvNeXt-T/S/B and tied MobileNetV4-Small
-  fine-tuned.
+  The errors left in the second row are half-seated caps across
+  sessions: a millimetre or two in a small crop — the image carries too
+  little signal for any frozen backbone (C-RADIOv3-B, also tried: 8.4 %,
+  but worse on missing caps, 9 % of them passed against DINOv3's 4 %,
+  and slower). The head's cutoff trades the two errors: on the missing-cap
+  check, P(pass) ≥ 0.9 passes 0.9 % of missing caps and pauses 3 % of
+  good ones. The head trained on the notebook's PyTorch float32 features
+  and run on the unit's BF16 engine gives the same verdicts within a
+  tenth of a point. Earlier (`tools/verify/cls_bench.py`, the capped
+  set's random split): ViT-S/16 beat ViT-S+/B and ConvNeXt-T/S/B and
+  tied MobileNetV4-Small fine-tuned.
 - **OCR on TensorRT** follows PaddleOCR's pipeline (its OCR.yaml
   defaults, its DB post-process, crop and reading order) except two
   deliberate changes: text detection runs on the image scaled to at most
@@ -194,9 +199,10 @@ for a Pi, `training_notebooks/jetson/` for a Jetson.
 
 ## Licenses that ship with the models
 
-- **C-RADIOv3-B** (the classifier backbone on TensorRT): NVIDIA Open
-  Model License — commercial use allowed; the notice ships with the
-  models: `licenses/NVIDIA-Open-Model-License.md`.
+- **DINOv3** (the classifier backbone on TensorRT): Meta's DINOv3
+  License — commercial use allowed; no military / weapons use; a copy
+  ships with the models: `licenses/DINOv3-LICENSE.md` (and with the
+  backbone's release).
 - **PP-OCRv6**, **RF-DETR**: Apache-2.0.
 - **Cosmos Reason 2** (next): NVIDIA Open Model License — commercial use
   allowed; products using it must say "Built on NVIDIA Cosmos".
