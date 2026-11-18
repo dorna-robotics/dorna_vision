@@ -166,14 +166,16 @@ To connect to a robot from the Dorna Lab session, follow these steps:
 
 The vision kit comes with a built-in **detection app** software which lets you to visually build your vision applications directly from a web browser. The detection app  generates the necessary API calls for you. You can then use these generated calls within your code to perform object detection, simplifying the process and integrating detection capabilities seamlessly into your applications.
 
-The detection app runs as a web server on the vision kit. Start it with:
+The detection app runs as a web server on the vision kit, port 4001 — the
+`dorna-vision` service the upgrade installs starts it at boot. Open it in
+your browser:
 ```bash
-python3 -m dorna_vision.server --host 0.0.0.0 --port 5000
+http://vision_kit_ip_address:4001/
 ```
 
-Then open it in your browser:
+To run it by hand instead (the service stopped: `sudo systemctl stop dorna-vision`):
 ```bash
-http://vision_kit_ip_address:5000/
+sudo python3 -m dorna_vision.server --host 0.0.0.0    # port 4001 by default
 ```
 </p>
 <p align="center">

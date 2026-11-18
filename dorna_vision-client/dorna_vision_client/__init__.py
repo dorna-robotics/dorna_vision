@@ -268,7 +268,7 @@ class VisionClient(object):
     def last_error(self):
         return self._last_error
 
-    def connect(self, host="127.0.0.1", port=8765, path="/ws", timeout=5, default_timeout=DEFAULT_TIMEOUT):
+    def connect(self, host="127.0.0.1", port=4001, path="/ws", timeout=5, default_timeout=DEFAULT_TIMEOUT):
         # idempotent: drop any prior session cleanly
         if self._ws is not None or self._reader is not None or self._connected:
             self.close()

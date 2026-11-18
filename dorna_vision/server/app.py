@@ -12,7 +12,7 @@ from .mqtt_relay import MQTTDeviceObserver
 from .files import FilesHandler, FilesSocket, UploadHandler, default_captures_dir, ensure_root
 
 
-DEFAULT_PORT = 80
+DEFAULT_PORT = 4001   # every vision server's port: the Pi's and the Jetson's
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 STATIC_DIR = os.path.join(WEB_DIR, "static")

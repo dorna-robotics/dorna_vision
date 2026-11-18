@@ -18,7 +18,7 @@ To update later, run `git pull` and the installed package picks up the changes.
 from dorna_vision_client import VisionClient
 
 vc = VisionClient()
-vc.connect()   # defaults: host="127.0.0.1", port=8765
+vc.connect()   # defaults: host="127.0.0.1", port=4001 (the vision server's port)
 
 devs = vc.camera_list()
 serial_number = devs[0]["serial_number"]
