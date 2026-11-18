@@ -232,7 +232,7 @@ When the camera is fixed in space (not on the robot), the chain root is the **le
 
 
 ### AI Models
-> **Note:** Training notebooks for each detection method live in [`training_notebooks/`](training_notebooks), one folder per engine: [`openvino/`](training_notebooks/openvino) (the Pi) and [`tensorrt/`](training_notebooks/tensorrt) (the Jetson). Upload the relevant `.ipynb` to Google Colab and follow the in-notebook instructions.
+> **Note:** Training notebooks for each detection method live in [`training_notebooks/`](training_notebooks), one folder per unit: [`pi/`](training_notebooks/pi) (OpenVINO) and [`jetson/`](training_notebooks/jetson) (TensorRT). Upload the relevant `.ipynb` to Google Colab and follow the in-notebook instructions.
 
 AI Models allows us to use AI to identify features, patterns, or objects of interest in images. This can be useful when you need to identify complex things within an image, such as scene context, specific objects, or text, and use that information to make decisions. To enable this feature, select either `Object detection` or `Image classification` from the `Detection method` dropdown, and provide the path to your AI model in the `Model path` field.
 

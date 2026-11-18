@@ -19,7 +19,7 @@ import sys
 
 from dorna_vision.detect import Detection
 
-M, I = "example/model/", "example/img/"
+M, I = "example/model/pi/", "example/img/"
 CASES = {
     "od":      ({"cmd": "od", "path": M + "tube.pkl", "conf": 0.3}, I + "tube.jpg"),
     "rod":     ({"cmd": "rod", "path": M + "cardamom.pkl", "conf": 0.15}, I + "cardamom.jpg"),

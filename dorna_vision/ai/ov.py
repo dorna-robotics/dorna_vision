@@ -2,7 +2,7 @@
 The OpenVINO engine — the Pi's CPU. Each class is a single-purpose,
 init-once / call-many wrapper around an OpenVINO IR model packaged in a
 pickle (written by the training notebooks under
-training_notebooks/openvino/):
+training_notebooks/pi/):
 
     {
         "xml":     "<openvino IR XML, str>",

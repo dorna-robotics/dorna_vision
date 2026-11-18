@@ -4,8 +4,8 @@ One code base, one branch (`pro`), on two kinds of vision unit:
 
 | engine | unit | install | runs | notebooks |
 |---|---|---|---|---|
-| **OpenVINO** | a Raspberry Pi — the CPU | `pip install -e ".[pi]"` (upgrade `vision_pro`) | OD, ROD, KP (top-down), CLS, ANOM, OCR | `training_notebooks/openvino/` |
-| **TensorRT** | an NVIDIA Jetson Orin Nano Super — the GPU | `pip install -e ".[jetson]"` (upgrade `jetson`) | OD, SEG, KP, CLS, OCR | `training_notebooks/tensorrt/` |
+| **OpenVINO** | a Raspberry Pi — the CPU | `pip install -e ".[pi]"` (upgrade `vision_pro`) | OD, ROD, KP (top-down), CLS, ANOM, OCR | `training_notebooks/pi/` |
+| **TensorRT** | an NVIDIA Jetson Orin Nano Super — the GPU | `pip install -e ".[jetson]"` (upgrade `jetson`) | OD, SEG, KP, CLS, OCR | `training_notebooks/jetson/` |
 
 Everything outside the model code — the server, the playground, the
 cameras, ROI, drawing, sorting, poses, barcodes, VLM — is the same code on
@@ -145,13 +145,13 @@ Notes:
 Training runs in **Colab** (GPU), never on a unit: the notebooks download
 a Roboflow export, train, export the engine's format, check it against
 PyTorch, and download the `.pkl`. Then on the unit: `model_prepare` once,
-then use it. Train for the unit's engine — `training_notebooks/openvino/`
-for a Pi, `training_notebooks/tensorrt/` for a Jetson.
+then use it. Train for the unit's engine — `training_notebooks/pi/`
+for a Pi, `training_notebooks/jetson/` for a Jetson.
 
 - The three RF-DETR notebooks are generated from shared cells so they
   cannot drift: edit `tools/make_rfdetr_notebooks.py` / `tools/rfdetr_pkl.py`,
-  then `python3 tools/make_rfdetr_notebooks.py training_notebooks/tensorrt tools/rfdetr_pkl.py`.
-  CLS: `python3 tools/make_classification_notebook.py training_notebooks/tensorrt/train_classification.ipynb`.
+  then `python3 tools/make_rfdetr_notebooks.py training_notebooks/jetson tools/rfdetr_pkl.py`.
+  CLS: `python3 tools/make_classification_notebook.py training_notebooks/jetson/train_classification.ipynb`.
 - **Reference datasets** live in `datasets/` (git-ignored —
   `.git/info/exclude` — not committed): `cls_capped`, `seg_coco_sample`,
   `kp_coco_sample`, with their own README. The COCO ones are rebuilt with
@@ -200,7 +200,7 @@ recording (`openvino_regression.py`), a running server on either engine
 
 ## Next steps
 
-1. **KP** fine-tuned through `training_notebooks/tensorrt/train_keypoint.ipynb`
+1. **KP** fine-tuned through `training_notebooks/jetson/train_keypoint.ipynb`
    (`run_notebook.py` + `nb_parity_check.py`).
 2. **Cosmos Reason 2 2B** as a local `vlm` backend on the Jetson
    (TensorRT Edge-LLM, INT4) next to Gemini; measure it on the capped set

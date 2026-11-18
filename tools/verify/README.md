@@ -13,7 +13,7 @@ like is in the table.
 | `server_test.py <host:port> <cmd>:<model.pkl>:<image> … [refuse:<model.pkl>:x]` + a running server | each model prepared (then again: nothing to build), shipped as the playground ships it, run, its results the shape of its type; a file that is no model of this unit's engine refused | every case `ok`, exit 0 |
 
 On the Pi: `openvino_regression.py` with the example models
-(`example/model/`); `server_test.py` against a server on a free port
+(`example/model/pi/`); `server_test.py` against a server on a free port
 (`sudo python3 -m dorna_vision.server --port 4011 --no-mqtt`).
 
 ## The Jetson (TensorRT)

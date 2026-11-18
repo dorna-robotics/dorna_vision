@@ -6,7 +6,7 @@ prepare() builds the TensorRT engine on this computer, once per model (an
 engine is tied to the GPU and the TensorRT version that built it), and
 caches it. Loading a model never builds — an unprepared one raises
 ModelNotPreparedError. The pickle schema (written by the training
-notebooks under training_notebooks/tensorrt/):
+notebooks under training_notebooks/jetson/):
 
     {
         "onnx":   <ONNX graph, bytes>    # one float input (1, 3, H, W)

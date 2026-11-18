@@ -1,4 +1,4 @@
-"""Writes training_notebooks/tensorrt/train_classification.ipynb (DINOv3 + linear
+"""Writes training_notebooks/jetson/train_classification.ipynb (DINOv3 + linear
 head) — keeps the existing notebook's metadata (Colab GPU runtime)."""
 import json, sys
 
