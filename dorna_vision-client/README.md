@@ -73,10 +73,16 @@ are JPEG whatever the file extension. This is the calling computer's disk; the
 detection's own `display={"save_img_roi": ...}` option writes on the vision
 unit instead.
 
+Whatever this client writes — and whatever the vision server writes — takes
+the owner of the folder it is written in: a program running as root (the
+orchestrator, Jupyter, sudo) still leaves files the operator owns.
+
 ## Saving images on this computer, every run
 
 `save_img` / `save_img_roi` in a detection's `display` save on the vision
-unit. `client_save_img` / `client_save_img_roi` take the same values but the
+unit — a relative path inside its captures folder (`/home/dorna/captures`,
+the vision page's Files), `true` its `output/`. `client_save_img` /
+`client_save_img_roi` take the same values but the
 file is written on the computer that added the detection — the frame comes
 with no extra request, encoded after the run on the server's own thread, so
 the run's reply is never delayed.
@@ -84,7 +90,7 @@ the run's reply is never delayed.
 ```python
 vc.detection_add("cnt", camera_serial_number=sn, detection={"cmd": "cnt"},
                  display={"label": 1,
-                          "save_img": "/home/dorna/captures/cnt/",   # on the vision unit
+                          "save_img": "cnt/",                        # the vision unit's captures/cnt/
                           "client_save_img": "captures/cnt/",        # on this computer
                           "client_save_img_roi": False})
 vc.detection("cnt").run()        # captures/cnt/<timestamp>.jpg appears here shortly after

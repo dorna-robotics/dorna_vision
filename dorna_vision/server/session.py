@@ -16,9 +16,13 @@ class ClientSession(object):
     shuts down.
     """
 
-    def __init__(self, camera_pool, robot_pool):
+    def __init__(self, camera_pool, robot_pool, captures_dir):
         self.camera_pool = camera_pool
         self.robot_pool = robot_pool
+        # The server's captures folder (the Files page's): every detection
+        # this session adds saves a relative display.save_img /
+        # save_img_roi path there (Detection.files_root).
+        self.captures_dir = captures_dir
 
         self._lock = threading.Lock()
         self._detections = {}                      # name -> Detection
@@ -75,6 +79,7 @@ class ClientSession(object):
         if isinstance(det_cfg, dict) and det_cfg.get("cmd") == "vlm":
             detection_kwargs["detection"] = {**det_cfg, "log_name": name}
         det = Detection(camera=cam, robot=robot, **detection_kwargs)
+        det.files_root = str(self.captures_dir)
         if isinstance(det_cfg, dict) and det_cfg.get("cmd") == "vlm":
             if not vlm_key:                 # misconfiguration fails the ADD, never a run
                 raise ValueError(f"vlm detection {name!r}: no key — give key, or key_path "

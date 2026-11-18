@@ -169,16 +169,38 @@ def _vlm_args(kwargs):
     return kwargs
 
 
-def _hand_back(path):
-    """Under sudo, give a file or folder this process created back to the
-    invoking user — same rule as the server's save_img. Never raises."""
+# Who owns what this client writes — the server package's rule
+# (dorna_vision/ownership.py), copied: this package installs without it. A
+# file or folder it creates takes the owner of the folder it is created in —
+# the robot program runs as root (the orchestrator's service, Jupyter, sudo),
+# the project folder is the operator's. Not root: nothing to change. Never
+# raises: ownership never fails a save.
+def _own(path):
+    if os.geteuid() != 0:
+        return
     try:
-        uid = int(os.environ.get("SUDO_UID", -1))
-        gid = int(os.environ.get("SUDO_GID", -1))
-        if uid >= 0:
-            os.chown(path, uid, gid)
+        st = os.stat(os.path.dirname(os.path.abspath(path)))
+        os.chown(path, st.st_uid, st.st_gid)
     except Exception:
         pass
+
+
+def _makedirs(path):
+    """os.makedirs(path, exist_ok=True), each folder it creates owned like
+    the folder it was made in. Returns path."""
+    path = os.path.abspath(path)
+    missing = []
+    p = path
+    while not os.path.isdir(p):
+        missing.append(p)
+        parent = os.path.dirname(p)
+        if parent == p:
+            break
+        p = parent
+    os.makedirs(path, exist_ok=True)
+    for p in reversed(missing):
+        _own(p)
+    return path
 
 
 def _client_save(event, data):
@@ -201,12 +223,11 @@ def _client_save(event, data):
     else:
         folder = "output"
         path = os.path.join(folder, stem + ext)
-    if folder and not os.path.isdir(folder):
-        os.makedirs(folder, exist_ok=True)
-        _hand_back(folder)
+    if folder:
+        _makedirs(folder)
     with open(path, "wb") as fh:
         fh.write(data)
-    _hand_back(path)
+    _own(path)
     return path
 
 
@@ -1004,10 +1025,10 @@ class _ObjectProxy(object):
         if path.endswith(("/", os.sep)) or os.path.isdir(path):
             stem = str(int(time.time() * 1000))
             path = os.path.join(path, ("roi_" if type == "img_roi" else "") + stem + ".jpg")
-        folder = os.path.dirname(os.path.abspath(path))
-        os.makedirs(folder, exist_ok=True)
+        _makedirs(os.path.dirname(os.path.abspath(path)))
         with open(path, "wb") as fh:
             fh.write(jpeg)
+        _own(path)
         return path
 
     def __getattr__(self, method):

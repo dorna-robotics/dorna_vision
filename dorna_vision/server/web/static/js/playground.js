@@ -403,7 +403,7 @@ const SECTION_SCHEMAS = [
   {
     tab: "setting", key: "display", label: "Display", enable: true,
     off: { label: 0, save_img: 0, save_img_roi: 0, client_save_img: 0, client_save_img_roi: 0, client_save_log: 0 },
-    desc: "Configure how inference results are presented and saved.",
+    desc: "Configure how inference results are presented and saved. A relative save path is inside the captures folder (Files).",
     fields: [
       { key: "label", label: "Display style", kind: "select",
         options: [

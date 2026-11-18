@@ -19,6 +19,14 @@ import numpy as np
 
 from dorna2 import Kinematic
 
+from dorna_vision import ownership
+
+
+def _write_owned(path, img):
+    """A saved image, owned like its folder (dorna_vision/ownership.py)."""
+    cv.imwrite(path, img)
+    ownership.own(path)
+
 
 class _Intrinsics(object):
     """Minimal intrinsics shim carrying just the fields camera.pixel() reads
@@ -61,11 +69,13 @@ class Detection(object):
             # Moved to opt-in helpers: detection.pose_plane(...) /
             # pose_kp(...) called after run() on the result you want.
             sort={"cmd": None, "max_det":100}, # {"cmd":"conf", "ascending":False, "max_det":100}, {"cmd":"pxl", "pxl":[w,h], "ascending":True, "max_det":100}, {"cmd":"xyz", "xyz":[x,y,z], "ascending":True, "max_det":100}
-            # save_img / save_img_roi save on THIS machine; client_save_img /
-            # client_save_img_roi take the same values but the file is
-            # written on the computer that owns the detection — the frame
-            # goes there through ``push_fn`` (the vision server). Off unless
-            # set; a Detection without push_fn ignores the client_ keys.
+            # save_img / save_img_roi save on THIS machine (_save_path: a
+            # relative path is relative to files_root — the vision server's
+            # captures folder); client_save_img / client_save_img_roi take
+            # the same values but the file is written on the computer that
+            # owns the detection — the frame goes there through ``push_fn``
+            # (the vision server). Off unless set; a Detection without
+            # push_fn ignores the client_ keys.
             display={"label":0, "save_img":0, "save_img_roi":0,
                      "client_save_img":0, "client_save_img_roi":0, "client_save_log":0},
             # Per-detection focus pin (cameras with a focus surface — uEye
@@ -139,6 +149,13 @@ class Detection(object):
         # Called on the run thread, so it must only queue — the encode and
         # the send happen elsewhere.
         self.push_fn = None
+
+        # Where display.save_img / save_img_roi (and the vlm log, written
+        # here when there is no push_fn) put a RELATIVE path — set by the
+        # owner: the vision server's session sets its captures folder, so a
+        # detection's saves appear in the Files page. None: the current
+        # folder, as any Python path (a notebook).
+        self.files_root = None
 
         # camera data
         self.camera_data = None
@@ -343,14 +360,41 @@ class Detection(object):
                     if self.push_fn is not None:
                         self.push_fn("vlm_log", data, ts, path)
                     else:
-                        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+                        path = self._resolve(path)
+                        ownership.makedirs(os.path.dirname(path))
                         with open(path, "wb") as fh:
                             fh.write(data)
+                        ownership.own(path)
                 except Exception:
                     import traceback
                     traceback.print_exc()           # a log problem never fails the run
         return entries
 
+
+    def _resolve(self, path):
+        """A path this Detection writes on THIS machine: ~ expanded; a relative
+        one joined to files_root (the server's captures folder), or kept
+        relative to the current folder when there is none."""
+        path = os.path.expanduser(str(path))
+        if self.files_root is not None and not os.path.isabs(path):
+            path = os.path.join(self.files_root, path)
+        return path
+
+    def _save_path(self, value, prefix, timestamp):
+        """Where display.save_img (prefix "") / save_img_roi ("roi_") writes
+        this run's image — its folder made, owned like the folder it is in:
+          True / 1           output/<prefix><timestamp>.jpg
+          "folder/" or a dir  <prefix><timestamp>.jpg inside it
+          anything else       that file, overwritten every run
+        Relative to files_root (_resolve)."""
+        name = prefix + str(int(timestamp)) + ".jpg"
+        if not isinstance(value, str):
+            return os.path.join(ownership.makedirs(self._resolve("output")), name)
+        path = self._resolve(value)
+        if value.endswith(("/", os.sep)) or os.path.isdir(path):
+            return os.path.join(ownership.makedirs(path), name)
+        ownership.makedirs(os.path.dirname(os.path.abspath(path)))
+        return path
 
     def threshold(self):
         """
@@ -1044,61 +1088,15 @@ class Detection(object):
                 self.retval["valid"].append(dict(r))
 
             
-            def _own(path):
-                # The server runs under sudo (platform convention) —
-                # without this, every folder/jpg it creates is
-                # root-owned and the operator cannot delete it.
-                try:
-                    uid = int(os.environ.get("SUDO_UID", -1))
-                    gid = int(os.environ.get("SUDO_GID", -1))
-                    if uid >= 0:
-                        os.chown(path, uid, gid)
-                except Exception:
-                    pass
-
-            def _imwrite_owned(path, img):
-                cv.imwrite(path, img)
-                _own(path)
-
-            # save image
-            if "save_img" in self.display and self.display["save_img"]:
-                if isinstance(self.display["save_img"], str):
-                    # a FOLDER (trailing slash or existing dir) keeps the
-                    # default timestamped naming inside it; anything else
-                    # is a full file path, overwritten each detection
-                    save_img_path = self.display["save_img"]
-                    if save_img_path.endswith("/") or os.path.isdir(save_img_path):
-                        os.makedirs(save_img_path, exist_ok=True)
-                        _own(save_img_path)
-                        save_img_path = os.path.join(save_img_path, str(int(camera_data["timestamp"]))+".jpg")
-                else:
-                    # make directory if not exists
-                    os.makedirs("output", exist_ok=True)
-                    _own("output")
-                    save_img_path = "output/"+str(int(camera_data["timestamp"]))+".jpg"
-                # Create a thread to perform the file write operation
-                thread = threading.Thread(target=_imwrite_owned, args=(save_img_path, img_adjust))
-                thread.start()
-                self.thread_list.append(thread)
-
-            # save image
-            if "save_img_roi" in self.display and self.display["save_img_roi"]:
-                if isinstance(self.display["save_img_roi"], str):
-                    # folder -> default "roi_<timestamp>.jpg" naming inside it
-                    save_img_path = self.display["save_img_roi"]
-                    if save_img_path.endswith("/") or os.path.isdir(save_img_path):
-                        os.makedirs(save_img_path, exist_ok=True)
-                        _own(save_img_path)
-                        save_img_path = os.path.join(save_img_path, "roi_"+str(int(camera_data["timestamp"]))+".jpg")
-                else:
-                    # make directory if not exists
-                    os.makedirs("output", exist_ok=True)
-                    _own("output")
-                    save_img_path = "output/roi_"+str(int(camera_data["timestamp"]))+".jpg"
-                # Create a thread to perform the file write operation
-                thread = threading.Thread(target=_imwrite_owned, args=(save_img_path, img_roi))
-                thread.start()
-                self.thread_list.append(thread)
+            # save the annotated image / the ROI (display.save_img / save_img_roi),
+            # written on a thread — the run never waits for the disk
+            for key, prefix, img in (("save_img", "", img_adjust), ("save_img_roi", "roi_", img_roi)):
+                value = (self.display or {}).get(key)
+                if value:
+                    path = self._save_path(value, prefix, camera_data["timestamp"])
+                    thread = threading.Thread(target=_write_owned, args=(path, img))
+                    thread.start()
+                    self.thread_list.append(thread)
 
 
             # img

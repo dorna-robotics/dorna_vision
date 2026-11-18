@@ -14,13 +14,12 @@ the workspace orchestrator's); this file only names the root:
     PUT  /api/files/upload?path=sub&name=a.jpg the file as the body, streamed to disk
 
 Delete removes a file or an EMPTY folder only — emptying a folder of
-captures is a deliberate sequence, never one mis-click. The server runs
-as root (a systemd service, or by hand under sudo), so every file and
-folder it creates here is given the captures folder's own owner — the
-operator's: the upgrade makes ``/home/dorna/captures`` dorna's and starts
-the service with it; a server started by hand under sudo makes its
-``~/captures`` the invoking user's — or the operator could not touch it
-from Jupyter or a shell.
+captures is a deliberate sequence, never one mis-click. Every file and
+folder created here is owned like the folder it is in
+(dorna_vision/ownership.py): the operator's — the upgrade makes
+``/home/dorna/captures`` dorna's and starts the service with it; a server
+started by hand under sudo makes ``~/captures`` in the invoking user's
+home.
 """
 import mimetypes
 import os
@@ -28,6 +27,8 @@ import pwd
 from pathlib import Path
 
 import tornado.web
+
+from dorna_vision import ownership
 
 
 def default_captures_dir() -> Path:
@@ -42,30 +43,10 @@ def default_captures_dir() -> Path:
     return Path.home() / "captures"
 
 
-def hand_back(path: Path, root: Path) -> None:
-    """Give a file or folder the server created inside the captures folder
-    ``root`` that folder's owner. Never raises."""
-    try:
-        st = root.stat()
-        os.chown(path, st.st_uid, st.st_gid)
-    except Exception:
-        pass
-
-
 def ensure_root(root: Path) -> Path:
-    """The captures folder, made when missing — by a server started by hand
-    under sudo, for the invoking user (SUDO_UID); the service's is made by
-    the upgrade, the operator's already."""
-    root = Path(root).expanduser().resolve()
-    if not root.exists():
-        root.mkdir(parents=True, exist_ok=True)
-        try:
-            uid = int(os.environ.get("SUDO_UID", -1))
-            if uid >= 0:
-                os.chown(root, uid, int(os.environ.get("SUDO_GID", -1)))
-        except Exception:
-            pass
-    return root
+    """The captures folder, made when missing, owned like the folder it is
+    made in (the upgrade makes the service's beforehand)."""
+    return Path(ownership.makedirs(Path(root).expanduser().resolve()))
 
 
 from . import fslive                          # noqa: E402
@@ -116,7 +97,7 @@ class UploadHandler(fslive.UploadHandler):
         return self.root
 
     def created(self, path: Path) -> None:
-        hand_back(path, self.root)
+        ownership.own(path)
 
 
 class FilesSocket(fslive.FilesSocket):
@@ -131,4 +112,4 @@ class FilesSocket(fslive.FilesSocket):
         return self.root
 
     def created(self, path: Path) -> None:
-        hand_back(path, self.root)
+        ownership.own(path)

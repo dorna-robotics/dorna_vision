@@ -122,6 +122,7 @@ def make_app(camera_pool, robot_pool, default_executor, captures_dir):
             "camera_pool": camera_pool,
             "robot_pool": robot_pool,
             "default_executor": default_executor,
+            "captures_dir": captures_dir,
         }),
         (r"/static/(.*)", NoCacheStaticFileHandler, {"path": STATIC_DIR}),
         # Files page — the captures folder (see files.py). Before the SPA

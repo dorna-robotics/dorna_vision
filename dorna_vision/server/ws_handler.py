@@ -107,10 +107,11 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
     def check_origin(self, origin):
         return True
 
-    def initialize(self, camera_pool, robot_pool, default_executor):
+    def initialize(self, camera_pool, robot_pool, default_executor, captures_dir):
         self.camera_pool = camera_pool
         self.robot_pool = robot_pool
         self.default_executor = default_executor
+        self.captures_dir = captures_dir
         self.session = None
         self._write_lock = asyncio.Lock()
         # When a JSON envelope arrives with binary_follows=true and its cmd
@@ -125,7 +126,7 @@ class VisionWSHandler(tornado.websocket.WebSocketHandler):
         self._push_executor = None      # one worker, created on first push
 
     async def open(self):
-        self.session = ClientSession(self.camera_pool, self.robot_pool)
+        self.session = ClientSession(self.camera_pool, self.robot_pool, self.captures_dir)
         self.session.push_sink = self._push_sink
         # For the site-bus handshake (bus_connect): the caller's own
         # address is the default broker host, and the observer is the

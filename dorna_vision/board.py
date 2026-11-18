@@ -1,5 +1,7 @@
 import cv2 as cv
 import numpy as np
+
+from dorna_vision import ownership
 cv.setRNGSeed(0)
 
 """
@@ -70,6 +72,7 @@ class Aruco(object):
     def create(self, board_path="board.png", marker_id=0):
         board = cv.aruco.generateImageMarker(self.dictionary, marker_id, self.marker_size)
         cv.imwrite(board_path, board)
+        ownership.own(board_path)
 
     def corner(self, img):
         """
@@ -269,6 +272,7 @@ class Charuco(object):
     """
     def create(self, board_path="board.png", width=1000, height=1000, margin=0):
         cv.imwrite(board_path, self.board.generateImage((width,height), margin, margin))
+        ownership.own(board_path)
 
     """
     detect charuco chess board corners
