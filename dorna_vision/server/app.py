@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import signal
 from concurrent.futures import ThreadPoolExecutor
@@ -10,6 +11,7 @@ from .pools import CameraPool, RobotPool
 from .ws_handler import VisionWSHandler
 from .mqtt_relay import MQTTDeviceObserver
 from .files import FilesHandler, FilesSocket, UploadHandler, default_captures_dir, ensure_root
+from . import system
 
 
 DEFAULT_PORT = 4001   # every vision server's port: the Pi's and the Jetson's
@@ -24,6 +26,72 @@ class IndexHandler(tornado.web.RequestHandler):
         self.set_header("Cache-Control", "no-store")
         with open(os.path.join(WEB_DIR, "index.html"), "rb") as fh:
             self.write(fh.read())
+
+
+class UnitHandler(tornado.web.RequestHandler):
+    """``GET /api/unit`` — the unit's declaration (system.unit): the page
+    offers its System item only where it says ``"system": "vision"``."""
+    def get(self):
+        self.set_header("Cache-Control", "no-store")
+        self.write(system.unit())
+
+
+class SystemHandler(tornado.web.RequestHandler):
+    """The System page (system.py).
+
+    ``GET  /api/system?fetch=1`` → the unit, the last upgrade's record, each
+    part vs what the upgrade installs, and what an upgrade would interrupt
+    here — the clients connected and the cameras open: the page's warnings.
+    ``POST /api/system`` ``{"confirmed": true}`` → starts the upgrade as its
+    own system job; refused when this unit does not give the System page to
+    the vision server, it is not installed, or one is already running."""
+
+    def initialize(self, camera_pool):
+        self.camera_pool = camera_pool
+
+    async def get(self):
+        try:
+            fetch = self.get_argument("fetch", "1") != "0"
+            out = await tornado.ioloop.IOLoop.current().run_in_executor(None, system.state, fetch)
+            with VisionWSHandler._conn_lock:
+                conns = list(VisionWSHandler._connections)
+            peers = []
+            for c in conns:
+                try:
+                    peers.append(c.request.connection.context.address[0])
+                except Exception:
+                    peers.append("?")
+            out.update(owned=system.owned(), clients=sorted(peers), cameras=sorted(self.camera_pool.list_pool_keys()))
+            self.set_header("Cache-Control", "no-store")
+            self.write(out)
+        except Exception as e:
+            self.set_status(400)
+            self.write({"error": str(e)})
+
+    async def post(self):
+        try:
+            body = json.loads(self.request.body or b"{}")
+            if body.get("confirmed") is not True:
+                raise ValueError("not confirmed")
+            self.write(await tornado.ioloop.IOLoop.current().run_in_executor(None, system.start))
+        except Exception as e:
+            self.set_status(400)
+            self.write({"error": str(e)})
+
+
+class SystemLogHandler(tornado.web.RequestHandler):
+    """``GET /api/system/log?since=<epoch>&cursor=<c>`` — the upgrade's
+    journal lines since it started (or after ``cursor``)."""
+
+    async def get(self):
+        try:
+            since = float(self.get_argument("since", "0") or 0)
+            cursor = self.get_argument("cursor", "")
+            self.set_header("Cache-Control", "no-store")
+            self.write(await tornado.ioloop.IOLoop.current().run_in_executor(None, system.log, since, cursor))
+        except Exception as e:
+            self.set_status(400)
+            self.write({"error": str(e)})
 
 
 class NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
@@ -60,6 +128,11 @@ def make_app(camera_pool, robot_pool, default_executor, captures_dir):
         (r"/api/files", FilesHandler, {"root": captures_dir}),
         (r"/api/files/upload", UploadHandler, {"root": captures_dir}),
         (r"/ws/files", FilesSocket, {"root": captures_dir}),
+        # System page — this unit's upgrade (system.py), where the unit
+        # declares it the vision server's.
+        (r"/api/unit", UnitHandler),
+        (r"/api/system", SystemHandler, {"camera_pool": camera_pool}),
+        (r"/api/system/log", SystemLogHandler),
         # SPA fallback: any path that isn't /ws or /static/* serves index.html
         # so /, /cameras, /robots, /playground all render the same shell and
         # the client-side router picks the section.

@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/static/vendor/favicon.png"/>
   <link rel="stylesheet" href="/static/vendor/base.css"/>
   <link rel="stylesheet" href="/static/vendor/nav.css"/>
-  <link rel="stylesheet" href="/static/style.css?v=81"/>
+  <link rel="stylesheet" href="/static/style.css?v=82"/>
 </head>
 <body class="is-pre-init">
 
@@ -32,6 +32,13 @@
     <a href="/files" class="app-nav-link" data-route="files">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
       <span>Files</span>
+    </a>
+    <!-- System — this unit's upgrade. Shown only where the unit declares the
+         vision server its owner (/api/unit "system": "vision" — a vision Pi);
+         a Jetson upgrades from the workspace's System page. js/main.js. -->
+    <a href="/system" class="app-nav-link" data-route="system" id="navSystem" hidden>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><line x1="6" y1="6.5" x2="6.01" y2="6.5"/><line x1="6" y1="17.5" x2="6.01" y2="17.5"/></svg>
+      <span>System</span>
     </a>
   </div>
 </nav>
@@ -157,6 +164,11 @@
           <span class="fb-path"></span>
         </div>
       </div>
+    </section>
+
+    <!-- System — this unit's upgrade (js/system.js owns it). -->
+    <section data-page="system" class="page">
+      <div id="sys"></div>
     </section>
 
     <section data-page="playground" class="page">
@@ -532,6 +544,7 @@
 <script type="module" src="/static/js/cameras.js?v=78"></script>
 <script type="module" src="/static/js/playground.js?v=72"></script>
 <script type="module" src="/static/js/files.js?v=2"></script>
-<script type="module" src="/static/js/main.js?v=73"></script>
+<script type="module" src="/static/js/system.js?v=1"></script>
+<script type="module" src="/static/js/main.js?v=74"></script>
 </body>
 </html>

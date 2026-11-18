@@ -5,6 +5,7 @@ import { VisionClient, VisionServerError } from "/static/js/api.js?v=72";
 import * as Cameras    from "/static/js/cameras.js?v=72";
 import * as Playground from "/static/js/playground.js?v=72";
 import * as Files      from "/static/js/files.js?v=2";
+import * as System     from "/static/js/system.js?v=1";
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -20,6 +21,7 @@ const PAGE_HOOKS = {
   cameras:    { onShow: () => Cameras.onShow(),    onHide: () => Cameras.onHide() },
   playground: { onShow: () => Playground.onShow(), onHide: () => Playground.onHide() },
   files:      { onShow: () => Files.onShow(),      onHide: () => Files.onHide() },
+  system:     { onShow: () => System.onShow(),     onHide: () => System.onHide() },
 };
 let _currentRoute = null;
 
@@ -51,13 +53,13 @@ function showPage(name) {
   }
   $$("section.page").forEach(s => s.classList.toggle("active", s.dataset.page === name));
   $$(".app-nav-link").forEach(a => a.classList.toggle("active", a.dataset.route === name));
-  const titleMap = { home: "Home", cameras: "Cameras", playground: "Playground", files: "Files" };
+  const titleMap = { home: "Home", cameras: "Cameras", playground: "Playground", files: "Files", system: "System" };
   $("#pageTitle").textContent = titleMap[name] || "Home";
   _currentRoute = name;
   PAGE_HOOKS[name]?.onShow?.();
 }
 
-const ROUTES = ["home", "cameras", "playground", "files"];
+const ROUTES = ["home", "cameras", "playground", "files", "system"];
 
 function currentRoute() {
   const r = location.pathname.replace(/^\/+|\/+$/g, "") || "home";
@@ -118,6 +120,11 @@ async function refreshHome() {
   // derive the link from wherever the GUI was reached.
   const j = $("#homeCardJupyter");
   if (j) j.href = `http://${location.hostname}:8888/`;
+  // System — offered where the unit declares the vision server the owner of
+  // its upgrade (a vision Pi; /etc/dorna/unit.json, written by its upgrade).
+  // Elsewhere /system still answers, saying whose page it is.
+  fetch("/api/unit").then(r => r.ok ? r.json() : {}).catch(() => ({}))
+    .then(unit => { const n = $("#navSystem"); if (n) n.hidden = unit.system !== "vision"; });
   // Developer section — collapsible, always collapsed on load (same
   // behavior as the Workspace landing).
   const devToggle = $("#devToggle");
