@@ -134,14 +134,17 @@ next to many good ones count as much); its regularization is picked by 5-fold
 cross-validation on the training images only — the validation images stay unseen.
 """),
 code("""
-from sklearn.linear_model import LogisticRegressionCV
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 # class_weight "balanced": every class counts equally however many images it has — a few
-# fail images next to many good ones otherwise pull the head toward "good"
-head = make_pipeline(StandardScaler(), LogisticRegressionCV(Cs=10, cv=5, scoring="accuracy", max_iter=5000,
-                                                            class_weight="balanced"))
+# fail images next to many good ones otherwise pull the head toward "good". C by 5-fold
+# cross-validation on the training images. (The Jetson's tools/train_cls.py: the same head.)
+head = make_pipeline(StandardScaler(), GridSearchCV(
+    LogisticRegression(solver="newton-cg", max_iter=5000, class_weight="balanced"),
+    {"C": np.logspace(-4, 4, 10)}, cv=5, scoring="accuracy"))
 head.fit(X_train, y_train)
 
 probs = head.predict_proba(X_val)
@@ -210,7 +213,7 @@ the validation features and must give the probabilities above.
 code("""
 import pickle
 
-scaler, lr = head[0], head[-1]
+scaler, lr = head[0], head[-1].best_estimator_
 W = lr.coef_ / scaler.scale_
 b = lr.intercept_ - (lr.coef_ * scaler.mean_ / scaler.scale_).sum(axis=1)
 if W.shape[0] == 1:   # two classes: sklearn keeps one row; softmax([0, z]) == its probability

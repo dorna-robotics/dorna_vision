@@ -188,6 +188,11 @@ PyTorch, and download the `.pkl`. Then on the unit: `model_prepare` once,
 then use it. Train for the unit's engine — `training_notebooks/pi/`
 for a Pi, `training_notebooks/jetson/` for a Jetson.
 
+- **Internal: a classifier trained on the Jetson itself** —
+  `sudo python3 tools/train_cls.py <dataset> <out.pkl>` (a Roboflow folder
+  export): the notebook's head on the unit's own features, seconds for a
+  thousand images, the same .pkl. Not the customer workflow — that stays
+  the Colab notebook.
 - The three RF-DETR notebooks are generated from shared cells so they
   cannot drift: edit `tools/make_rfdetr_notebooks.py` / `tools/rfdetr_pkl.py`,
   then `python3 tools/make_rfdetr_notebooks.py training_notebooks/jetson tools/rfdetr_pkl.py`.
