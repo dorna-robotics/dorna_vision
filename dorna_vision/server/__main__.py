@@ -18,7 +18,8 @@ def cli():
                         help="Disable MQTT health publishing entirely.")
     parser.add_argument("--captures", default=None,
                         help="Folder the Files page browses. "
-                             "Default: ~/captures of the user who started the server.")
+                             "Default: ~/captures of the user who started the server "
+                             "(the upgrade's service: /home/dorna/captures).")
     args = parser.parse_args()
     main(
         host=args.host,

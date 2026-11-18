@@ -15,8 +15,12 @@ the workspace orchestrator's); this file only names the root:
 
 Delete removes a file or an EMPTY folder only — emptying a folder of
 captures is a deliberate sequence, never one mis-click. The server runs
-under sudo, so every file and folder it creates is handed back to the
-invoking user, or the operator could not delete it later.
+as root (a systemd service, or by hand under sudo), so every file and
+folder it creates here is given the captures folder's own owner — the
+operator's: the upgrade makes ``/home/dorna/captures`` dorna's and starts
+the service with it; a server started by hand under sudo makes its
+``~/captures`` the invoking user's — or the operator could not touch it
+from Jupyter or a shell.
 """
 import mimetypes
 import os
@@ -38,23 +42,29 @@ def default_captures_dir() -> Path:
     return Path.home() / "captures"
 
 
-def hand_back(path: Path) -> None:
-    """Give a file or folder the server created back to the invoking
-    user. Never raises."""
+def hand_back(path: Path, root: Path) -> None:
+    """Give a file or folder the server created inside the captures folder
+    ``root`` that folder's owner. Never raises."""
     try:
-        uid = int(os.environ.get("SUDO_UID", -1))
-        gid = int(os.environ.get("SUDO_GID", -1))
-        if uid >= 0:
-            os.chown(path, uid, gid)
+        st = root.stat()
+        os.chown(path, st.st_uid, st.st_gid)
     except Exception:
         pass
 
 
 def ensure_root(root: Path) -> Path:
+    """The captures folder, made when missing — by a server started by hand
+    under sudo, for the invoking user (SUDO_UID); the service's is made by
+    the upgrade, the operator's already."""
     root = Path(root).expanduser().resolve()
     if not root.exists():
         root.mkdir(parents=True, exist_ok=True)
-        hand_back(root)
+        try:
+            uid = int(os.environ.get("SUDO_UID", -1))
+            if uid >= 0:
+                os.chown(root, uid, int(os.environ.get("SUDO_GID", -1)))
+        except Exception:
+            pass
     return root
 
 
@@ -106,7 +116,7 @@ class UploadHandler(fslive.UploadHandler):
         return self.root
 
     def created(self, path: Path) -> None:
-        hand_back(path)
+        hand_back(path, self.root)
 
 
 class FilesSocket(fslive.FilesSocket):
@@ -121,4 +131,4 @@ class FilesSocket(fslive.FilesSocket):
         return self.root
 
     def created(self, path: Path) -> None:
-        hand_back(path)
+        hand_back(path, self.root)
