@@ -638,17 +638,36 @@ class VisionClient(object):
             args["auto"] = True
         return self._send("camera_exposure", args, timeout=timeout)
 
-    def camera_wb(self, serial_number, auto=None, hold=None, timeout=None):
-        """White balance (uEye XS). auto=True — in-camera auto WB;
-        hold=True — freeze WB at its current convergence (the bench
-        recipe: let auto settle on the lit scene, then hold —
-        deterministic color from then on). Neither just reports.
-        The XS ISP rejects fixed kelvin/rgb — hold is the fixed-WB tool."""
+    def camera_gain(self, serial_number, db=None, auto=None, timeout=None):
+        """Sensor gain, in dB — the GigE camera's ISO. db=<value> pins it
+        (auto off); auto=True re-enables auto gain; neither just reports.
+        Returns {"gain": <dB>, "auto": bool}."""
+        args = {"serial_number": serial_number}
+        if db is not None:
+            args["db"] = float(db)
+        elif auto:
+            args["auto"] = True
+        return self._send("camera_gain", args, timeout=timeout)
+
+    def camera_wb(self, serial_number, auto=None, once=None, hold=None, ratios=None, timeout=None):
+        """White balance. auto=True — in-camera continuous auto WB;
+        once=True — converge once on the scene, then hold (Hikrobot; it
+        settles over the next captures); hold=True — freeze WB at its
+        current convergence (the bench recipe: let auto settle on the lit
+        scene, then hold — deterministic color from then on);
+        ratios={"red": r, "green": g, "blue": b} — pin them (Hikrobot,
+        1024 = unity). Neither just reports. Returns {"wb": {"cfg": …,
+        …}}; the uEye XS ISP rejects fixed kelvin/rgb — hold is the
+        fixed-WB tool there."""
         args = {"serial_number": serial_number}
         if auto:
             args["auto"] = True
+        elif once:
+            args["once"] = True
         elif hold:
             args["hold"] = True
+        elif ratios:
+            args["ratios"] = {k: int(ratios[k]) for k in ("red", "green", "blue")}
         return self._send("camera_wb", args, timeout=timeout)
 
     def robot_add(self, host, port=443, timeout_connect=5, model="dorna_ta", config=None, timeout=None):

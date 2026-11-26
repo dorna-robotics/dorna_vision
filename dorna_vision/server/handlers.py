@@ -152,20 +152,29 @@ def camera_info(session, args):
             out["source"] = getattr(cam, "intr_source", "factory")
     except Exception as ex:
         out["K"], out["D"], out["intr_error"] = None, None, str(ex)
-    # Focus / exposure / WB surfaces (uEye XS) — absent on cameras
-    # without them.
+    # Focus / exposure / gain / WB — each reported by the camera that has
+    # it, absent on the others. A read that fails says so in its entry.
     if hasattr(cam, "focus_info"):
         try:
             out["focus"] = cam.focus_info()
         except Exception as ex:
             out["focus"] = {"supported": False, "error": str(ex)}
-    if hasattr(cam, "white_balance_info"):
+    if hasattr(cam, "get_exposure"):
         try:
             out["exposure"] = {"us": cam.get_exposure(),
                                "auto": bool(getattr(cam, "exposure_auto", None))}
+        except Exception as ex:
+            out["exposure"] = {"error": str(ex)}
+    if hasattr(cam, "get_gain"):
+        try:
+            out["gain"] = {"db": cam.get_gain(), "auto": getattr(cam, "gain_auto", None)}
+        except Exception as ex:
+            out["gain"] = {"error": str(ex)}
+    if hasattr(cam, "white_balance_info"):
+        try:
             out["wb"] = cam.white_balance_info()
-        except Exception:
-            pass
+        except Exception as ex:
+            out["wb"] = {"error": str(ex)}
     # Stream health (GigE): frames/packets received vs lost since the
     # session started, and the pacing in effect. A camera whose
     # recv_frames stops climbing is dead, whatever the link load says.
@@ -238,13 +247,42 @@ def camera_exposure(session, args):
             "auto": bool(getattr(cam, "exposure_auto", None))}
 
 
+def camera_gain(session, args):
+    """Sensor gain, in dB — the GigE camera's ISO. args: serial_number +
+    ONE of
+      {"db": 0}        pin the gain (disables auto)
+      {"auto": true}   hand it back to the sensor's auto gain
+    Neither -> just report."""
+    sn = args.get("serial_number")
+    if not sn:
+        raise ValueError("serial_number is required")
+    cam = session.camera_pool.get(sn)
+    if cam is None:
+        raise ValueError("camera not found: %s" % sn)
+    if not hasattr(cam, "set_gain"):
+        raise ValueError("camera %s has no gain control" % sn)
+    if args.get("db") is not None:
+        cam.set_gain(float(args["db"]))
+    elif args.get("auto"):
+        cam.auto_gain(True)
+    return {"serial_number": sn,
+            "gain": cam.get_gain(),
+            "auto": getattr(cam, "gain_auto", None)}
+
+
 def camera_wb(session, args):
-    """White-balance control (uEye XS). args: serial_number + one of
-      {"auto": true}   in-camera auto WB
+    """White-balance control. args: serial_number + one of
+      {"auto": true}   in-camera continuous auto WB
+      {"once": true}   converge once on the scene, then hold (Hikrobot) —
+                       the camera settles over the next captures
       {"hold": true}   freeze WB at its current convergence — the bench
                        recipe: let auto settle on the lit scene, hold,
                        deterministic color from then on
-    Neither -> just report. (The XS ISP rejects fixed kelvin/rgb.)"""
+      {"ratios": {"red": r, "green": g, "blue": b}}
+                       pin the ratios (Hikrobot; 1024 = unity) — a
+                       measured balance written as numbers
+    Neither -> just report. A camera that lacks a mode raises. (The uEye
+    XS ISP rejects fixed kelvin/rgb.)"""
     sn = args.get("serial_number")
     if not sn:
         raise ValueError("serial_number is required")
@@ -253,7 +291,7 @@ def camera_wb(session, args):
         raise ValueError("camera not found: %s" % sn)
     if not hasattr(cam, "white_balance"):
         raise ValueError("camera %s has no white-balance control" % sn)
-    cfg = {k: v for k, v in args.items() if k in ("auto", "hold")}
+    cfg = {k: v for k, v in args.items() if k in ("auto", "once", "hold", "ratios")}
     if cfg:
         cam.white_balance(cfg)
     return {"serial_number": sn, "wb": cam.white_balance_info()}
@@ -760,6 +798,7 @@ HANDLERS = {
     "camera_recover": camera_recover,
     "camera_focus": camera_focus,
     "camera_exposure": camera_exposure,
+    "camera_gain": camera_gain,
     "camera_wb": camera_wb,
     "camera_get_img": camera_get_img,
     "robot_add": robot_add,
@@ -805,6 +844,7 @@ CAMERA_BOUND = {
     "camera_recover",
     "camera_focus",
     "camera_exposure",
+    "camera_gain",
     "camera_wb",
 }
 
